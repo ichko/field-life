@@ -603,7 +603,9 @@ const cv = $("cv");
 const gl = cv.getContext("webgl2", {antialias:false, alpha:false, preserveDrawingBuffer:false});
 
 function fatal(msg){
-  const e = $("gl-error"); e.style.display = "grid"; e.textContent = msg;
+  const e = $("gl-error");
+  e.style.display = "grid"; e.textContent = msg;
+  e.style.whiteSpace = "pre-wrap"; e.style.font = "11px/1.5 monospace"; e.style.overflow = "auto";
 }
 if(!gl){ fatal("This page needs WebGL2, which this browser did not provide."); }
 const extF = gl && gl.getExtension("EXT_color_buffer_float");
@@ -1131,7 +1133,7 @@ const S = {
 };
 let T = {};            // simulation textures
 let matTex = null, mat = null, palette = [], reduceChain = [];
-let slotTex = null, radMat = null, slotOf = null, bankLevels = [], pyramid = [];
+let pyramid = [];
 let kernels = [], kernTex = null, kernelKR = 8, kernelMip = 0;
 
 // The blur bank. A pair's radius is one of RSTEPS stops interpolated from
@@ -1146,50 +1148,13 @@ const BASE_LEVEL = RSTEPS - 1;           // the crowding term always uses Rad ma
 const radiusCap = () => Math.max(3, Math.floor(S.N/4.5));
 const radiusOf = lv => Math.min(radiusCap(), S.radMin + (S.radMax - S.radMin)*(lv/(RSTEPS - 1)));
 
-function rebuildBank(defer){
-  bankLevels = [...new Set(radMat)].sort((a, b) => a - b);
-  slotOf = new Map(bankLevels.map((lv, i) => [lv, i]));
-  const slots = new Float32Array(S.C*S.C);
-  for(let i = 0; i < S.C*S.C; i++) slots[i] = slotOf.get(radMat[i]);
-  if(slotTex && slotTex._c !== S.C){ gl.deleteTexture(slotTex); slotTex = null; }
-  if(!slotTex){
-    slotTex = gl.createTexture(); slotTex._c = S.C;
-    gl.bindTexture(gl.TEXTURE_2D, slotTex);
-    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, S.C, S.C);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  } else gl.bindTexture(gl.TEXTURE_2D, slotTex);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S.C, S.C, gl.RED, gl.FLOAT, slots);
-  const n = bankLevels.length;
-  $("banklab").textContent = n + (n === 1 ? " blur pass" : " blur passes") + " · cap " + radiusCap() + "px";
-  if(!defer && T.near && T.near._h !== S.N*n) allocBank();   // deeper/shallower bank, same world
-}
 
 // Only the blur bank changes size here. rho is left alone, so editing a radius
 // never restarts the simulation you are watching.
-function allocBank(){
-  const HB = S.N*Math.max(1, bankLevels.length);
-  for(const k of ["near","far"]){
-    if(T[k]) gl.deleteTexture(T[k]);
-    T[k] = makeTex(S.N*S.L, HB);
-  }
-}
 
 // Cost scales with how many DISTINCT stops are in play -- each one is its own
 // pass over every colour. Resampling therefore draws from three of the five
 // rather than all of them; you can still reach any stop by hand.
-function resampleRadii(seed){
-  const r = mulberry32(seed >>> 0);
-  const pick = [];
-  while(pick.length < 3){
-    const v = Math.floor(r()*RSTEPS);
-    if(!pick.includes(v)) pick.push(v);
-  }
-  radMat = new Int32Array(S.C*S.C).map(() => pick[Math.floor(r()*pick.length)]);
-  rebuildBank(); paintRadii();
-}
 
 function mulberry32(a){
   return function(){
@@ -1330,6 +1295,7 @@ function step(){
   // Build the pyramid down to whatever level the kernels were baked for,
   // convolve once for every colour, then stretch the result back.
   let src = T.rhoA, nsrc = S.N;
+  if(kernelMip > pyramid.length) kernelMip = pyramid.length;
   gl.useProgram(P.down.p); common(P.down);
   for(let m = 0; m < kernelMip; m++){
     const dst = pyramid[m];
@@ -1339,6 +1305,7 @@ function step(){
     drawQuad();
     src = dst.tex; nsrc = dst.n;
   }
+  if(kernelMip > pyramid.length) kernelMip = pyramid.length;   // never index past it
   const nm = kernelMip ? pyramid[kernelMip-1].n : S.N;
 
   gl.useProgram(P.conv.p); common(P.conv);
@@ -1528,56 +1495,6 @@ function setCell(i, v){
   });
 })();
 
-function buildRadiusUI(){
-  const el = $("rx"), C = S.C;
-  el.style.gridTemplateColumns = `16px repeat(${C}, 1fr)`;
-  el.innerHTML = "";
-  el.appendChild(document.createElement("div"));
-  const chip = c => { const d = document.createElement("div"); d.className = "hdr";
-    const k = document.createElement("div"); k.className = "chip"; k.style.background = css(palette[c]);
-    d.appendChild(k); return d; };
-  for(let c = 0; c < C; c++) el.appendChild(chip(c));
-  for(let r = 0; r < C; r++){
-    el.appendChild(chip(r));
-    for(let c = 0; c < C; c++){
-      const cell = document.createElement("div");
-      cell.className = "cell"; cell.tabIndex = 0; cell.dataset.i = r*C + c;
-      el.appendChild(cell);
-    }
-  }
-}
-function paintRadii(){
-  for(const cell of $("rx").querySelectorAll(".cell")){
-    const lv = radMat[+cell.dataset.i], px = radiusOf(lv);
-    cell.style.background = `color-mix(in srgb, var(--accent) ${Math.round((lv + 1)/RSTEPS*70)}%, var(--panel2))`;
-    cell.textContent = px < 10 ? px.toFixed(1) : Math.round(px);
-    cell.title = "reach " + px.toFixed(1) + " px  (stop " + (lv + 1) + " of " + RSTEPS + ")";
-  }
-}
-function setRadius(i, lv){
-  lv = Math.max(0, Math.min(RSTEPS - 1, lv));
-  if(lv === radMat[i]) return;
-  radMat[i] = lv; rebuildBank(); paintRadii();
-}
-(function radiusDrag(){
-  let drag = null;
-  $("rx").addEventListener("pointerdown", e => {
-    const cell = e.target.closest(".cell"); if(!cell) return;
-    drag = { i: +cell.dataset.i, y: e.clientY, v: radMat[+cell.dataset.i] };
-    cell.setPointerCapture(e.pointerId); e.preventDefault();
-  });
-  $("rx").addEventListener("pointermove", e => {
-    if(drag) setRadius(drag.i, Math.round(drag.v + (drag.y - e.clientY)/14));
-  });
-  addEventListener("pointerup", () => drag = null);
-  $("rx").addEventListener("keydown", e => {
-    const cell = e.target.closest(".cell"); if(!cell) return;
-    const i = +cell.dataset.i;
-    if(e.key === "ArrowUp"){ setRadius(i, radMat[i] + 1); e.preventDefault(); }
-    if(e.key === "ArrowDown"){ setRadius(i, radMat[i] - 1); e.preventDefault(); }
-  });
-})();
-
 function buildSwatches(){
   const el = $("swatches");
   el.innerHTML = "";
@@ -1719,7 +1636,11 @@ function buildBars(){
 const SYNC = [];
 function slider(id, key, fmt){
   const s = $(id), v = $(id + "v");
-  const show = () => v.textContent = fmt ? fmt(S[key]) : String(S[key]);
+  const show = () => {
+    const n = Number(S[key]);
+    if(!Number.isFinite(n)) S[key] = parseFloat(s.value) || 0;    // survive a bad saved value
+    v.textContent = fmt ? fmt(Number(S[key])) : String(S[key]);
+  };
   s.addEventListener("input", () => { S[key] = parseFloat(s.value); show(); });
   SYNC.push(() => { s.value = S[key]; show(); });
   S[key] = parseFloat(s.value); show();
@@ -1846,7 +1767,7 @@ function uploadKernels(){
 
 /* ------------------------------------------------------------- saved setups */
 const PKEY = "fieldlife.setups.v1";
-const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","inter"];
+const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend"];
 
 // localStorage can be absent, full, or throw outright (private windows, preview
 // captures). Every access is guarded and the page works fine with nothing in it.
@@ -1863,7 +1784,8 @@ function writeSetups(list){
 }
 
 function currentConfig(){
-  const cfg = { seed: S.seed, mat: [...mat], radMat: [...radMat] };
+  const cfg = { seed: S.seed, mat: [...mat],
+                kernels: JSON.parse(JSON.stringify(kernels.slice(0, S.C))) };
   for(const k of SCALARS) cfg[k] = S[k];
   return cfg;
 }
@@ -1872,7 +1794,7 @@ function validConfig(c){
   return c && Number.isFinite(c.C) && c.C >= 2 && c.C <= 8
     && Number.isFinite(c.N) && [128,256,384,512,768].includes(c.N)
     && Array.isArray(c.mat) && c.mat.length === c.C*c.C
-    && Array.isArray(c.radMat) && c.radMat.length === c.C*c.C;
+    && (c.kernels === undefined || Array.isArray(c.kernels));
 }
 
 function applyConfig(c){
@@ -1883,10 +1805,11 @@ function applyConfig(c){
   palette = makePalette(S.C, S.palette);
   mat = Float32Array.from(c.mat);
   uploadMatrix();
-  rebuildBank(resize);                 // sets bankLevels, which allocate() sizes against
   if(resize) allocate();               // new dimensions mean new textures and a fresh field
   if(!S.paintMask || S.paintMask.length !== S.C) S.paintMask = new Uint8Array(S.C).fill(1);
-  if(kernels.length !== S.C){
+  if(Array.isArray(c.kernels) && c.kernels.length === S.C){
+    kernels = JSON.parse(JSON.stringify(c.kernels));
+  }else if(kernels.length !== S.C){
     kernels = [];
     for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
   }
@@ -2052,9 +1975,24 @@ function rebuildColors(){
 
 /* ---------------------------------------------------------------- loop */
 let lastT = performance.now(), fpsAcc = 0, fpsN = 0, mass0 = null, painting = null;
+let frameErr = 0;
 function frame(){
   requestAnimationFrame(frame);
-  if(!gl || !T.rhoA) return;
+  try{ frameBody(); }
+  catch(err){
+    if(frameErr++ === 0) fatal("Stopped on the first frame.\n\n" + (err && err.stack || err));
+  }
+}
+function frameBody(){
+  if(!gl || !T.rhoA){
+    if(frameErr++ === 0)
+      fatal("Nothing to draw.\n\n" +
+            "gl: " + !!gl + "\nT keys: " + Object.keys(T).join(",") +
+            "\npyramid: " + pyramid.length + "  kernelMip: " + kernelMip +
+            "  kernelKR: " + kernelKR + "\nkernTex: " + !!kernTex +
+            "\nC: " + S.C + "  N: " + S.N + "  L: " + S.L);
+    return;
+  }
   if(painting){
     const now = performance.now(), dt = Math.min(0.05, (now - painting.t)/1000) || 0.016;
     painting.t = now;
@@ -2122,7 +2060,7 @@ function boot(){
   $("chan").addEventListener("input", e => { $("chanv").textContent = e.target.value; });
   $("chan").addEventListener("change", e => { S.C = +e.target.value; rebuildColors(); });
   $("grid").addEventListener("change", e => {
-    S.N = +e.target.value; allocate(); rebuildBank(); paintRadii(); mass0 = null;
+    S.N = +e.target.value; allocate(); uploadKernels(); buildKernelUI(); mass0 = null;
   });
   $("play").addEventListener("click", e => {
     S.running = !S.running; e.target.textContent = S.running ? "Pause" : "Run";
@@ -2275,6 +2213,15 @@ function boot(){
   loadPresetFile();
   requestAnimationFrame(frame);
 }
+
+addEventListener("error", e => {
+  if(!document.getElementById("gl-error").textContent)
+    fatal("Error: " + (e.message || e) + "\n" + (e.filename || "") + ":" + (e.lineno || ""));
+});
+addEventListener("unhandledrejection", e => {
+  if(!document.getElementById("gl-error").textContent)
+    fatal("Promise rejected: " + (e.reason && e.reason.message || e.reason));
+});
 
 if(gl && extF){
   try { boot(); }
