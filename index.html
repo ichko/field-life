@@ -550,7 +550,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
         <h2>Physics</h2>
         <div class="row"><label class="lab" for="radmin">Rad min</label><input id="radmin" type="range" min="2" max="256" step="1" value="18"><span class="val" id="radminv">18</span></div>
         <div class="row"><label class="lab" for="radmax">Rad max</label><input id="radmax" type="range" min="2" max="256" step="1" value="18"><span class="val" id="radmaxv">18</span></div>
-        <div class="row"><label class="lab" for="force">Force</label><input id="force" type="range" min="0" max="400" step="1" value="60"><span class="val" id="forcev">60</span></div>
+        <div class="row"><label class="lab" for="force">Force</label><input id="force" type="range" min="0" max="40" step="0.25" value="6"><span class="val" id="forcev">6</span></div>
         <div class="row"><label class="lab" for="repel">Repel</label><input id="repel" type="range" min="0" max="20" step="0.25" value="6"><span class="val" id="repelv">6</span></div>
         <div class="row"><label class="lab" for="beta">Beta</label><input id="beta" type="range" min="0" max="12" step="0.1" value="3"><span class="val" id="betav">3</span></div>
         <div class="row"><label class="lab" for="noise">Noise</label><input id="noise" type="range" min="0" max="3" step="0.05" value="0"><span class="val" id="noisev">0</span></div>
@@ -1118,7 +1118,7 @@ const R0 = 18 + Math.floor(Math.random()*18);     // 18..35 px
 
 const S = {
   N: 512, C: 6, L: 2, density: 0.12,
-  radMin: R0, radMax: R0, force: 60, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
+  radMin: R0, radMax: R0, force: 6, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
   seed: (Math.random()*1e6) | 0,      // a different world every time the page opens
   seedMode: "disc",                   // whichever starting field you last asked for
   running: true, frame: 0, tick: 0,
@@ -1816,7 +1816,7 @@ function bakeKernel(k, KR){
 function uploadKernels(){
   const Rmax = Math.max(...kernels.slice(0, S.C).map(k => k.R), 1);
   kernelMip = 0;
-  while(kernelMip < 6 && (Rmax/(1 << (kernelMip + 1))) >= KMAX
+  while(kernelMip < 6 && (Rmax/(1 << kernelMip)) > KMAX
         && (S.N >> (kernelMip + 1)) >= 48 && ((S.N >> kernelMip) % 2) === 0) kernelMip++;
   const scale = S.N/(kernelMip ? (S.N >> kernelMip) : S.N);
   kernelKR = Math.max(3, Math.min(KMAX, Math.round(Rmax/scale)));
