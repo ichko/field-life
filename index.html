@@ -189,6 +189,18 @@ button.primary:hover{filter:brightness(1.08)}
 }
 .cell:hover{border-color:var(--ink2)}
 .cell:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+.kern{border:1px solid var(--line2); border-radius:4px; margin-bottom:5px; overflow:hidden}
+.kern>summary{
+  display:flex; align-items:center; gap:8px; padding:5px 7px; cursor:pointer;
+  font-size:11px; color:var(--ink2); list-style:none; background:var(--panel2);
+}
+.kern>summary::-webkit-details-marker{display:none}
+.kern>summary canvas{width:26px; height:26px; border-radius:3px; image-rendering:pixelated; flex:0 0 auto}
+.kern>summary b{color:var(--ink); font-weight:500; flex:1 1 auto}
+.kern[open]>summary{border-bottom:1px solid var(--line2)}
+.kbody{padding:7px}
+.kbody .row{margin-bottom:6px}
+.kbody label.lab{flex:0 0 62px; font-size:10px}
 .mxnote{color:var(--ink2); font-size:10px; letter-spacing:.03em; margin-top:9px; line-height:1.5}
 
 input[type=text]{
@@ -511,13 +523,17 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       </div>
 
       <div class="card">
-        <h2>Interaction radius <span id="banklab">1 blur level</span></h2>
-        <div id="rx" class="mx"></div>
-        <div class="btns" style="margin-top:11px">
-          <button id="rresample" class="primary">Resample</button>
-          <button id="rflat">Flatten</button>
+        <h2>Kernels <span id="klab"></span></h2>
+        <div id="kstack"></div>
+        <div class="btns" style="margin-top:10px">
+          <button id="ksample" class="primary">Sample all</button>
+          <select id="ktype" style="flex:1 1 auto">
+            <option value="radial">Radial</option>
+            <option value="perlin">Perlin</option>
+          </select>
         </div>
-        <p class="mxnote">How far each pair reaches, in pixels. Cells step through five stops interpolating from <b>Rad min</b> to <b>Rad max</b>; move either slider and the whole matrix rescales. Only the distinct stops in use cost GPU work &mdash; a flat matrix is as cheap as a single radius. The crowding term uses the shortest reach in play.</p>
+        <p class="mxnote">One kernel per color: what that color pulls on, and from how far.
+          Zero-mean and normalised, so Force means the same whatever you build.</p>
       </div>
 
       <div class="card">
@@ -663,6 +679,34 @@ void main(){
 /* affinity: mix every colour's neighbourhood integral through the matrix */
 // Each (feeling color, felt color) pair reads its blur from its own slice of
 // the blur bank, so every pair can have its own interaction radius.
+// One kernel per colour, baked into an RGBA atlas: a tap fetches the four
+// colours of a layer and their four weights together, so an arbitrary 2-D
+// shape costs the same as a radial one and the cost stays linear in colours.
+const FS_CONV = HEAD + `
+uniform sampler2D uSrc, uKern;
+uniform int uKR, uNsrc, uNm;      // kernel half-width, source stride, working size
+layout(location=0) out vec4 oF;   // the interaction integral
+layout(location=1) out vec4 oN;   // a tight blur of the same field, for crowding
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  int tile = p.x / uNm, lx = p.x - tile*uNm;
+  int K = 2*uKR + 1;
+  vec4 acc = vec4(0.0), near = vec4(0.0);
+  float wn = 0.0, rn = max(1.0, float(uKR)*0.22);
+  for(int dy = -uKR; dy <= uKR; dy++){
+    for(int dx = -uKR; dx <= uKR; dx++){
+      vec4 w = texelFetch(uKern, ivec2(dx + uKR, tile*K + dy + uKR), 0);
+      float r2 = float(dx*dx + dy*dy);
+      float g = exp(-0.5*r2/(rn*rn));
+      if(w == vec4(0.0) && g < 1e-4) continue;
+      vec4 v = texelFetch(uSrc, ivec2(tile*uNsrc + wrapi(lx+dx, uNm), wrapi(p.y+dy, uNm)), 0);
+      acc += v*w; near += v*g; wn += g;
+    }
+  }
+  oF = acc;
+  oN = near/max(wn, 1e-6);
+}`;
+
 const FS_FORCE = HEAD + KERNEL + `
 uniform sampler2D uSrc; uniform int uRad, uNsrc, uNm, uMode;
 layout(location=0) out vec4 oF;    // the interaction integral for this radius
@@ -709,15 +753,15 @@ void main(){
 }`;
 
 const FS_AFF = HEAD + `
-uniform sampler2D uNear, uFar, uMat, uSlots;
-uniform int uC, uBase, uMode; uniform float uForce, uRepel;
+uniform sampler2D uNear, uFar, uMat;
+uniform int uC, uBase; uniform float uForce, uRepel;
 out vec4 oA;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   int tile = p.x / uN, lx = p.x - tile*uN;
   vec4 acc = vec4(0.0); float crowd = 0.0;
   for(int l = 0; l < uL; l++){
-    crowd += dot(texelFetch(uNear, ivec2(l*uN + lx, uBase*uN + p.y), 0),
+    crowd += dot(texelFetch(uNear, ivec2(l*uN + lx, p.y), 0),
                  vec4(l*4 + 0 < uC ? 1.0 : 0.0, l*4 + 1 < uC ? 1.0 : 0.0,
                       l*4 + 2 < uC ? 1.0 : 0.0, l*4 + 3 < uC ? 1.0 : 0.0));
     for(int k = 0; k < 4; k++){
@@ -726,11 +770,8 @@ void main(){
       for(int c = 0; c < 4; c++){
         int cc = tile*4 + c;
         if(cc >= uC) break;
-        int slot = int(texelFetch(uSlots, ivec2(d, cc), 0).r + 0.5);
-        ivec2 q = ivec2(l*uN + lx, slot*uN + p.y);
-        float w = texelFetch(uFar, q, 0)[k];
-        if(uMode == 0) w -= texelFetch(uNear, q, 0)[k];     // Ring subtracts, Blob does not
-        acc[c] += texelFetch(uMat, ivec2(d, cc), 0).r * w;
+        ivec2 q = ivec2(l*uN + lx, p.y);
+        acc[c] += texelFetch(uMat, ivec2(d, cc), 0).r * texelFetch(uFar, q, 0)[k];
       }
     }
   }
@@ -1022,6 +1063,7 @@ function initGL(){
   P.blurH  = program(FS_BLURH);
   P.blurV  = program(FS_BLURV);
   P.force  = program(FS_FORCE);
+  P.conv   = program(FS_CONV);
   P.aff    = program(FS_AFF);
   P.expa   = program(FS_EXPA);
   P.share  = program(FS_SHARE);
@@ -1080,6 +1122,7 @@ const S = {
 let T = {};            // simulation textures
 let matTex = null, mat = null, palette = [], reduceChain = [];
 let slotTex = null, radMat = null, slotOf = null, bankLevels = [], pyramid = [];
+let kernels = [], kernTex = null, kernelKR = 8, kernelMip = 0;
 
 // The blur bank. A pair's radius is one of RSTEPS stops interpolated from
 // Rad min to Rad max, so the two sliders set the range and the matrix picks
@@ -1221,7 +1264,7 @@ function allocate(){
   for(const p of pyramid) gl.deleteTexture(p.tex);
   T = {}; reduceChain = []; pyramid = [];
   S.L = Math.ceil(S.C / 4);
-  const W = S.N * S.L, H = S.N, HB = S.N * Math.max(1, bankLevels.length);
+  const W = S.N * S.L, H = S.N, HB = S.N;
   for(const k of ["rhoA","rhoB","aff","expE","shareS","tmpA","tmpB","mipA","mipB"]) T[k] = makeTex(W, H);
   for(const k of ["near","far"]) T[k] = makeTex(W, HB);     // one full-res slice per bank level
   pyramid = [];                                             // as deep as this grid allows
@@ -1274,13 +1317,11 @@ function common(prog){
   gl.uniform1i(prog.u("uL"), S.L);
 }
 function step(){
-  // How deep the pyramid has to go for the widest radius in the bank.
-  let deepest = 0;
-  for(const lv of bankLevels)
-    deepest = Math.max(deepest, mipFor(radiusOf(lv), S.inter === 2));
+  // Build the pyramid down to whatever level the kernels were baked for,
+  // convolve once for every colour, then stretch the result back.
   let src = T.rhoA, nsrc = S.N;
   gl.useProgram(P.down.p); common(P.down);
-  for(let m = 0; m < deepest; m++){
+  for(let m = 0; m < kernelMip; m++){
     const dst = pyramid[m];
     gl.uniform1i(P.down.u("uNsrc"), nsrc); gl.uniform1i(P.down.u("uNdst"), dst.n);
     bindTex(P.down, "uSrc", 0, src);
@@ -1288,57 +1329,26 @@ function step(){
     drawQuad();
     src = dst.tex; nsrc = dst.n;
   }
+  const nm = kernelMip ? pyramid[kernelMip-1].n : S.N;
 
-  // Ring and Blob are Gaussians, so they go through two separable passes.
-  // Only Linear needs the 2-D stencil, and it runs on a coarser mip to pay for it.
-  const stencilMode = S.inter === 2;
-  for(let s = 0; s < bankLevels.length; s++){
-    const r = radiusOf(bankLevels[s]);
-    const m = mipFor(stencilMode ? r : r, stencilMode);
-    const nm = m ? pyramid[m-1].n : S.N;
-    const srcTex = m ? pyramid[m-1].tex : T.rhoA;
-    const k = S.N/nm;
+  gl.useProgram(P.conv.p); common(P.conv);
+  gl.uniform1i(P.conv.u("uKR"), kernelKR);
+  gl.uniform1i(P.conv.u("uNsrc"), nm); gl.uniform1i(P.conv.u("uNm"), nm);
+  bindTex(P.conv, "uSrc", 0, src); bindTex(P.conv, "uKern", 1, kernTex);
+  targets(T.mipA, T.mipB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
 
-    if(stencilMode){
-      const rad = Math.max(2, Math.min(Math.floor(nm/2 - 1), Math.round(r/k)));
-      gl.useProgram(P.force.p); common(P.force);
-      gl.uniform1i(P.force.u("uRad"), rad); gl.uniform1i(P.force.u("uMode"), 2);
-      gl.uniform1i(P.force.u("uNsrc"), nm); gl.uniform1i(P.force.u("uNm"), nm);
-      bindTex(P.force, "uSrc", 0, srcTex);
-      targets(T.mipA, T.mipB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
-    }else{
-      const sigA = Math.max(0.6, r*0.22/k), sigB = Math.max(1.0, r*0.55/k);
-      const rad = Math.min(128, Math.min(Math.floor(nm/2), Math.ceil(sigB*3.2)));
-      gl.useProgram(P.blurH.p); common(P.blurH);
-      gl.uniform1f(P.blurH.u("uSigA"), sigA); gl.uniform1f(P.blurH.u("uSigB"), sigB);
-      gl.uniform1i(P.blurH.u("uRad"), rad);
-      gl.uniform1i(P.blurH.u("uNsrc"), nm); gl.uniform1i(P.blurH.u("uNm"), nm);
-      bindTex(P.blurH, "uSrc", 0, srcTex);
-      targets(T.tmpA, T.tmpB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
-
-      gl.useProgram(P.blurV.p); common(P.blurV);
-      gl.uniform1f(P.blurV.u("uSigA"), sigA); gl.uniform1f(P.blurV.u("uSigB"), sigB);
-      gl.uniform1i(P.blurV.u("uRad"), rad); gl.uniform1i(P.blurV.u("uNm"), nm);
-      bindTex(P.blurV, "uA", 0, T.tmpA); bindTex(P.blurV, "uB", 1, T.tmpB);
-      targets(T.mipA, T.mipB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
-    }
-
-    gl.useProgram(P.up.p); common(P.up);
-    gl.uniform1i(P.up.u("uNm"), nm); gl.uniform1i(P.up.u("uSlot"), s);
-    bindTex(P.up, "uA", 0, T.mipA); bindTex(P.up, "uB", 1, T.mipB);
-    if(stencilMode) targets(T.far, T.near, s*S.N, S.N);
-    else            targets(T.near, T.far, s*S.N, S.N);
-    drawQuad();
-  }
+  gl.useProgram(P.up.p); common(P.up);
+  gl.uniform1i(P.up.u("uNm"), nm); gl.uniform1i(P.up.u("uSlot"), 0);
+  bindTex(P.up, "uA", 0, T.mipA); bindTex(P.up, "uB", 1, T.mipB);
+  targets(T.far, T.near, 0, S.N); drawQuad();
 
   gl.useProgram(P.aff.p); common(P.aff);
   gl.uniform1i(P.aff.u("uC"), S.C);
-  gl.uniform1i(P.aff.u("uMode"), S.inter);
   gl.uniform1i(P.aff.u("uBase"), 0);   // bankLevels is sorted, so slot 0 is the shortest reach
   gl.uniform1f(P.aff.u("uForce"), S.force);
   gl.uniform1f(P.aff.u("uRepel"), S.repel);
   bindTex(P.aff, "uNear", 0, T.near); bindTex(P.aff, "uFar", 1, T.far);
-  bindTex(P.aff, "uMat", 2, matTex); bindTex(P.aff, "uSlots", 3, slotTex);
+  bindTex(P.aff, "uMat", 2, matTex);
   targets(T.aff, null); drawQuad();
 
   gl.useProgram(P.expa.p); common(P.expa);
@@ -1525,7 +1535,6 @@ function buildRadiusUI(){
       el.appendChild(cell);
     }
   }
-  paintRadii();
 }
 function paintRadii(){
   for(const cell of $("rx").querySelectorAll(".cell")){
@@ -1579,6 +1588,110 @@ function setMask(v){
   for(const b of $("swatches").children) b.className = v ? "on" : "";
 }
 
+function drawKernelChip(cv2, c){
+  const KR = 11, K = 2*KR + 1;
+  const k = bakeKernel(kernels[c], KR);
+  let mx = 1e-9;
+  for(const v of k) mx = Math.max(mx, Math.abs(v));
+  const img = cv2.getContext("2d").createImageData(K, K);
+  const col = palette[c];
+  for(let i = 0; i < K*K; i++){
+    const t = k[i]/mx;                       // colour above zero, dark below
+    const p = Math.max(0, t), n = Math.max(0, -t);
+    img.data[i*4]   = 255*(col[0]*p + 0.30*n);
+    img.data[i*4+1] = 255*(col[1]*p + 0.34*n);
+    img.data[i*4+2] = 255*(col[2]*p + 0.55*n);
+    img.data[i*4+3] = 255;
+  }
+  cv2.width = K; cv2.height = K;
+  cv2.getContext("2d").putImageData(img, 0, 0);
+}
+
+function buildKernelUI(){
+  const el = $("kstack");
+  el.innerHTML = "";
+  for(let c = 0; c < S.C; c++){
+    const k = kernels[c];
+    const d = document.createElement("details"); d.className = "kern";
+    const sum = document.createElement("summary");
+    const chip = document.createElement("canvas");
+    const nm = document.createElement("b"); nm.textContent = "Color " + (c + 1);
+    const rr = document.createElement("i");
+    rr.style.cssText = "font-style:normal;font-size:10px;opacity:.75";
+    rr.textContent = Math.round(k.R) + "px";
+    sum.append(chip, nm, rr); d.appendChild(sum);
+    const body = document.createElement("div"); body.className = "kbody";
+    const refresh = () => {
+      drawKernelChip(chip, c);
+      rr.textContent = Math.round(kernels[c].R) + "px";
+      uploadKernels(); mass0 = null;
+    };
+    const row = (label, node) => {
+      const r = document.createElement("div"); r.className = "row";
+      const l = document.createElement("label"); l.className = "lab"; l.textContent = label;
+      r.append(l, node); body.appendChild(r); return r;
+    };
+    const slider = (label, min, max, step, get, set) => {
+      const i = document.createElement("input");
+      i.type = "range"; i.min = min; i.max = max; i.step = step; i.value = get();
+      const v = document.createElement("span"); v.className = "val";
+      v.textContent = (+get()).toFixed(step < 1 ? 2 : 0);
+      i.addEventListener("input", () => {
+        set(parseFloat(i.value));
+        v.textContent = (+i.value).toFixed(step < 1 ? 2 : 0);
+        refresh();
+      });
+      const r = row(label, i); r.appendChild(v);
+    };
+    slider("Reach", 4, 160, 1, () => k.R, x => k.R = x);
+    slider("Feather", 0.02, 1, 0.02, () => k.feather, x => k.feather = x);
+    const sel = document.createElement("select");
+    for(const o of ["radial","lateral","quad","rot4","none"]){
+      const op = document.createElement("option"); op.value = op.textContent = o;
+      sel.appendChild(op);
+    }
+    sel.value = k.sym;
+    sel.addEventListener("change", () => { k.sym = sel.value; refresh(); });
+    row("Symmetry", sel);
+    if(k.type === "perlin"){
+      slider("Octaves", 1, 5, 1, () => k.oct, x => k.oct = Math.round(x));
+    }else{
+      k.terms.forEach((t, ti) => {
+        slider("Amp " + (ti + 1), -1, 1, 0.05, () => t.a, x => t.a = x);
+        slider("At " + (ti + 1), 0, 1, 0.02, () => t.r, x => t.r = x);
+        slider("Width " + (ti + 1), 0.03, 0.8, 0.01, () => t.w, x => t.w = x);
+      });
+    }
+    const btns = document.createElement("div"); btns.className = "btns";
+    const mk = (txt, fn) => {
+      const b = document.createElement("button"); b.textContent = txt;
+      b.addEventListener("click", () => { fn(); buildKernelUI(); refresh(); });
+      btns.appendChild(b);
+    };
+    mk("Sample", () => Object.assign(k, sampleKernel(k.type, k.R)));
+    mk(k.type === "perlin" ? "Radial" : "Perlin",
+       () => k.type = k.type === "perlin" ? "radial" : "perlin");
+    body.appendChild(btns);
+    d.appendChild(body);
+    el.appendChild(d);
+    drawKernelChip(chip, c);
+  }
+  $("klab").textContent = kernelKR*2 + 1 + "px stencil";
+}
+
+function sampleKernel(type, R){
+  const rnd = Math.random;
+  const sym = ["radial","radial","lateral","quad","rot4"][Math.floor(rnd()*5)];
+  if(type === "perlin")
+    return { type: "perlin", sym, R, feather: 0.15 + rnd()*0.4,
+             seed: (rnd()*65535)|0, oct: 2 + Math.floor(rnd()*3), terms: [] };
+  const n = 2 + Math.floor(rnd()*2);
+  const terms = [];
+  for(let i = 0; i < n; i++)
+    terms.push({ a: (rnd()*2 - 1), r: rnd()*0.85, w: 0.08 + rnd()*0.3 });
+  return { type: "radial", sym, R, feather: 0.15 + rnd()*0.4, seed: 1, oct: 3, terms };
+}
+
 function buildBars(){
   const el = $("bars"); el.innerHTML = "";
   for(let c = 0; c < S.C; c++){
@@ -1602,6 +1715,124 @@ function slider(id, key, fmt){
   S[key] = parseFloat(s.value); show();
 }
 const syncControls = () => SYNC.forEach(f => f());
+
+/* ------------------------------------------------------------ kernel design */
+// One kernel per colour. Everything is baked on the CPU into an RGBA atlas --
+// four colours per texel -- and only when something changes, so the GPU just
+// reads it. Kernels are zero-mean (a flat world pulls nowhere) and unit-L1
+// (so Force means the same whatever shape you build).
+const KMAX = 15;                       // kernel half-width in working cells
+
+function defaultKernel(reach){
+  return { R: reach, type: "radial", sym: "radial", feather: 0.25, seed: 1, oct: 3,
+           terms: [{ a: -1.0, r: 0.0, w: 0.30 }, { a: 0.55, r: 0.62, w: 0.30 }] };
+}
+
+function vnoise2(x, y, freq, seed){
+  const h = (i, j) => {
+    let n = Math.imul(((i % freq) + freq) % freq + 374761393, 1)
+          + Math.imul(((j % freq) + freq) % freq + 668265263, 1) + seed*2654435761;
+    n = Math.imul(n ^ (n >>> 13), 1274126177);
+    return ((n ^ (n >>> 16)) >>> 0)/4294967296*2 - 1;
+  };
+  const fx = x*freq, fy = y*freq;
+  const i0 = Math.floor(fx), j0 = Math.floor(fy);
+  let tx = fx - i0, ty = fy - j0;
+  tx = tx*tx*(3 - 2*tx); ty = ty*ty*(3 - 2*ty);
+  return (h(i0,j0)*(1-tx) + h(i0+1,j0)*tx)*(1-ty)
+       + (h(i0,j0+1)*(1-tx) + h(i0+1,j0+1)*tx)*ty;
+}
+
+// Build one colour's kernel as a KxK grid of weights.
+function bakeKernel(k, KR){
+  const K = 2*KR + 1, out = new Float32Array(K*K);
+  const scale = (k.R > 0 ? 1 : 1);
+  for(let y = -KR; y <= KR; y++){
+    for(let x = -KR; x <= KR; x++){
+      const rr = Math.hypot(x, y)/KR;            // 0 at centre, 1 at the rim
+      if(rr > 1) continue;
+      let v = 0;
+      if(k.type === "perlin"){
+        let amp = 1, f = 2;
+        for(let o = 0; o < k.oct; o++){
+          v += amp*vnoise2((x/KR + 1)/2, (y/KR + 1)/2, f, k.seed + o*101);
+          amp *= 0.5; f *= 2;
+        }
+      }else{
+        for(const t of k.terms)
+          v += t.a*Math.exp(-(((rr - t.r)/Math.max(0.02, t.w))**2));
+      }
+      out[(y + KR)*K + (x + KR)] = v;
+    }
+  }
+  // symmetry: fold the grid onto itself
+  const at = (x, y) => out[(y + KR)*K + (x + KR)];
+  const folded = new Float32Array(K*K);
+  for(let y = -KR; y <= KR; y++){
+    for(let x = -KR; x <= KR; x++){
+      let v;
+      if(k.sym === "lateral")      v = (at(x,y) + at(-x,y))/2;
+      else if(k.sym === "quad")    v = (at(x,y) + at(-x,y) + at(x,-y) + at(-x,-y))/4;
+      else if(k.sym === "rot4")    v = (at(x,y) + at(-y,x) + at(-x,-y) + at(y,-x))/4;
+      else                         v = at(x,y);
+      folded[(y + KR)*K + (x + KR)] = v;
+    }
+  }
+  // feather the rim, drop everything outside the disc, then normalise
+  let sum = 0, l1 = 0, n = 0;
+  for(let y = -KR; y <= KR; y++){
+    for(let x = -KR; x <= KR; x++){
+      const rr = Math.hypot(x, y)/KR, i = (y + KR)*K + (x + KR);
+      if(rr > 1){ folded[i] = 0; continue; }
+      const f = Math.max(0, Math.min(1, (1 - rr)/Math.max(1e-3, k.feather)));
+      folded[i] *= f*f*(3 - 2*f);
+      sum += folded[i]; n++;
+    }
+  }
+  const mean = n ? sum/n : 0;
+  for(let y = -KR; y <= KR; y++){
+    for(let x = -KR; x <= KR; x++){
+      const rr = Math.hypot(x, y)/KR, i = (y + KR)*K + (x + KR);
+      if(rr > 1) continue;
+      folded[i] -= mean;                       // zero mean: a flat world pulls nowhere
+      l1 += Math.abs(folded[i]);
+    }
+  }
+  if(l1 > 0) for(let i = 0; i < K*K; i++) folded[i] /= l1;
+  return folded;
+}
+
+// Pack every colour's kernel into one RGBA texture, scaled so they share a grid.
+function uploadKernels(){
+  const Rmax = Math.max(...kernels.slice(0, S.C).map(k => k.R), 1);
+  kernelMip = 0;
+  while(kernelMip < 6 && (Rmax/(1 << (kernelMip + 1))) >= KMAX
+        && (S.N >> (kernelMip + 1)) >= 48 && ((S.N >> kernelMip) % 2) === 0) kernelMip++;
+  const scale = S.N/(kernelMip ? (S.N >> kernelMip) : S.N);
+  kernelKR = Math.max(3, Math.min(KMAX, Math.round(Rmax/scale)));
+  const K = 2*kernelKR + 1, L = Math.ceil(S.C/4);
+  const data = new Float32Array(K*K*L*4);
+  for(let c = 0; c < S.C; c++){
+    const k = kernels[c];
+    const kr = Math.max(2, Math.round(kernelKR*Math.min(1, k.R/Rmax)));
+    const small = bakeKernel(k, kr), SK = 2*kr + 1;
+    const layer = c >> 2, comp = c & 3;
+    for(let y = 0; y < SK; y++)
+      for(let x = 0; x < SK; x++){
+        const gy = y - kr + kernelKR, gx = x - kr + kernelKR;
+        data[((layer*K + gy)*K + gx)*4 + comp] = small[y*SK + x];
+      }
+  }
+  if(kernTex) gl.deleteTexture(kernTex);
+  kernTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, kernTex);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, K, K*L);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, K, K*L, gl.RGBA, gl.FLOAT, data);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
 
 /* ------------------------------------------------------------- saved setups */
 const PKEY = "fieldlife.setups.v1";
@@ -1641,12 +1872,17 @@ function applyConfig(c){
   S.seed = c.seed ?? S.seed;
   palette = makePalette(S.C, S.palette);
   mat = Float32Array.from(c.mat);
-  radMat = Int32Array.from(c.radMat);
   uploadMatrix();
   rebuildBank(resize);                 // sets bankLevels, which allocate() sizes against
   if(resize) allocate();               // new dimensions mean new textures and a fresh field
   if(!S.paintMask || S.paintMask.length !== S.C) S.paintMask = new Uint8Array(S.C).fill(1);
-  buildMatrixUI(); buildRadiusUI(); buildBars(); buildSwatches();
+  if(kernels.length !== S.C){
+    kernels = [];
+    for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
+  }
+  for(const k of kernels) k.R = Math.min(k.R, radiusCap());
+  uploadKernels();
+  buildMatrixUI(); buildKernelUI(); buildBars(); buildSwatches();
   syncControls();
   $("seedlab").textContent = "#" + S.seed;
   $("chanv").textContent = S.C;
@@ -1793,11 +2029,12 @@ async function loadPresetFile(){
 function rebuildColors(){
   palette = makePalette(S.C, S.palette);
   if(!S.paintMask || S.paintMask.length !== S.C) S.paintMask = new Uint8Array(S.C).fill(1);
-  radMat = new Int32Array(S.C*S.C).fill(BASE_LEVEL);
-  rebuildBank();
+  kernels = [];
+  for(let c = 0; c < S.C; c++) kernels.push(defaultKernel(S.radMax));
   resampleMatrix(S.seed);
-  buildRadiusUI();
   allocate();
+  uploadKernels();
+  buildKernelUI();
   buildBars();
   buildSwatches();
   mass0 = null;
@@ -1853,8 +2090,7 @@ function boot(){
       S[key] = +a.value;
       if(push(S[key], S[okey])){ S[okey] = S[key]; b.value = S[key]; $(other + "v").textContent = S[key]; }
       $(me + "v").textContent = a.value;
-      if(radMat) paintRadii();
-    });
+        });
   };
   radPair("radmin", "radmax", "radMin", "radMax", (mn, mx) => mn > mx);
   radPair("radmax", "radmin", "radMax", "radMin", (mx, mn) => mx < mn);
@@ -1891,8 +2127,11 @@ function boot(){
     uploadMatrix(); paintMatrix();
   });
   $("zero").addEventListener("click", () => { mat.fill(0); uploadMatrix(); paintMatrix(); });
-  $("rresample").addEventListener("click", () => resampleRadii((Math.random()*1e6)|0));
-  $("rflat").addEventListener("click", () => { radMat.fill(BASE_LEVEL); rebuildBank(); paintRadii(); });
+  $("ksample").addEventListener("click", () => {
+    const t = $("ktype").value;
+    for(let c = 0; c < S.C; c++) Object.assign(kernels[c], sampleKernel(t, kernels[c].R));
+    uploadKernels(); buildKernelUI(); mass0 = null;
+  });
   $("psave").addEventListener("click", saveSetup);
   $("pname").addEventListener("keydown", e => { if(e.key === "Enter") saveSetup(); });
   $("citecopy").addEventListener("click", () => {
@@ -1995,7 +2234,7 @@ function boot(){
   cmap.addEventListener("change", () => {
     S.palette = cmap.value;
     palette = makePalette(S.C, S.palette);
-    buildMatrixUI(); buildRadiusUI(); buildBars(); buildSwatches();
+    buildMatrixUI(); buildKernelUI(); buildBars(); buildSwatches();
   });
   $("blend").addEventListener("change", e => S.blend = +e.target.value);
   $("inter").addEventListener("change", e => S.inter = +e.target.value);
