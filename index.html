@@ -1935,6 +1935,11 @@ async function loadPresetFile(){
     const res = await fetch("presets.json", { cache: "no-cache" });
     if(res.ok) list = parseSetups(await res.text());
   }catch(e){ list = null; }
+  if(!list || !list.length){
+    // A standalone copy has no file next to it, so fall back to a baked-in one.
+    const inline = document.getElementById("presets-inline");
+    if(inline) list = parseSetups(inline.textContent);
+  }
   if(!list || !list.length) return;
 
   const sel = $("rsel");
