@@ -550,9 +550,9 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
         <h2>Physics</h2>
         <div class="row"><label class="lab" for="radmin">Rad min</label><input id="radmin" type="range" min="2" max="256" step="1" value="18"><span class="val" id="radminv">18</span></div>
         <div class="row"><label class="lab" for="radmax">Rad max</label><input id="radmax" type="range" min="2" max="256" step="1" value="18"><span class="val" id="radmaxv">18</span></div>
-        <div class="row"><label class="lab" for="force">Force</label><input id="force" type="range" min="0" max="60" step="0.5" value="12"><span class="val" id="forcev">12</span></div>
-        <div class="row"><label class="lab" for="repel">Repel</label><input id="repel" type="range" min="0" max="30" step="0.5" value="8"><span class="val" id="repelv">8</span></div>
-        <div class="row"><label class="lab" for="beta">Beta</label><input id="beta" type="range" min="0" max="14" step="0.1" value="5"><span class="val" id="betav">5</span></div>
+        <div class="row"><label class="lab" for="force">Force</label><input id="force" type="range" min="0" max="400" step="1" value="90"><span class="val" id="forcev">90</span></div>
+        <div class="row"><label class="lab" for="repel">Repel</label><input id="repel" type="range" min="0" max="30" step="0.5" value="6"><span class="val" id="repelv">6</span></div>
+        <div class="row"><label class="lab" for="beta">Beta</label><input id="beta" type="range" min="0" max="14" step="0.1" value="3"><span class="val" id="betav">3</span></div>
         <div class="row"><label class="lab" for="noise">Noise</label><input id="noise" type="range" min="0" max="3" step="0.05" value="0"><span class="val" id="noisev">0</span></div>
         <div class="row"><label class="lab" for="steps">Steps/f</label><input id="steps" type="range" min="1" max="8" step="1" value="1"><span class="val" id="stepsv">1</span></div>
         <div class="row"><label class="lab" for="inter">Interaction</label><select id="inter">
@@ -1116,11 +1116,13 @@ function drawQuad(){ gl.bindVertexArray(quad); gl.drawArrays(gl.TRIANGLES, 0, 3)
 
 /* ---------------------------------------------------------------- state */
 // A fresh reach every refresh, alongside the fresh matrix.
-const R0 = 18 + Math.floor(Math.random()*18);     // 18..35 px
+// The live site draws its reach from 18-35px and measures the ring out to
+// 4 sigma, which is 2.2x that; here the kernel disc IS the reach, so scale it.
+const R0 = Math.round(2.2*(18 + Math.floor(Math.random()*18)));
 
 const S = {
   N: 512, C: 6, L: 2, density: 0.12,
-  radMin: R0, radMax: R0, force: 12, repel: 8, beta: 5, noise: 0, steps: 1, expo: 2.2,
+  radMin: R0, radMax: R0, force: 90, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
   seed: (Math.random()*1e6) | 0,      // a different world every time the page opens
   seedMode: "disc",                   // whichever starting field you last asked for
   running: true, frame: 0, tick: 0,
@@ -1570,7 +1572,7 @@ function buildKernelUI(){
       });
       const r = row(label, i); r.appendChild(v);
     };
-    slider("Reach", 4, 160, 1, () => k.R, x => k.R = x);
+    slider("Reach", 4, 200, 1, () => k.R, x => k.R = x);
     slider("Feather", 0.02, 1, 0.02, () => k.feather, x => k.feather = x);
     const sel = document.createElement("select");
     for(const o of ["radial","lateral","quad","rot4","none"]){
@@ -1654,9 +1656,12 @@ const syncControls = () => SYNC.forEach(f => f());
 // (so Force means the same whatever shape you build).
 const KMAX = 15;                       // kernel half-width in working cells
 
+// The ring the live site runs, written in this language: a wide gaussian minus
+// a tight one. w = sigma*sqrt(2) here, and the amplitudes are the peak ratio of
+// the two normalised gaussians, so the profile matches to four decimals.
 function defaultKernel(reach){
-  return { R: reach, type: "radial", sym: "radial", feather: 0.25, seed: 1, oct: 3,
-           terms: [{ a: -1.0, r: 0.0, w: 0.30 }, { a: 0.55, r: 0.62, w: 0.30 }] };
+  return { R: reach, type: "radial", sym: "radial", feather: 0.10, seed: 1, oct: 3,
+           terms: [{ a: 1.0, r: 0.0, w: 0.354 }, { a: -6.25, r: 0.0, w: 0.141 }] };
 }
 
 function vnoise2(x, y, freq, seed){
