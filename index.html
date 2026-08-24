@@ -1129,10 +1129,11 @@ function drawQuad(){ gl.bindVertexArray(quad); gl.drawArrays(gl.TRIANGLES, 0, 3)
 // The live site draws its reach from 18-35px and measures the ring out to
 // 4 sigma, which is 2.2x that; here the kernel disc IS the reach, so scale it.
 const R0 = Math.round(2.2*(18 + Math.floor(Math.random()*18)));
+const R_LO = Math.round(R0*0.55);        // the band Sample draws its reaches from
 
 const S = {
   N: 512, C: 6, L: 2, density: 0.12,
-  radMin: R0, radMax: R0, force: 90, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
+  radMin: R_LO, radMax: R0, force: 90, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
   seed: (Math.random()*1e6) | 0,      // a different world every time the page opens
   seedMode: "disc",                   // whichever starting field you last asked for
   running: true, frame: 0, tick: 0,
@@ -1645,7 +1646,7 @@ function buildKernelUI(){
       b.addEventListener("click", () => { fn(); buildKernelUI(); refresh(); });
       btns.appendChild(b);
     };
-    mk("Sample", () => Object.assign(k, sampleKernel(k.type, k.R)));
+    mk("Sample", () => Object.assign(k, sampleKernel(k.type)));
     mk(k.type === "perlin" ? "Radial" : "Perlin",
        () => k.type = k.type === "perlin" ? "radial" : "perlin");
     body.appendChild(btns);
@@ -1656,8 +1657,12 @@ function buildKernelUI(){
   $("klab").textContent = kernelKR*2 + 1 + "px stencil";
 }
 
-function sampleKernel(type, R){
+function sampleKernel(type){
   const rnd = Math.random;
+  const cap = radiusCap();
+  const lo = Math.min(cap, Math.min(S.radMin, S.radMax));
+  const hi = Math.min(cap, Math.max(S.radMin, S.radMax));
+  const R = lo + rnd()*(hi - lo);          // every sampled kernel picks its own reach
   const sym = ["radial","radial","lateral","quad","rot4"][Math.floor(rnd()*5)];
   if(type === "perlin")
     return { type: "perlin", sym, R, feather: 0.15 + rnd()*0.4,
@@ -2126,7 +2131,15 @@ function boot(){
       S[key] = +a.value;
       if(push(S[key], S[okey])){ S[okey] = S[key]; b.value = S[key]; $(other + "v").textContent = S[key]; }
       $(me + "v").textContent = a.value;
-        });
+      // move the whole band, keeping the spread the kernels already have
+      const cap = radiusCap();
+      const lo = Math.min(cap, Math.min(S.radMin, S.radMax));
+      const hi = Math.min(cap, Math.max(S.radMin, S.radMax));
+      const rs = kernels.slice(0, S.C).map(k => k.R);
+      const mn = Math.min(...rs), mx = Math.max(...rs);
+      for(const k of kernels) k.R = mx > mn ? lo + (k.R - mn)/(mx - mn)*(hi - lo) : hi;
+      uploadKernels(); buildKernelUI();
+    });
   };
   radPair("radmin", "radmax", "radMin", "radMax", (mn, mx) => mn > mx);
   radPair("radmax", "radmin", "radMax", "radMin", (mx, mn) => mx < mn);
@@ -2165,7 +2178,7 @@ function boot(){
   $("zero").addEventListener("click", () => { mat.fill(0); uploadMatrix(); paintMatrix(); });
   $("ksample").addEventListener("click", () => {
     const t = $("ktype").value;
-    for(let c = 0; c < S.C; c++) Object.assign(kernels[c], sampleKernel(t, kernels[c].R));
+    for(let c = 0; c < S.C; c++) Object.assign(kernels[c], sampleKernel(t));
     uploadKernels(); buildKernelUI(); mass0 = null;
   });
   $("psave").addEventListener("click", saveSetup);
