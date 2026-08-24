@@ -651,7 +651,7 @@ float plForce(float x){            // x is distance as a fraction of the radius
 `;
 
 const FS_BLURH = HEAD + KERNEL + `
-uniform sampler2D uSrc; uniform float uSigA, uSigB; uniform int uRad;
+uniform sampler2D uSrc; uniform vec4 uSigA, uSigB; uniform int uRad;
 uniform int uNsrc, uNm;                          // source tile stride, working grid size
 layout(location=0) out vec4 oA;
 layout(location=1) out vec4 oB;
@@ -660,32 +660,38 @@ void main(){
   int tile = p.x / uNm, lx = p.x - tile*uNm;     // scratch is packed at the mip's stride
   int sy = p.y;
   float rad = float(uRad);
-  vec4 sa = vec4(0.0), sb = vec4(0.0); float wa = 0.0, wb = 0.0;
+  vec4 sa = vec4(0.0), sb = vec4(0.0), wa = vec4(0.0), wb = vec4(0.0);
   for(int i = -uRad; i <= uRad; i++){
     vec4 v = texelFetch(uSrc, ivec2(tile*uNsrc + wrapi(lx+i, uNm), sy), 0);
-    float ka = kw(float(i), uSigA, rad), kb = kw(float(i), uSigB, rad);
+    vec4 ka = vec4(kw(float(i), uSigA.x, rad), kw(float(i), uSigA.y, rad),
+                   kw(float(i), uSigA.z, rad), kw(float(i), uSigA.w, rad));
+    vec4 kb = vec4(kw(float(i), uSigB.x, rad), kw(float(i), uSigB.y, rad),
+                   kw(float(i), uSigB.z, rad), kw(float(i), uSigB.w, rad));
     sa += v*ka; sb += v*kb; wa += ka; wb += kb;
   }
-  oA = sa/wa; oB = sb/wb;
+  oA = sa/max(wa, vec4(1e-6)); oB = sb/max(wb, vec4(1e-6));
 }`;
 
 const FS_BLURV = HEAD + KERNEL + `
-uniform sampler2D uA, uB; uniform float uSigA, uSigB; uniform int uRad; uniform int uNm;
+uniform sampler2D uA, uB; uniform vec4 uSigA, uSigB; uniform int uRad; uniform int uNm;
 layout(location=0) out vec4 oA;
 layout(location=1) out vec4 oB;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   int ly = p.y;
   float rad = float(uRad);
-  vec4 sa = vec4(0.0), sb = vec4(0.0); float wa = 0.0, wb = 0.0;
+  vec4 sa = vec4(0.0), sb = vec4(0.0), wa = vec4(0.0), wb = vec4(0.0);
   for(int i = -uRad; i <= uRad; i++){
     int sy = wrapi(ly + i, uNm);
-    float ka = kw(float(i), uSigA, rad), kb = kw(float(i), uSigB, rad);
+    vec4 ka = vec4(kw(float(i), uSigA.x, rad), kw(float(i), uSigA.y, rad),
+                   kw(float(i), uSigA.z, rad), kw(float(i), uSigA.w, rad));
+    vec4 kb = vec4(kw(float(i), uSigB.x, rad), kw(float(i), uSigB.y, rad),
+                   kw(float(i), uSigB.z, rad), kw(float(i), uSigB.w, rad));
     sa += texelFetch(uA, ivec2(p.x, sy), 0)*ka;
     sb += texelFetch(uB, ivec2(p.x, sy), 0)*kb;
     wa += ka; wb += kb;
   }
-  oA = sa/wa; oB = sb/wb;
+  oA = sa/max(wa, vec4(1e-6)); oB = sb/max(wb, vec4(1e-6));
 }`;
 
 /* affinity: mix every colour's neighbourhood integral through the matrix */
@@ -961,7 +967,7 @@ void main(){
 
 /* Stretch a blurred mip back to full resolution, into this pair's bank slice. */
 const FS_UP = HEAD + `
-uniform sampler2D uA, uB; uniform int uNm, uSlot;
+uniform sampler2D uA, uB; uniform int uNm, uSlot, uCombine; uniform vec4 uKmul;
 layout(location=0) out vec4 oA;
 layout(location=1) out vec4 oB;
 void main(){
@@ -975,10 +981,14 @@ void main(){
   ivec2 i0 = ivec2(floor(g));
   int x0 = tile*uN + wrapi(i0.x, uNm), x1 = tile*uN + wrapi(i0.x + 1, uNm);
   int y0 = wrapi(i0.y, uNm), y1 = wrapi(i0.y + 1, uNm);
-  oA = mix(mix(texelFetch(uA, ivec2(x0,y0), 0), texelFetch(uA, ivec2(x1,y0), 0), t.x),
-           mix(texelFetch(uA, ivec2(x0,y1), 0), texelFetch(uA, ivec2(x1,y1), 0), t.x), t.y);
-  oB = mix(mix(texelFetch(uB, ivec2(x0,y0), 0), texelFetch(uB, ivec2(x1,y0), 0), t.x),
-           mix(texelFetch(uB, ivec2(x0,y1), 0), texelFetch(uB, ivec2(x1,y1), 0), t.x), t.y);
+  vec4 a = mix(mix(texelFetch(uA, ivec2(x0,y0), 0), texelFetch(uA, ivec2(x1,y0), 0), t.x),
+               mix(texelFetch(uA, ivec2(x0,y1), 0), texelFetch(uA, ivec2(x1,y1), 0), t.x), t.y);
+  vec4 b = mix(mix(texelFetch(uB, ivec2(x0,y0), 0), texelFetch(uB, ivec2(x1,y0), 0), t.x),
+               mix(texelFetch(uB, ivec2(x0,y1), 0), texelFetch(uB, ivec2(x1,y1), 0), t.x), t.y);
+  // uCombine: the two blurs are the wide and tight halves of a ring, so take
+  // their difference here and hand the tight one on for the crowding term.
+  oA = uCombine == 1 ? (a - b)*uKmul : a;
+  oB = uCombine == 1 ? b : b;
 }`;
 
 /* 4x4 box reduction, kept strictly inside each layer so colors never mix */
@@ -1294,12 +1304,21 @@ function common(prog){
   gl.uniform1i(prog.u("uL"), S.L);
 }
 function step(){
-  // Build the pyramid down to whatever level the kernels were baked for,
-  // convolve once for every colour, then stretch the result back.
+  const plan = separablePlan();
+
+  // How far down the pyramid we go: the stencil path follows the kernel radius,
+  // the separable path follows its tightest gaussian, exactly as the blur used to.
+  let mip = kernelMip;
+  if(plan){
+    mip = 0;
+    while(mip < 6 && (plan.fine/(1 << (mip + 1))) >= 4.5
+          && (S.N >> (mip + 1)) >= 48 && ((S.N >> mip) % 2) === 0) mip++;
+  }
+  if(mip > pyramid.length) mip = pyramid.length;
+
   let src = T.rhoA, nsrc = S.N;
-  if(kernelMip > pyramid.length) kernelMip = pyramid.length;
   gl.useProgram(P.down.p); common(P.down);
-  for(let m = 0; m < kernelMip; m++){
+  for(let m = 0; m < mip; m++){
     const dst = pyramid[m];
     gl.uniform1i(P.down.u("uNsrc"), nsrc); gl.uniform1i(P.down.u("uNdst"), dst.n);
     bindTex(P.down, "uSrc", 0, src);
@@ -1307,19 +1326,48 @@ function step(){
     drawQuad();
     src = dst.tex; nsrc = dst.n;
   }
-  if(kernelMip > pyramid.length) kernelMip = pyramid.length;   // never index past it
-  const nm = kernelMip ? pyramid[kernelMip-1].n : S.N;
+  const nm = mip ? pyramid[mip-1].n : S.N;
 
-  gl.useProgram(P.conv.p); common(P.conv);
-  gl.uniform1i(P.conv.u("uKR"), kernelKR);
-  gl.uniform1i(P.conv.u("uNsrc"), nm); gl.uniform1i(P.conv.u("uNm"), nm);
-  bindTex(P.conv, "uSrc", 0, src); bindTex(P.conv, "uKern", 1, kernTex);
-  targets(T.mipA, T.mipB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
+  if(plan){
+    const k = S.N/nm;
+    const rad = Math.min(128, Math.min(Math.floor(nm/2), Math.ceil(plan.wide/k*3.2)));
+    for(let l = 0; l < plan.L; l++){
+      const sa = plan.sigA[l].map(v => Math.max(0.6, v/k));
+      const sb = plan.sigB[l].map(v => Math.max(0.4, v/k));
+      gl.useProgram(P.blurH.p); common(P.blurH);
+      gl.uniform4fv(P.blurH.u("uSigA"), sa); gl.uniform4fv(P.blurH.u("uSigB"), sb);
+      gl.uniform1i(P.blurH.u("uRad"), rad);
+      gl.uniform1i(P.blurH.u("uNsrc"), nm); gl.uniform1i(P.blurH.u("uNm"), nm);
+      bindTex(P.blurH, "uSrc", 0, src);
+      targets(T.tmpA, T.tmpB, 0, nm); gl.viewport(l*nm, 0, nm, nm); drawQuad();
 
-  gl.useProgram(P.up.p); common(P.up);
-  gl.uniform1i(P.up.u("uNm"), nm); gl.uniform1i(P.up.u("uSlot"), 0);
-  bindTex(P.up, "uA", 0, T.mipA); bindTex(P.up, "uB", 1, T.mipB);
-  targets(T.far, T.near, 0, S.N); drawQuad();
+      gl.useProgram(P.blurV.p); common(P.blurV);
+      gl.uniform4fv(P.blurV.u("uSigA"), sa); gl.uniform4fv(P.blurV.u("uSigB"), sb);
+      gl.uniform1i(P.blurV.u("uRad"), rad); gl.uniform1i(P.blurV.u("uNm"), nm);
+      bindTex(P.blurV, "uA", 0, T.tmpA); bindTex(P.blurV, "uB", 1, T.tmpB);
+      targets(T.mipA, T.mipB, 0, nm); gl.viewport(l*nm, 0, nm, nm); drawQuad();
+    }
+    gl.useProgram(P.up.p); common(P.up);
+    gl.uniform1i(P.up.u("uNm"), nm); gl.uniform1i(P.up.u("uSlot"), 0);
+    gl.uniform1i(P.up.u("uCombine"), 1);
+    bindTex(P.up, "uA", 0, T.mipA); bindTex(P.up, "uB", 1, T.mipB);
+    for(let l = 0; l < plan.L; l++){
+      gl.uniform4fv(P.up.u("uKmul"), plan.mul[l]);
+      targets(T.far, T.near, 0, S.N); gl.viewport(l*S.N, 0, S.N, S.N); drawQuad();
+    }
+  }else{
+    gl.useProgram(P.conv.p); common(P.conv);
+    gl.uniform1i(P.conv.u("uKR"), kernelKR);
+    gl.uniform1i(P.conv.u("uNsrc"), nm); gl.uniform1i(P.conv.u("uNm"), nm);
+    bindTex(P.conv, "uSrc", 0, src); bindTex(P.conv, "uKern", 1, kernTex);
+    targets(T.mipA, T.mipB, 0, nm); gl.viewport(0, 0, nm*S.L, nm); drawQuad();
+
+    gl.useProgram(P.up.p); common(P.up);
+    gl.uniform1i(P.up.u("uNm"), nm); gl.uniform1i(P.up.u("uSlot"), 0);
+    gl.uniform1i(P.up.u("uCombine"), 0);
+    bindTex(P.up, "uA", 0, T.mipA); bindTex(P.up, "uB", 1, T.mipB);
+    targets(T.far, T.near, 0, S.N); drawQuad();
+  }
 
   gl.useProgram(P.aff.p); common(P.aff);
   gl.uniform1i(P.aff.u("uC"), S.C);
@@ -1736,6 +1784,36 @@ function bakeKernel(k, KR){
   }
   if(l1 > 0) for(let i = 0; i < K*K; i++) folded[i] /= l1;
   return folded;
+}
+
+// A kernel made of two centred gaussians whose normalised weights cancel is a
+// difference of blurs -- separable, so it needs no stencil and no downsampling
+// to stay sharp. That is what the default ring is, and it is the shape whose
+// tight core the 2-D stencil could not sample without going square.
+function separablePlan(){
+  const L = Math.ceil(S.C/4);
+  const sigA = [], sigB = [], mul = [];
+  for(let l = 0; l < L; l++){ sigA.push([1,1,1,1]); sigB.push([1,1,1,1]); mul.push([0,0,0,0]); }
+  let fine = 1e9, wide = 0;
+  for(let c = 0; c < S.C; c++){
+    const k = kernels[c];
+    if(k.type !== "radial" || k.sym !== "radial" || k.terms.length !== 2) return null;
+    const t = k.terms.slice().sort((a, b) => b.w - a.w);          // wide term first
+    if(t[0].r !== 0 || t[1].r !== 0) return null;
+    const s1 = t[0].w*k.R/Math.SQRT2, s2 = t[1].w*k.R/Math.SQRT2;
+    if(s2 < 0.4 || s1 <= s2 || t[0].a <= 0) return null;
+    const c1 = t[0].a*s1*s1, c2 = t[1].a*s2*s2;                   // as normalised gaussians
+    if(Math.abs(c1 + c2) > 0.02*(Math.abs(c1) + Math.abs(c2))) return null;
+    // L1 of the difference of the two normalised gaussians, so Force keeps meaning
+    let l1 = 0;
+    for(let r = 0.25; r < 6*s1; r += 0.25)
+      l1 += Math.abs(Math.exp(-0.5*r*r/(s1*s1))/(s1*s1)
+                   - Math.exp(-0.5*r*r/(s2*s2))/(s2*s2))*r*0.25;
+    const l = c >> 2, i = c & 3;
+    sigA[l][i] = s1; sigB[l][i] = s2; mul[l][i] = 1/Math.max(l1, 1e-6);
+    fine = Math.min(fine, s2); wide = Math.max(wide, s1);
+  }
+  return { sigA, sigB, mul, fine, wide, L };
 }
 
 // Pack every colour's kernel into one RGBA texture, scaled so they share a grid.
