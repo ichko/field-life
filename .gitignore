@@ -1,2 +1,8 @@
 video/
 explore/
+node_modules/
+package-lock.json
+train/reference.json
+train/target.npz
+train/*.png
+__pycache__/
