@@ -203,27 +203,38 @@ Every rung keeps MaCE untouched, so mass conservation holds all the way up. That
 is the property worth protecting: whatever this learns, it learns without
 creating matter.
 
-## 7. Changes `index.html` needs
+## 7. What `index.html` would need — and why it needs nothing
 
-None of these are required to *train*; they are required for a trained result to
-run in the browser and look right.
+**Training touches the simulation not at all.** It runs against the port in
+`train/`, and a trained result is a preset: `currentConfig`/`applyConfig`
+deep-copy kernels as JSON, so a kernel bank round-trips through the existing
+save/load with no schema work. A bank with three or more lobes already routes
+to the 2-D stencil path, which is the path the port covers. So the minimum diff
+to the shipped file is **zero**, and the first run should take it.
+
+That constrains the first run to radial kernels with fixed per-channel reaches.
+Which is worth doing on its own terms: §5 argues that `m > 0` is what lets a
+mass-conserving field break rotational symmetry, and that argument is a
+prediction. Running `m = 0` first turns it into a measurement, and it is the
+Lenia-vs-NCA ablation of §8 taken in the other order. If radial kernels get
+there, nothing below is ever needed.
+
+If they plateau, each of these buys back one thing, and can be taken on its own:
 
 1. **`bakeKernel`** — honour `m` and `phase` on a term:
    `v += t.a * exp(-((rr - t.r)/t.w)^2) * cos(t.m * theta + t.phase)`, with
    `theta = atan2(py, px)`. Absent fields default to `m = 0, phase = 0`, so every
-   existing preset is unaffected.
+   existing preset is byte-identical. Buys: angular kernels.
 2. **`uploadKernels` / `bakeKernel`** — bake at the shared `kernelKR` with `R_c`
-   as a radial scale, dropping the `round()` resampling. Strictly an improvement
-   independent of this experiment: it removes resolution loss on short-reach
-   channels.
-3. **`separablePlan()`** — bail out when any term has `m !== 0`. Without this an
-   angular kernel would be silently run as a radial difference-of-gaussians.
-4. **`FS_DRAW`** — a "Raw RGB" blend that maps channels 0–2 straight to R, G, B
-   with no palette, no tone-map and no lifted background, so what you see is the
-   density and not an interpretation of it.
-
-Saving and loading need **no** schema work: `currentConfig`/`applyConfig`
-deep-copy kernels as JSON, so `m` and `phase` round-trip already.
+   as a radial scale, dropping the `round()` resampling. Buys: a trainable
+   reach. Worth doing independently of this experiment, since it also removes
+   resolution loss on short-reach channels.
+3. **`separablePlan()`** — bail out when any term has `m !== 0`. A correctness
+   guard that only matters once (1) exists: without it an angular kernel would
+   be silently run as a radial difference-of-gaussians.
+4. **`FS_DRAW`** — a "Raw RGB" blend mapping channels 0-2 straight to R, G, B
+   with no palette, tone-map or lifted background. Buys: seeing the result in
+   the browser rather than in a plot. Pure convenience.
 
 ## 8. Protocol
 
