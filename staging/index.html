@@ -696,6 +696,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       <option value="0">Dominant</option><option value="1">Soft</option>
       <option value="2">Additive</option><option value="3">Winner</option>
       <option value="4">RGB</option>
+      <option value="5">RGB first</option>
     </select></div>
     <div class="row"><label class="lab" for="expo">Expo</label><input id="expo" type="range" min="0.2" max="6" step="0.1" value="2.2" title="Display brightness only"><span class="val" id="expov">2.2</span></div>
     <div class="row"><label class="lab" for="pixels">Pixels</label>
@@ -1407,21 +1408,41 @@ void main(){
   // washes six channels out to grey, so the default takes hue from whichever
   // color dominates and brightness from the total mass present.
   vec3 hue = vec3(0.0), add = vec3(0.0), best = vec3(0.0);
-  float wsum = 0.0, total = 0.0, top = -1.0;
+  // ...and the same sums again over the channels PAST the first three, plus
+  // the first three kept raw, so blend 5 can put one on top of the other.
+  vec3 hid = vec3(0.0), vis = vec3(0.0);
+  float wsum = 0.0, total = 0.0, top = -1.0, hidW = 0.0, hidT = 0.0;
   for(int l = 0; l < uL; l++){
     vec4 v = mix(mix(cell(l,i0.x,i0.y),   cell(l,i0.x+1,i0.y),   f.x),
                  mix(cell(l,i0.x,i0.y+1), cell(l,i0.x+1,i0.y+1), f.x), f.y);
     for(int k = 0; k < 4; k++){
-      if(l*4 + k >= uC) break;
+      int c = l*4 + k;
+      if(c >= uC) break;
       float m = max(v[k], 0.0);
-      vec3 col = uPal[l*4 + k];
+      vec3 col = uPal[c];
       float w = uBlend == 1 ? m : m*m;
       total += m; wsum += w; hue += w*col; add += m*col;
       if(m > top){ top = m; best = col; }
+      if(c == 0) vis.r = m;
+      else if(c == 1) vis.g = m;
+      else if(c == 2) vis.b = m;
+      else { hidW += m*m; hid += m*m*col; hidT += m; }
     }
   }
   float a = 1.0 - exp(-total*uExp);
-  vec3 rgb = uBlend == 2 ? vec3(1.0) - exp(-add*uExp)
+  // Blend 5. The first three channels are the picture and are drawn as
+  // themselves; everything else is drawn as it would be under Dominant and
+  // screened in underneath at a fraction of its strength. Read as RGB alone a
+  // world looks like the whole of its state, which it is not -- the shape sits
+  // inside a much larger scaffold of hidden mass. Blended flat, that scaffold
+  // drowns it. This keeps the picture legible and what holds it up visible.
+  // Screen rather than addition: two bright layers added clip to white and
+  // lose both, where screen keeps the brighter of the two readable.
+  vec3 back = (hid/max(hidW, 1e-12))*(1.0 - exp(-hidT*uExp));
+  vec3 over = vec3(1.0) - (vec3(1.0) - clamp(vis*uExp, 0.0, 1.0))
+                        *(vec3(1.0) - back*0.42);
+  vec3 rgb = uBlend == 5 ? over
+           : uBlend == 2 ? vec3(1.0) - exp(-add*uExp)
            : uBlend == 3 ? best*a
            : (hue/max(wsum, 1e-12))*a;
   oC = vec4(rgb + vec3(0.016, 0.024, 0.040), 1.0);
@@ -3482,7 +3503,7 @@ async function loadLizard(){
   if(!res.ok) throw new Error("no lizard.json");
   const cfg = await res.json();
   cfg.square = true;
-  cfg.blend = 4;
+  cfg.blend = 5;
   cfg.expo = 1;
   cfg.seedMode = "masses";
   if(!applyConfig(cfg)) throw new Error("lizard.json was rejected");

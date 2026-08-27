@@ -92,7 +92,10 @@ def main():
     cfg["seedMasses"] = [float(m) for m in masses]
     cfg["seedMode"] = "masses"
     cfg["square"] = True
-    cfg["blend"] = 4          # the raw RGB read-out
+    # blend 5: the three visible channels as themselves, the hidden ones
+    # screened in behind them. RGB alone hides that the shape sits inside a
+    # much larger scaffold; a flat blend of everything drowns the shape.
+    cfg["blend"] = 5
     cfg["expo"] = 1.0
     cfg["palette"] = "Spectrum"
 

@@ -18,6 +18,8 @@ Idempotent: running it on an already-patched file exits without touching it.
   3  uploadKernels bakes on the shared grid, reach as a radial scale
   4  FS_DRAW gains blend 4, channels 0-2 straight to R, G, B
   5  a Rate control, capping how often the world advances
+  6  FS_DRAW gains blend 5: channels 0-2 as themselves, the rest screened
+     in behind them
 
 plus seedFromMasses, so a preset can carry the mass its picture costs, and a
 square lattice for worlds trained on one.
@@ -214,7 +216,7 @@ async function loadLizard(){
   if(!res.ok) throw new Error("no lizard.json");
   const cfg = await res.json();
   cfg.square = true;
-  cfg.blend = 4;
+  cfg.blend = 5;
   cfg.expo = 1;
   cfg.seedMode = "masses";
   if(!applyConfig(cfg)) throw new Error("lizard.json was rejected");
@@ -243,6 +245,13 @@ addEventListener("error", e => {'''),
 
     ('"cfreq","cdepth","square"];',
      '"cfreq","cdepth","square","fps"];'),
+
+    # ---- blend 5: the picture over its own scaffold --------------------
+    ('  vec3 hue = vec3(0.0), add = vec3(0.0), best = vec3(0.0);\n  float wsum = 0.0, total = 0.0, top = -1.0;\n  for(int l = 0; l < uL; l++){\n    vec4 v = mix(mix(cell(l,i0.x,i0.y),   cell(l,i0.x+1,i0.y),   f.x),\n                 mix(cell(l,i0.x,i0.y+1), cell(l,i0.x+1,i0.y+1), f.x), f.y);\n    for(int k = 0; k < 4; k++){\n      if(l*4 + k >= uC) break;\n      float m = max(v[k], 0.0);\n      vec3 col = uPal[l*4 + k];\n      float w = uBlend == 1 ? m : m*m;\n      total += m; wsum += w; hue += w*col; add += m*col;\n      if(m > top){ top = m; best = col; }\n    }\n  }\n  float a = 1.0 - exp(-total*uExp);\n  vec3 rgb = uBlend == 2 ? vec3(1.0) - exp(-add*uExp)\n           : uBlend == 3 ? best*a\n           : (hue/max(wsum, 1e-12))*a;',
+     '  vec3 hue = vec3(0.0), add = vec3(0.0), best = vec3(0.0);\n  // ...and the same sums again over the channels PAST the first three, plus\n  // the first three kept raw, so blend 5 can put one on top of the other.\n  vec3 hid = vec3(0.0), vis = vec3(0.0);\n  float wsum = 0.0, total = 0.0, top = -1.0, hidW = 0.0, hidT = 0.0;\n  for(int l = 0; l < uL; l++){\n    vec4 v = mix(mix(cell(l,i0.x,i0.y),   cell(l,i0.x+1,i0.y),   f.x),\n                 mix(cell(l,i0.x,i0.y+1), cell(l,i0.x+1,i0.y+1), f.x), f.y);\n    for(int k = 0; k < 4; k++){\n      int c = l*4 + k;\n      if(c >= uC) break;\n      float m = max(v[k], 0.0);\n      vec3 col = uPal[c];\n      float w = uBlend == 1 ? m : m*m;\n      total += m; wsum += w; hue += w*col; add += m*col;\n      if(m > top){ top = m; best = col; }\n      if(c == 0) vis.r = m;\n      else if(c == 1) vis.g = m;\n      else if(c == 2) vis.b = m;\n      else { hidW += m*m; hid += m*m*col; hidT += m; }\n    }\n  }\n  float a = 1.0 - exp(-total*uExp);\n  // Blend 5. The first three channels are the picture and are drawn as\n  // themselves; everything else is drawn as it would be under Dominant and\n  // screened in underneath at a fraction of its strength. Read as RGB alone a\n  // world looks like the whole of its state, which it is not -- the shape sits\n  // inside a much larger scaffold of hidden mass. Blended flat, that scaffold\n  // drowns it. This keeps the picture legible and what holds it up visible.\n  // Screen rather than addition: two bright layers added clip to white and\n  // lose both, where screen keeps the brighter of the two readable.\n  vec3 back = (hid/max(hidW, 1e-12))*(1.0 - exp(-hidT*uExp));\n  vec3 over = vec3(1.0) - (vec3(1.0) - clamp(vis*uExp, 0.0, 1.0))\n                        *(vec3(1.0) - back*0.42);\n  vec3 rgb = uBlend == 5 ? over\n           : uBlend == 2 ? vec3(1.0) - exp(-add*uExp)\n           : uBlend == 3 ? best*a\n           : (hue/max(wsum, 1e-12))*a;'),
+
+    ('      <option value="4">RGB</option>',
+     '      <option value="4">RGB</option>\n      <option value="5">RGB first</option>'),
 ]
 
 
