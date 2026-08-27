@@ -44,10 +44,18 @@ def main():
     ap.add_argument("--name", default="Lizard")
     ap.add_argument("--kr", type=int, default=13)
     ap.add_argument("--steps", type=int, default=64, help="rollout length for the thumbnail")
+    ap.add_argument("--latest", action="store_true",
+                    help="export the newest checkpoint rather than the best one")
     a = ap.parse_args()
 
-    src = os.path.join(HERE, "runs", a.run, "preset.json")
+    # prefer the best checkpoint the run has seen over its newest one
+    best = os.path.join(HERE, "runs", a.run, "preset-best.json")
+    src = best if (os.path.exists(best) and not a.latest) \
+        else os.path.join(HERE, "runs", a.run, "preset.json")
     cfg = json.load(open(src))
+    if "_bestAt" in cfg:
+        print(f"exporting the best checkpoint, from iteration {cfg['_bestAt']} "
+              f"(horizons {'/'.join(f'{v:.4f}' for v in cfg['_horizons'])})")
     C, N = cfg["C"], cfg["N"]
     if "_note" in cfg:
         sys.exit(f"{a.run} is a rung 1 world; index.html's FS_AFF cannot run it")
@@ -56,6 +64,7 @@ def main():
     masses = tgt.seed_masses(tg, C, rng=np.random.default_rng(0))
 
     cfg = dict(cfg)
+    cfg.pop("_bestAt", None); cfg.pop("_horizons", None)
     cfg["seedMasses"] = [float(m) for m in masses]
     cfg["seedMode"] = "masses"
     cfg["square"] = True

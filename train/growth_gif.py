@@ -37,8 +37,8 @@ def main():
     ap.add_argument("--ms", type=int, default=110, help="milliseconds per frame")
     ap.add_argument("--hold", type=int, default=12, help="extra frames on the last one")
     ap.add_argument("--every", type=int, default=1, help="keep every Nth step")
-    ap.add_argument("--blend", default="dominant",
-                    choices=["dominant", "soft", "additive", "winner", "rgb"],
+    ap.add_argument("--blend", default="ghost",
+                    choices=["ghost", "dominant", "soft", "additive", "winner", "rgb"],
                     help="how the channels combine, as index.html's Blend control. "
                          "dominant is the simulation's default and shows ALL "
                          "channels; rgb shows only the three visible ones")

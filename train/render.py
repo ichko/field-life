@@ -32,6 +32,25 @@ def palette(C, name="Spectrum"):
     return np.array([hue_ring(i / C) for i in range(C)])
 
 
+def ghost(rho, pal, expo=2.2, visible=3, opacity=0.42, ground=True):
+    """The visible channels at full strength, the hidden ones behind them.
+
+    Read as RGB alone, the field looks like the whole state, which it is not:
+    the animal sits inside a much larger scaffold of hidden mass. Read blended,
+    the scaffold drowns the animal. This draws the three visible channels as
+    themselves and screens the hidden ones in underneath at reduced opacity, so
+    the lizard stays legible and what is holding it up is still there to see.
+
+    Screen rather than addition: adding two bright layers clips to white and
+    loses both, where screen keeps the brighter of the two readable.
+    """
+    m = np.maximum(rho, 0.0)
+    base = np.clip(m[:visible].transpose(1, 2, 0), 0, 1)
+    back = blend(m[visible:], pal[visible:], expo, "dominant", ground=False)
+    out = 1.0 - (1.0 - base) * (1.0 - back * opacity)
+    return np.clip(out + (GROUND if ground else 0.0), 0, 1)
+
+
 def blend(rho, pal, expo=2.2, mode="dominant", ground=True):
     """Combine every channel into one RGB image. rho is (C, H, W)."""
     m = np.maximum(rho, 0.0)
@@ -40,6 +59,8 @@ def blend(rho, pal, expo=2.2, mode="dominant", ground=True):
 
     if mode == "rgb":                       # the first three channels, as they are
         return np.clip(m[:3].transpose(1, 2, 0), 0, 1)
+    if mode == "ghost":
+        return ghost(rho, pal, expo, ground=ground)
     if mode == "additive":
         add = np.einsum("chw,ck->hwk", m, pal)
         rgb = 1.0 - np.exp(-add * expo)

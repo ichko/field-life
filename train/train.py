@@ -293,6 +293,12 @@ def main():
 
     t0 = time.time()
     best = float("inf")
+    # The training loss is measured from pooled states and swings with whatever
+    # the pool happens to hold, so the newest checkpoint is not the best one --
+    # h128 was 0.0022 at iteration 7700 and 0.0097 at 7800. What to export is
+    # decided by the horizon curve from a fresh seed instead, and the world
+    # that scored it is kept beside the running one.
+    best_h = float("inf")
     for it in range(start_it, a.iters):
         idx = torch.randint(0, a.pool, (a.batch,))
         batch = pool[idx].clone()
@@ -350,6 +356,8 @@ def main():
             f, r, b = model.scalars()
             secs = time.time() - t0
             hz = horizon_losses(model, target, seed, HORIZONS)
+            # weighted toward the long horizons: holding the shape is the point
+            score = sum(h * w for h, w in zip(hz, (1, 1, 2, 2)))
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
@@ -363,13 +371,18 @@ def main():
                 cfg["_note"] = ("rung 1: affinity is a per-cell network, not this "
                                 "matrix. Needs the FS_AFF change to load faithfully.")
             json.dump(cfg, open(os.path.join(run, "preset.json"), "w"))
+            if score < best_h:
+                best_h = score
+                cfg_best = dict(cfg, _bestAt=it, _horizons=hz)
+                json.dump(cfg_best, open(os.path.join(run, "preset-best.json"), "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                         "pool": pool, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
                           HORIZONS)
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "
-                  f"horizon {'/'.join(f'{v:.4f}' for v in hz)}  "
+                  f"horizon {'/'.join(f'{v:.4f}' for v in hz)}"
+                  f"{' *best*' if score <= best_h else ''}  "
                   f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)
 
         if a.minutes and time.time() - t0 > a.minutes * 60:

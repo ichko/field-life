@@ -87,6 +87,9 @@ def main():
     # hue from whichever dominates, brightness from the total mass present.
     comp = np.concatenate([rn.blend(chans[i], pal, a.expo, "dominant") for i in keep],
                           axis=1)
+    # and both at once: the visible three as themselves, the hidden nine
+    # screened in behind them so the lizard stays legible against its scaffold.
+    both = np.concatenate([rn.ghost(chans[i], pal, a.expo) for i in keep], axis=1)
     data = {
         "run": a.run, "N": N, "C": C, "steps": a.steps,
         "kept": keep, "expo": a.expo,
@@ -94,6 +97,7 @@ def main():
         "perMass": [permass[i] for i in keep],
         "channels": b64_png(grid),
         "composite": b64_png(comp),
+        "ghost": b64_png(both),
         "force": round(cfg["force"], 2), "beta": round(cfg["beta"], 3),
         "repel": round(cfg["repel"], 3),
         "lobes": len(cfg["kernels"][0]["terms"]),
