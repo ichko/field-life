@@ -210,6 +210,10 @@ def main():
     ap.add_argument("--iters", type=int, default=100000)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--window", type=int, default=16, help="BPTT length")
+    ap.add_argument("--loss-from", type=int, default=0,
+                    help="first step inside the window that is scored; frames "
+                         "before the target could physically be reached are "
+                         "asking the impossible and only add a constant")
     ap.add_argument("--loss-every", type=int, default=4,
                     help="score the field every N steps inside the window, not "
                          "only at its end; 0 scores the end only")
@@ -313,7 +317,10 @@ def main():
         out, scored = batch, []
         for t in range(a.window):
             out = model.rollout(out, 1, kern=kern)
-            if not a.loss_every or (t + 1) % a.loss_every == 0 or t == a.window - 1:
+            step_no = t + 1
+            if step_no < a.loss_from and step_no != a.window:
+                continue          # too early for the shape to exist at all
+            if not a.loss_every or step_no % a.loss_every == 0 or t == a.window - 1:
                 scored.append(((out[:, :3] - target) ** 2).mean())
         loss = torch.stack(scored).mean()
 
