@@ -112,8 +112,17 @@ def step(rho, kern, mat, force, repel, beta):
     U = corr2d(rho, kern)
     N = corr2d(rho, crowd_gaussian(KR, kern, C, rho.dtype, rho.device))
 
-    ax = "cd,dhw->chw" if rho.ndim == 3 else "cd,bdhw->bchw"
-    A = force * torch.einsum(ax, mat, U) - repel * N.sum(-3, keepdim=True)
+    # `mat` may be a plain C x C matrix -- the law as it ships, linear in the
+    # convolved fields -- or a callable, which is rung 1 of the design doc: the
+    # matrix multiply becomes a small per-cell network, which is structurally
+    # what an NCA's update MLP is. Everything downstream is untouched, so MaCE
+    # still conserves mass exactly either way.
+    if callable(mat):
+        mixed = mat(U)
+    else:
+        ax = "cd,dhw->chw" if rho.ndim == 3 else "cd,bdhw->bchw"
+        mixed = torch.einsum(ax, mat, U)
+    A = force * mixed - repel * N.sum(-3, keepdim=True)
 
     # +-20, not +-60: share is rho/Z in float32, and a wider span flushes a cold
     # cell's share to zero, which would delete mass. See FS_EXPA.

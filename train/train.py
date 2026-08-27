@@ -52,6 +52,38 @@ HORIZONS = [16, 32, 64, 128]   # rollout lengths the checkpoint reports
 
 # ------------------------------------------------------------------ the model
 
+class Mix(torch.nn.Module):
+    """Rung 1: a hidden layer where the interaction matrix was.
+
+    The shipped law computes the affinity as `M . U` -- one matrix multiply per
+    cell, linear in the convolved fields, and that linearity is the capacity
+    ceiling, not the kernels. This replaces it with `W2 . tanh(W1 . U + b1)`,
+    applied per cell, which is exactly the shape of an NCA's update MLP.
+
+    It is 1x1 convolution, so it costs almost nothing next to the kernels, and
+    it leaves MaCE alone -- mass is still conserved exactly. What it does cost
+    is portability: index.html's FS_AFF computes a matrix multiply, so a rung 1
+    world needs the shader change of docs/nca-experiment.md before it will load.
+    """
+
+    def __init__(self, C, hidden, seed=0):
+        super().__init__()
+        g = torch.Generator().manual_seed(seed + 2)
+        self.w1 = torch.nn.Parameter(torch.randn(hidden, C, generator=g) / C ** 0.5)
+        self.b1 = torch.nn.Parameter(torch.zeros(hidden))
+        self.w2 = torch.nn.Parameter(torch.randn(C, hidden, generator=g) / hidden ** 0.5)
+
+    def forward(self, U):
+        ax1 = "hc,chw->hhw" if U.ndim == 3 else "hc,bchw->bhhw"
+        ax2 = "ch,hhw->chw" if U.ndim == 3 else "ch,bhhw->bchw"
+        # einsum cannot reuse a subscript for two different sizes; do it as a
+        # 1x1 convolution instead, which is what a per-cell dense layer is.
+        v = torch.nn.functional.conv2d(U if U.ndim == 4 else U[None],
+                                       self.w1[:, :, None, None], self.b1)
+        v = torch.nn.functional.conv2d(torch.tanh(v), self.w2[:, :, None, None])
+        return v if U.ndim == 4 else v[0]
+
+
 class World(torch.nn.Module):
     """Everything trainable: the kernels, the matrix, and the three globals.
 
@@ -61,10 +93,12 @@ class World(torch.nn.Module):
     where the gradient it is following stops meaning anything.
     """
 
-    def __init__(self, C, orders, KR, seed=0):
+    def __init__(self, C, orders, KR, seed=0, hidden=0):
         super().__init__()
         self.kern = fl.PolarKernels(C, orders=orders, KR=KR, seed=seed)
         g = torch.Generator().manual_seed(seed + 1)
+        self.hidden = hidden
+        self.mix = Mix(C, hidden, seed) if hidden else None
         self.mat = torch.nn.Parameter(torch.randn(C, C, generator=g) * 0.5)
         self.log_force = torch.nn.Parameter(torch.tensor(math.log(12.0)))
         self.log_repel = torch.nn.Parameter(torch.tensor(math.log(1.0)))
@@ -78,8 +112,9 @@ class World(torch.nn.Module):
     def rollout(self, rho, steps, kern=None):
         kern = self.kern() if kern is None else kern
         f, r, b = self.globals()
+        mix = self.mix if self.hidden else self.mat
         for _ in range(steps):
-            rho = fl.step(rho, kern, self.mat, f, r, b)
+            rho = fl.step(rho, kern, mix, f, r, b)
         return rho
 
     def scalars(self):
@@ -178,6 +213,8 @@ def main():
     ap.add_argument("--reseed-every", type=int, default=4,
                     help="iterations between sending a pool state back to the seed")
     ap.add_argument("--lr", type=float, default=3e-3)
+    ap.add_argument("--hidden", type=int, default=0,
+                    help="rung 1: hidden width of the per-cell network; 0 keeps the matrix")
     ap.add_argument("--lam-penalty", type=float, default=0.02,
                     help="weight on the measured divergence rate")
     ap.add_argument("--ckpt", type=int, default=50)
@@ -199,7 +236,7 @@ def main():
     target = torch.tensor(target_np, dtype=torch.float32)
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
-    model = World(a.channels, orders, a.kr, seed=a.seed)
+    model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
     opt = torch.optim.Adam(model.parameters(), a.lr)
     pool = seed[None].repeat(a.pool, 1, 1, 1).clone()
     start_it = 0
@@ -270,8 +307,15 @@ def main():
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
                                          *[f"{v:.6f}" for v in hz], f"{secs:.0f}"])
-            json.dump(model.to_config(a.channels, a.grid),
-                      open(os.path.join(run, "preset.json"), "w"))
+            # a rung 1 world is not expressible as a preset: index.html's
+            # FS_AFF is a matrix multiply. Write the kernels anyway -- they are
+            # still legal -- and say so, rather than emitting a preset that
+            # silently loads as something else.
+            cfg = model.to_config(a.channels, a.grid)
+            if a.hidden:
+                cfg["_note"] = ("rung 1: affinity is a per-cell network, not this "
+                                "matrix. Needs the FS_AFF change to load faithfully.")
+            json.dump(cfg, open(os.path.join(run, "preset.json"), "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                         "pool": pool, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
