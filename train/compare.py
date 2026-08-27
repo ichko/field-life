@@ -47,6 +47,7 @@ def read(run):
         "rung": 1 if "_note" in cfg else 0,
         "h": [last.get(k) for k in ("h32", "h128", "h256", "h512")],
         "mins": float(last["secs"]) / 60,
+        "age": last.get("age", "-"),
     }
 
 
@@ -61,11 +62,12 @@ def main():
         return print("no runs yet")
 
     print(f"{'run':<10} {'rung':>4} {'C':>3} {'lobes':>5} {'orders':>8} {'iter':>6} "
-          f"{'best':>9}   {'h32':>8} {'h128':>8} {'h256':>8} {'h512':>8}  {'min':>5}")
+          f"{'best':>9}   {'h32':>8} {'h128':>8} {'h256':>8} {'h512':>8}  {'age':>5} {'min':>5}")
     for r in runs:
         h = "".join(f"{(float(v) if v else 0):>9.5f}" if v else f"{'-':>9}" for v in r["h"])
         print(f"{r['name']:<10} {r['rung']:>4} {r['C']:>3} {r['lobes']:>5} "
-              f"{r['orders']:>8} {r['iter']:>6} {r['best']:>9.5f}  {h}  {r['mins']:>5.0f}")
+              f"{r['orders']:>8} {r['iter']:>6} {r['best']:>9.5f}  {h}  "
+              f"{str(r['age']):>5} {r['mins']:>5.0f}")
     print("\nh<N> is the loss from the seed after N steps. Training window is 16, so a")
     print("curve rising left to right means the shape is reached and then lost.")
 

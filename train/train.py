@@ -231,6 +231,13 @@ def main():
                          "shape to hold rather than merely to arrive")
     ap.add_argument("--reseed-every", type=int, default=4,
                     help="iterations between sending a pool state back to the seed")
+    ap.add_argument("--reseed-policy", default="oldest", choices=["oldest", "worst"],
+                    help="which pooled state goes back to the seed. Growing NCA "
+                         "retires the worst, to stop a pool filling with "
+                         "blown-up states; mass conservation makes that "
+                         "impossible here, and retiring the worst culls exactly "
+                         "the aged, drifting states that persistence has to be "
+                         "taught on")
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--hidden", type=int, default=0,
                     help="rung 1: hidden width of the per-cell network; 0 keeps the matrix")
@@ -302,7 +309,7 @@ def main():
     if not os.path.exists(logp):
         with open(logp, "w", newline="") as f:
             csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta"]
-                                   + [f"h{h}" for h in HORIZONS] + ["secs"])
+                                   + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
 
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
           f"window {a.window}  batch {a.batch}  pool {a.pool}")
@@ -341,10 +348,18 @@ def main():
         # past about two windows, so persistence is never actually asked for.
         # Reseeding every few iterations instead lets the pool grow old.
         if it % a.reseed_every == 0:
+            # Retiring the worst state looks sensible and quietly defeats the
+            # whole point: a lizard that has drifted by step 400 IS the worst
+            # state, so it gets deleted instead of repaired, and the pool's age
+            # plateaus well below its cap -- it sat at ~325 of 1024 doing this.
+            # Retiring the oldest lets drift survive long enough to be fixed.
             with torch.no_grad():
-                worst = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
-            batch[worst] = seed
-            ages[idx[worst]] = 0
+                if a.reseed_policy == "worst":
+                    pick = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
+                else:
+                    pick = ages[idx].argmax()
+            batch[pick] = seed
+            ages[idx[pick]] = 0
         # and retire a state once it has lived its full span, so the pool holds
         # a spread of ages rather than drifting to all-old or all-young
         stale = ages[idx] >= a.max_age
@@ -402,7 +417,8 @@ def main():
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
-                                         *[f"{v:.6f}" for v in hz], f"{secs:.0f}"])
+                                         *[f"{v:.6f}" for v in hz],
+                                         int(ages.float().mean()), f"{secs:.0f}"])
             # a rung 1 world is not expressible as a preset: index.html's
             # FS_AFF is a matrix multiply. Write the kernels anyway -- they are
             # still legal -- and say so, rather than emitting a preset that
