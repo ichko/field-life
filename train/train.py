@@ -31,6 +31,7 @@ Checkpoints land in train/runs/<name>/ every --ckpt iterations:
 """
 
 import argparse
+import atexit
 import csv
 import json
 import math
@@ -239,6 +240,22 @@ def main():
     orders = tuple(int(x) for x in a.orders.split(","))
     run = os.path.join(HERE, "runs", a.name)
     os.makedirs(run, exist_ok=True)
+
+    # One writer per run directory. Two trainers sharing one is not a crash --
+    # they interleave rows in the log and take turns overwriting the
+    # checkpoint, and the run looks fine until the numbers stop making sense.
+    # It happened once here, because a kill matched nothing: /proc/pid/cmdline
+    # separates arguments with NULs, so grepping it for "name polar3" never
+    # matches. A lock is cheaper than remembering that.
+    lock = os.path.join(run, "RUNNING")
+    if os.path.exists(lock):
+        pid = open(lock).read().strip()
+        if pid.isdigit() and os.path.exists(f"/proc/{pid}"):
+            sys.exit(f"{a.name} is already being trained by pid {pid}. "
+                     f"Stop it first, or use a different --name.")
+    with open(lock, "w") as fh:
+        fh.write(str(os.getpid()))
+    atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
 
     # ---- the task
     target_np = tgt.render_emoji(span=tgt.SPAN, grid=a.grid)

@@ -9,3 +9,4 @@ __pycache__/
 train/runs/*/ckpt.pt
 train/seed_field.json
 train/browser_run.json
+train/runs/*/RUNNING
