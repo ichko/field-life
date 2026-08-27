@@ -684,6 +684,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="beta">Beta</label><input id="beta" title="How decisively mass picks its best neighbor. Low spreads, high commits." type="range" min="0" max="14" step="0.1" value="3"><span class="val" id="betav">3</span></div>
     <div class="row"><label class="lab" for="noise">Noise</label><input id="noise" title="Jitter added to the affinity. Lets shapes drift off the grid axes." type="range" min="0" max="3" step="0.05" value="0"><span class="val" id="noisev">0</span></div>
     <div class="row"><label class="lab" for="steps">Speed</label><input id="steps" title="Simulation steps per frame. Higher runs faster and costs more." type="range" min="1" max="8" step="1" value="1"><span class="val" id="stepsv">1</span></div>
+    <div class="row"><label class="lab" for="fps">Rate</label><input id="fps" title="How many times a second the world advances. 60 runs as fast as the display will go; turn it down to watch a pattern form. Drawing is unaffected, so panning and painting stay smooth however slow this is." type="range" min="1" max="60" step="1" value="60"><span class="val" id="fpsv">60</span></div>
     <div class="row"><label class="lab" for="inter">Law</label><select id="inter" title="Built-in interaction shape, when no kernel is designed">
       <option value="0">Ring</option><option value="1">Blob</option><option value="2">Linear</option>
     </select></div>
@@ -2726,7 +2727,7 @@ function uploadKernels(){
 
 /* ------------------------------------------------------------- saved setups */
 const PKEY = "fieldlife.setups.v1";
-const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth","square"];
+const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth","square","fps"];
 
 // localStorage can be absent, full, or throw outright (private windows, preview
 // captures). Every access is guarded and the page works fine with nothing in it.
@@ -2971,6 +2972,7 @@ function rebuildColors(){
 
 /* ---------------------------------------------------------------- loop */
 let lastT = performance.now(), fpsAcc = 0, fpsN = 0, mass0 = null, painting = null;
+let lastStepT = 0;                    // when the world last advanced, for the Rate cap
 let massWait = 60;   // frames since the last completed mass read
 let frameErr = 0;
 function frame(){
@@ -3001,8 +3003,15 @@ function frameBody(){
       paintAt(ax + (bx - ax)*i/n, ay + (by - ay)*i/n, dt/n);
     painting.last = painting.cur;
   }
-  if(S.running && performance.now() >= S.holdUntil)
+  // Rate caps how often the world ADVANCES, not how often it is drawn. Gating
+  // the draw instead would make panning and painting judder at low rates, and
+  // the point is to watch a pattern form, not to watch the page struggle.
+  const tNow = performance.now();
+  const due = S.fps >= 60 || tNow - lastStepT >= 1000/Math.max(S.fps, 0.1);
+  if(S.running && tNow >= S.holdUntil && due){
+    lastStepT = tNow;
     for(let i = 0; i < S.steps; i++) step();
+  }
   render();
   // The drawing buffer is not preserved, so a screenshot has to be taken here,
   // in the same tick as the draw that filled it.
@@ -3057,6 +3066,7 @@ function boot(){
   slider("beta", "beta");
   slider("noise", "noise");
   slider("steps", "steps");
+  slider("fps", "fps");
   slider("expo", "expo");
   slider("dens", "density");
 

@@ -17,6 +17,7 @@ Idempotent: running it on an already-patched file exits without touching it.
   2  separablePlan refuses angular kernels
   3  uploadKernels bakes on the shared grid, reach as a radial scale
   4  FS_DRAW gains blend 4, channels 0-2 straight to R, G, B
+  5  a Rate control, capping how often the world advances
 
 plus seedFromMasses, so a preset can carry the mass its picture costs, and a
 square lattice for worlds trained on one.
@@ -226,6 +227,22 @@ async function loadLizard(){
 }
 
 addEventListener("error", e => {'''),
+
+    # ---- Rate: how often the world advances ----------------------------
+    ('    <div class="row"><label class="lab" for="inter">Law</label><select id="inter" title="Built-in interaction shape, when no kernel is designed">',
+     '    <div class="row"><label class="lab" for="fps">Rate</label><input id="fps" title="How many times a second the world advances. 60 runs as fast as the display will go; turn it down to watch a pattern form. Drawing is unaffected, so panning and painting stay smooth however slow this is." type="range" min="1" max="60" step="1" value="60"><span class="val" id="fpsv">60</span></div>\n    <div class="row"><label class="lab" for="inter">Law</label><select id="inter" title="Built-in interaction shape, when no kernel is designed">'),
+
+    ('let lastT = performance.now(), fpsAcc = 0, fpsN = 0, mass0 = null, painting = null;',
+     'let lastT = performance.now(), fpsAcc = 0, fpsN = 0, mass0 = null, painting = null;\nlet lastStepT = 0;                    // when the world last advanced, for the Rate cap'),
+
+    ('  if(S.running && performance.now() >= S.holdUntil)\n    for(let i = 0; i < S.steps; i++) step();\n  render();',
+     '  // Rate caps how often the world ADVANCES, not how often it is drawn. Gating\n  // the draw instead would make panning and painting judder at low rates, and\n  // the point is to watch a pattern form, not to watch the page struggle.\n  const tNow = performance.now();\n  const due = S.fps >= 60 || tNow - lastStepT >= 1000/Math.max(S.fps, 0.1);\n  if(S.running && tNow >= S.holdUntil && due){\n    lastStepT = tNow;\n    for(let i = 0; i < S.steps; i++) step();\n  }\n  render();'),
+
+    ('  slider("steps", "steps");',
+     '  slider("steps", "steps");\n  slider("fps", "fps");'),
+
+    ('"cfreq","cdepth","square"];',
+     '"cfreq","cdepth","square","fps"];'),
 ]
 
 
