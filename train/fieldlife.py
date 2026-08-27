@@ -175,17 +175,26 @@ def _fold(a, sym):
     return a
 
 
-def _finish(v, KR, feather, zero_mean):
+def _finish(v, KR, feather, zero_mean, RR=None):
     """Feather the rim, zero the mean against the taper, normalise to unit L1.
+
+    RR is the kernel's REACH in cells; KR is only the grid it is baked on. They
+    differ whenever a channel reaches less far than the widest one does, and
+    the difference matters because the zero-mean correction is subtracted as a
+    multiple of the taper: taper out to KR and the wash is spread across an
+    annulus the kernel does not occupy, which is a different kernel from the
+    one index.html bakes. Defaults to KR, which is the legacy behaviour that
+    train/parity.py pins.
 
     The mean is removed as a multiple of the taper rather than as a flat
     constant: a flat subtraction puts weight straight back into the rim cells
     the taper had just brought to zero, leaving a hard circular cliff -- and a
     hard circle on a square lattice is what shows up as square artefacts.
     """
+    RR = KR if RR is None else RR
     c = torch.arange(-KR, KR + 1, dtype=v.dtype, device=v.device)
     y, x = torch.meshgrid(c, c, indexing="ij")
-    rr = torch.hypot(x, y) / KR
+    rr = torch.hypot(x, y) / RR
     f = ((1 - rr) / max(1e-3, feather)).clamp(0, 1)
     taper = torch.where(rr > 1, torch.zeros_like(f), f * f * (3 - 2 * f))
 
@@ -319,7 +328,8 @@ class PolarKernels(torch.nn.Module):
              * torch.cos(m * theta[:, None] + ph)).sum(1)       # (C,3,3,K,K)
         v = torch.where(rr > 1, torch.zeros_like(v), v).sum(dim=(1, 2)) / 9
 
-        return torch.stack([_finish(v[c], KR, self.feather, zero_mean=True)
+        R = self.radii()
+        return torch.stack([_finish(v[c], KR, self.feather, True, RR=float(R[c]))
                             for c in range(self.C)])
 
     def to_config(self):
@@ -368,5 +378,5 @@ def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
                      * torch.exp(-(((rr - float(t["r"])) / w) ** 2))
                      * torch.cos(float(t.get("m", 0)) * theta + float(t.get("phase", 0.0))))
         v = torch.where(rr > 1, torch.zeros_like(v), v).sum(dim=(0, 1)) / 9
-        out.append(_finish(v, KR, k.get("feather", 0.1), zero_mean=True))
+        out.append(_finish(v, KR, k.get("feather", 0.1), True, RR=R))
     return torch.stack(out)

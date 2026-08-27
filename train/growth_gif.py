@@ -21,6 +21,7 @@ from PIL import Image, ImageDraw
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fieldlife as fl
+import render as rn
 import target as tgt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -36,6 +37,12 @@ def main():
     ap.add_argument("--ms", type=int, default=110, help="milliseconds per frame")
     ap.add_argument("--hold", type=int, default=12, help="extra frames on the last one")
     ap.add_argument("--every", type=int, default=1, help="keep every Nth step")
+    ap.add_argument("--blend", default="dominant",
+                    choices=["dominant", "soft", "additive", "winner", "rgb"],
+                    help="how the channels combine, as index.html's Blend control. "
+                         "dominant is the simulation's default and shows ALL "
+                         "channels; rgb shows only the three visible ones")
+    ap.add_argument("--expo", type=float, default=2.2, help="display brightness")
     ap.add_argument("--side-by-side", action="store_true",
                     help="put the target beside it, for comparison")
     ap.add_argument("--out", default=None)
@@ -54,7 +61,11 @@ def main():
     mat = torch.tensor(cfg["mat"], dtype=torch.float64).reshape(C, C)
     g = (cfg["force"], cfg["repel"], cfg["beta"])
 
+    pal = rn.palette(C)
+    # the target is a picture, not a field, so it is drawn as itself either way
     tgt_img = np.clip(tg.transpose(1, 2, 0), 0, 1)
+    if a.blend != "rgb":
+        tgt_img = np.clip(tgt_img + rn.GROUND, 0, 1)
     frames, losses = [], []
     for i in range(a.steps + 1):
         if i:
@@ -62,7 +73,7 @@ def main():
         losses.append(((rho[0, :3] - torch.tensor(tg)) ** 2).mean().item())
         if i % a.every:
             continue
-        v = np.clip(rho[0, :3].numpy().transpose(1, 2, 0), 0, 1)
+        v = rn.blend(rho[0].numpy(), pal, a.expo, a.blend, ground=a.blend != "rgb")
         if a.side_by_side:
             gap = np.zeros((N, 2, 3))
             v = np.concatenate([tgt_img, gap, v], axis=1)
@@ -78,7 +89,8 @@ def main():
                    duration=a.ms, loop=0, optimize=True)
 
     best = int(np.argmin(losses))
-    print(f"{len(frames)} frames, {a.ms}ms each -> {out}")
+    print(f"{len(frames)} frames, {a.ms}ms each, blend {a.blend} "
+          f"over {'3 visible' if a.blend == 'rgb' else f'all {C}'} channels -> {out}")
     print(f"  loss is lowest at step {best} ({losses[best]:.5f}); "
           f"at the end, step {a.steps}, it is {losses[-1]:.5f}")
     print(f"  size {os.path.getsize(out)/1e6:.2f} MB")

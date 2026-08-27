@@ -11,3 +11,4 @@ train/seed_field.json
 train/browser_run.json
 train/runs/*/RUNNING
 train/runs/*/growth.gif
+train/staging_run.json
