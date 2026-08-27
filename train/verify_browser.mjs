@@ -21,7 +21,13 @@ const OUT = process.argv[3] ?? join(ROOT, "train/browser_run.json");
 const STEPS = Number(process.env.STEPS ?? 64);
 
 const preset = JSON.parse(await readFile(PRESET, "utf8"));
-const seed = JSON.parse(await readFile(join(ROOT, "train/seed_field.json"), "utf8"));
+const SEED = join(ROOT, "train/seed_field.json");
+const seed = await readFile(SEED, "utf8").then(JSON.parse).catch(() => {
+  console.error(`missing ${SEED} -- make it with:\n` +
+    `  python3 train/target.py --channels ${preset.C} --grid ${preset.N} ` +
+    `--seed-json train/seed_field.json`);
+  process.exit(1);
+});
 
 const MIME = { ".html": "text/html", ".json": "application/json", ".png": "image/png" };
 const server = createServer(async (req, res) => {

@@ -10,6 +10,14 @@ refers to.
 | `dump_reference.mjs` | steps the real WebGL simulation in headless Chromium and writes `reference.json` |
 | `parity.py` | checks the port against that dump, in two regimes |
 | `target.py` | renders the lizard premultiplied, allocates the seed's per-channel mass |
+| `train.py` | the trainer; `--orders` sets the kernels' angular orders, `--hidden` switches to rung 1 |
+| `compare.py` | every run's loss and horizon curve in one table; safe to call mid-run |
+| `evaluate.py` | replays a trained `preset.json` and reports how well it holds the target |
+| `verify_browser.mjs` | loads a `preset.json` into the real `index.html` and dumps what it does |
+
+Generated files -- `reference.json`, `browser_run.json`, `seed_field.json`,
+`target.npz`, the PNGs and each run's `ckpt.pt` -- are not tracked. Every one
+of them is reproducible from the commands below.
 
 ## Setup
 

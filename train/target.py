@@ -107,6 +107,8 @@ def main():
     ap.add_argument("--span", type=int, default=SPAN)
     ap.add_argument("--show", action="store_true", help="write target.png and seed.png")
     ap.add_argument("--out", default=os.path.join(HERE, "target.npz"))
+    ap.add_argument("--seed-json", default=None,
+                    help="also write the seed field as flat JSON, for verify_browser.mjs")
     a = ap.parse_args()
 
     target = render_emoji(span=a.span, grid=a.grid)
@@ -127,6 +129,11 @@ def main():
     print(f"reach: the furthest lit cell is {budget(target, a.grid)} cells from the "
           f"seed, so no run shorter than that many steps can succeed")
     print(f"wrote {a.out}")
+
+    if a.seed_json:
+        with open(a.seed_json, "w") as fh:
+            json.dump(seed.flatten().tolist(), fh)
+        print(f"wrote {a.seed_json}")
 
     if a.show:
         for name, arr in (("target", target), ("seed", seed[:3])):
