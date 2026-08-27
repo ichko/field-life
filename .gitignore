@@ -12,3 +12,4 @@ train/browser_run.json
 train/runs/*/RUNNING
 train/runs/*/growth.gif
 train/staging_run.json
+train/orientation.png

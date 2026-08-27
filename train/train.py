@@ -48,7 +48,14 @@ import fieldlife as fl
 import target as tgt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-HORIZONS = [16, 32, 64, 128]   # rollout lengths the checkpoint reports
+# Rollout lengths every checkpoint reports. They run well past anything that
+# is backpropagated through, because reaching the shape and holding it are
+# different things and only the long ones can tell them apart: a world can
+# score 0.0019 at step 64 and 0.0077 at step 512.
+HORIZONS = [16, 32, 64, 128, 256, 512]
+# What "best" means. Weighted hard toward the far end -- a world that decays is
+# not a better world for having been briefly sharper.
+HZ_WEIGHTS = [0.25, 0.5, 1, 2, 3, 4]
 
 
 # ------------------------------------------------------------------ the model
@@ -218,6 +225,10 @@ def main():
                     help="score the field every N steps inside the window, not "
                          "only at its end; 0 scores the end only")
     ap.add_argument("--pool", type=int, default=64)
+    ap.add_argument("--max-age", type=int, default=1024,
+                    help="steps a pooled state may live before it goes back to "
+                         "the seed; the pool's oldest states are what teach the "
+                         "shape to hold rather than merely to arrive")
     ap.add_argument("--reseed-every", type=int, default=4,
                     help="iterations between sending a pool state back to the seed")
     ap.add_argument("--lr", type=float, default=3e-3)
@@ -272,6 +283,11 @@ def main():
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
     opt = torch.optim.Adam(model.parameters(), a.lr)
     pool = seed[None].repeat(a.pool, 1, 1, 1).clone()
+    # How many steps each pooled state has lived. Persistence cannot be learned
+    # from states that are always young: if nothing in the pool has run longer
+    # than a couple of windows, nothing is ever asked to still be a lizard at
+    # step 500. Age is tracked so the reseeding can be driven by it.
+    ages = torch.zeros(a.pool, dtype=torch.long)
     start_it = 0
 
     ck = os.path.join(run, "ckpt.pt")
@@ -279,13 +295,14 @@ def main():
         st = torch.load(ck, weights_only=False)
         model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
         pool = st["pool"]; start_it = st["iter"]
+        ages = st.get("ages", torch.zeros(a.pool, dtype=torch.long))
         print(f"resumed {a.name} at iteration {start_it}")
 
     logp = os.path.join(run, "log.csv")
     if not os.path.exists(logp):
         with open(logp, "w", newline="") as f:
-            csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta",
-                                    "h16", "h32", "h64", "h128", "secs"])
+            csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta"]
+                                   + [f"h{h}" for h in HORIZONS] + ["secs"])
 
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
           f"window {a.window}  batch {a.batch}  pool {a.pool}")
@@ -312,6 +329,13 @@ def main():
             with torch.no_grad():
                 worst = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
             batch[worst] = seed
+            ages[idx[worst]] = 0
+        # and retire a state once it has lived its full span, so the pool holds
+        # a spread of ages rather than drifting to all-old or all-young
+        stale = ages[idx] >= a.max_age
+        if stale.any():
+            batch[stale] = seed
+            ages[idx[stale]] = 0
 
         # Score the field THROUGHOUT the window, not only where it ends.
         # Scoring the last frame alone asks for the shape to be reached at step
@@ -349,7 +373,9 @@ def main():
         with torch.no_grad():
             good = torch.isfinite(out).all(dim=(1, 2, 3))
             pool[idx[good]] = out[good].detach()
+            ages[idx[good]] += a.window
             pool[idx[~good]] = seed          # a blown-up state poisons the pool
+            ages[idx[~good]] = 0
 
         best = min(best, loss.item())
         if it % a.ckpt == 0 or it == a.iters - 1:
@@ -357,7 +383,7 @@ def main():
             secs = time.time() - t0
             hz = horizon_losses(model, target, seed, HORIZONS)
             # weighted toward the long horizons: holding the shape is the point
-            score = sum(h * w for h, w in zip(hz, (1, 1, 2, 2)))
+            score = sum(h * w for h, w in zip(hz, HZ_WEIGHTS)) / sum(HZ_WEIGHTS)
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
@@ -376,11 +402,12 @@ def main():
                 cfg_best = dict(cfg, _bestAt=it, _horizons=hz)
                 json.dump(cfg_best, open(os.path.join(run, "preset-best.json"), "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
-                        "pool": pool, "iter": it}, ck)
+                        "pool": pool, "ages": ages, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
                           HORIZONS)
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "
+                  f"age~{int(ages.float().mean())}  "
                   f"horizon {'/'.join(f'{v:.4f}' for v in hz)}"
                   f"{' *best*' if score <= best_h else ''}  "
                   f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)

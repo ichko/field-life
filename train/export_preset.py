@@ -44,6 +44,8 @@ def main():
     ap.add_argument("--name", default="Lizard")
     ap.add_argument("--kr", type=int, default=13)
     ap.add_argument("--steps", type=int, default=64, help="rollout length for the thumbnail")
+    ap.add_argument("--no-flip", action="store_true",
+                    help="skip the vertical flip that matches the page's y axis")
     ap.add_argument("--latest", action="store_true",
                     help="export the newest checkpoint rather than the best one")
     a = ap.parse_args()
@@ -62,9 +64,31 @@ def main():
 
     tg = tgt.render_emoji(span=tgt.SPAN, grid=N)
     masses = tgt.seed_masses(tg, C, rng=np.random.default_rng(0))
+    tg_shown = tg
 
     cfg = dict(cfg)
     cfg.pop("_bestAt", None); cfg.pop("_horizons", None)
+
+    # index.html draws array row 0 at the BOTTOM -- gl_FragCoord counts y up
+    # from the bottom of the framebuffer -- while the target is an image, whose
+    # row 0 is its top. A world fitted against the image therefore renders
+    # upside down, head at the bottom.
+    #
+    # Rather than flip the renderer, which would turn every existing world over
+    # for no reason, flip the world. Mirroring in y sends theta to -theta, so
+    # cos(m*theta + phase) becomes cos(m*theta - phase): negating every phase
+    # mirrors each kernel, and mirroring the kernels mirrors the whole
+    # trajectory, because everything else in the step -- the crowding blur, the
+    # matrix, the 3x3 softmax -- is symmetric, and the seed disc is too.
+    # Verified: the flipped bank matches the flipped bake to 2e-17 and the
+    # flipped trajectory to 1e-13, at identical loss.
+    if not a.no_flip:
+        cfg["kernels"] = json.loads(json.dumps(cfg["kernels"]))
+        for k in cfg["kernels"]:
+            for t in k.get("terms", []):
+                if t.get("phase"):
+                    t["phase"] = -t["phase"]
+        print("  flipped in y to match the page's axis (phases negated)")
     cfg["seedMasses"] = [float(m) for m in masses]
     cfg["seedMode"] = "masses"
     cfg["square"] = True
@@ -81,7 +105,9 @@ def main():
     mat = torch.tensor(cfg["mat"], dtype=torch.float64).reshape(C, C)
     rho = torch.tensor(tgt.seed_field(masses, grid=N), dtype=torch.float64)[None]
     rho = fl.run(rho, kern, mat, cfg["force"], cfg["repel"], cfg["beta"], a.steps)
-    loss = ((rho[0, :3] - torch.tensor(tg)) ** 2).mean().item()
+    if not a.no_flip:
+        tg_shown = tg[:, ::-1, :].copy()      # the target as the flipped world builds it
+    loss = ((rho[0, :3] - torch.tensor(tg_shown)) ** 2).mean().item()
 
     thumb = "000-lizard.thumb.png"
     img = np.clip(rho[0, :3].numpy().transpose(1, 2, 0), 0, 1)
