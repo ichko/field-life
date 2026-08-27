@@ -6,3 +6,4 @@ train/reference.json
 train/target.npz
 train/*.png
 __pycache__/
+train/runs/*/ckpt.pt

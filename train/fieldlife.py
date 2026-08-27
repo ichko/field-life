@@ -53,23 +53,25 @@ def _wrap(x, pad):
 
 
 def corr2d(rho, weight):
-    """Per-channel toroidal cross-correlation. rho (C,H,W), weight (C,K,K).
+    """Per-channel toroidal cross-correlation. rho (B,C,H,W) or (C,H,W).
 
     Cross-correlation, not convolution: the shader reads src at (lx+dx, y+dy)
     against kernel texel (dx+KR, dy+KR), which is what conv2d already does.
     """
-    C, H, W = rho.shape
-    K = weight.shape[-1]
-    pad = K // 2
-    x = _wrap(rho.unsqueeze(0), pad)
-    return F.conv2d(x, weight.unsqueeze(1), groups=C).squeeze(0)
+    flat = rho.ndim == 3
+    x = rho.unsqueeze(0) if flat else rho
+    out = F.conv2d(_wrap(x, weight.shape[-1] // 2), weight.unsqueeze(1),
+                   groups=x.shape[1])
+    return out.squeeze(0) if flat else out
 
 
 def sum3x3(x):
     """3x3 toroidal sum, per channel."""
-    C = x.shape[0]
-    ones = torch.ones(C, 1, 3, 3, dtype=x.dtype, device=x.device)
-    return F.conv2d(_wrap(x.unsqueeze(0), 1), ones, groups=C).squeeze(0)
+    flat = x.ndim == 3
+    v = x.unsqueeze(0) if flat else x
+    ones = torch.ones(v.shape[1], 1, 3, 3, dtype=v.dtype, device=v.device)
+    out = F.conv2d(_wrap(v, 1), ones, groups=v.shape[1])
+    return out.squeeze(0) if flat else out
 
 
 # ------------------------------------------------------------------- the step
@@ -100,12 +102,18 @@ def crowd_gaussian(KR, kern, C, dtype=torch.float64, device="cpu"):
 
 
 def step(rho, kern, mat, force, repel, beta):
-    """One simulation tick. rho (C,H,W), kern (C,K,K), mat (C,C) row = feeling."""
-    KR = kern.shape[-1] // 2
-    U = corr2d(rho, kern)
-    N = corr2d(rho, crowd_gaussian(KR, kern, rho.shape[0], rho.dtype, rho.device))
+    """One simulation tick. rho (B,C,H,W) or (C,H,W); kern (C,K,K); mat (C,C).
 
-    A = force * torch.einsum("cd,dhw->chw", mat, U) - repel * N.sum(0, keepdim=True)
+    mat's row is the feeling channel and its column the felt one, matching
+    FS_AFF's texelFetch(uMat, ivec2(d, cc)) against a C-wide R32F texture.
+    """
+    KR = kern.shape[-1] // 2
+    C = kern.shape[0]
+    U = corr2d(rho, kern)
+    N = corr2d(rho, crowd_gaussian(KR, kern, C, rho.dtype, rho.device))
+
+    ax = "cd,dhw->chw" if rho.ndim == 3 else "cd,bdhw->bchw"
+    A = force * torch.einsum(ax, mat, U) - repel * N.sum(-3, keepdim=True)
 
     # +-20, not +-60: share is rho/Z in float32, and a wider span flushes a cold
     # cell's share to zero, which would delete mass. See FS_EXPA.
