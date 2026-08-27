@@ -239,6 +239,15 @@ def main():
                          "window*batch*reseed_every/2. At 32x2x8 that is 256, "
                          "which is what it sat at while the far horizons "
                          "refused to move")
+    ap.add_argument("--young-frac", type=float, default=0.5,
+                    help="fraction of the pool kept young. One reseed rate cannot "
+                         "serve both ends: rare reseeding taught the shape to "
+                         "hold (h512 0.0054 -> 0.0032) and to grow worse (h16 "
+                         "0.0032 -> 0.0070), because growing and holding were "
+                         "competing for the same pool slots. Splitting the pool "
+                         "puts one of each in every batch instead.")
+    ap.add_argument("--young-age", type=int, default=96,
+                    help="steps a state in the young half may live")
     ap.add_argument("--reseed-policy", default="oldest", choices=["oldest", "worst"],
                     help="which pooled state goes back to the seed. Growing NCA "
                          "retires the worst, to stop a pool filling with "
@@ -303,6 +312,14 @@ def main():
     # than a couple of windows, nothing is ever asked to still be a lizard at
     # step 500. Age is tracked so the reseeding can be driven by it.
     ages = torch.zeros(a.pool, dtype=torch.long)
+    # The pool is two bands, not one. The young half is retired quickly, so
+    # there is always a field partway through being built; the old half runs to
+    # --max-age, so there is always one that has been standing for hundreds of
+    # steps. Every batch draws from both, and growing and holding stop being
+    # the same slot.
+    n_young = max(1, min(a.pool - 1, int(a.pool * a.young_frac)))
+    span = torch.full((a.pool,), a.max_age, dtype=torch.long)
+    span[:n_young] = a.young_age
     start_it = 0
 
     ck = os.path.join(run, "ckpt.pt")
@@ -320,7 +337,8 @@ def main():
                                    + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
 
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
-          f"window {a.window}  batch {a.batch}  pool {a.pool}")
+          f"window {a.window}  batch {a.batch}  pool {a.pool} "
+          f"({n_young} young to {a.young_age}, {a.pool - n_young} old to {a.max_age})")
     print(f"  {sum(p.numel() for p in model.parameters())} trainable numbers")
 
     t0 = time.time()
@@ -347,7 +365,10 @@ def main():
         except (json.JSONDecodeError, KeyError, TypeError):
             pass
     for it in range(start_it, a.iters):
-        idx = torch.randint(0, a.pool, (a.batch,))
+        # draw from both bands, so a batch always holds one of each
+        half = max(1, a.batch // 2)
+        idx = torch.cat([torch.randint(0, n_young, (half,)),
+                         torch.randint(n_young, a.pool, (a.batch - half,))])
         batch = pool[idx].clone()
         # The worst state in the batch goes back to the seed, so the model has
         # to keep working from scratch -- Growing NCA's trick. But the RATE
@@ -370,7 +391,7 @@ def main():
             ages[idx[pick]] = 0
         # and retire a state once it has lived its full span, so the pool holds
         # a spread of ages rather than drifting to all-old or all-young
-        stale = ages[idx] >= a.max_age
+        stale = ages[idx] >= span[idx]
         if stale.any():
             batch[stale] = seed
             ages[idx[stale]] = 0
@@ -446,7 +467,8 @@ def main():
                           HORIZONS)
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "
-                  f"age~{int(ages.float().mean())}  "
+                  f"age~{int(ages[:n_young].float().mean())}/"
+                  f"{int(ages[n_young:].float().mean())}  "
                   f"horizon {'/'.join(f'{v:.4f}' for v in hz)}"
                   f"{' *best*' if score <= best_h else ''}  "
                   f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)
