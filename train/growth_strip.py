@@ -23,26 +23,10 @@ from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import fieldlife as fl
+import render as rn
 import target as tgt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def hue_ring(t):
-    """index.html's Spectrum palette, so a channel is the colour the sim gives it."""
-    h = ((t % 1) + 1) % 1 * 6
-    x = 1 - abs(h % 2 - 1)
-    return [[1, x, 0], [x, 1, 0], [0, 1, x], [0, x, 1], [x, 0, 1], [1, 0, x]][int(h) % 6]
-
-
-def palette(C):
-    return np.array([hue_ring(i / C) for i in range(C)])
-
-
-def shade(density, colour, expo):
-    """One channel drawn as the sim draws it: its hue, brightness from its mass."""
-    a = 1.0 - np.exp(-np.maximum(density, 0) * expo)
-    return a[..., None] * np.asarray(colour)[None, None, :]
 
 
 def rollout_frames(cfg, steps, kr=13):
@@ -93,18 +77,23 @@ def main():
     # Every channel, laid out as one image: a row per channel, a column per
     # kept step, each drawn in the hue index.html gives it. One fetch, and a
     # canvas can cut any (channel, step) cell out of it.
-    pal = palette(C)
+    pal = rn.palette(C)
     grid = np.concatenate([
-        np.concatenate([shade(chans[i][c], pal[c], a.expo) for i in keep], axis=1)
+        np.concatenate([rn.channel(chans[i][c], pal[c], a.expo) for i in keep], axis=1)
         for c in range(C)], axis=0)                 # (C*N, len(keep)*N, 3)
 
     strip = np.concatenate(frames, axis=1)          # (N, N*len(keep), 3)
+    # and the same rollout as the simulation itself draws it: every channel,
+    # hue from whichever dominates, brightness from the total mass present.
+    comp = np.concatenate([rn.blend(chans[i], pal, a.expo, "dominant") for i in keep],
+                          axis=1)
     data = {
         "run": a.run, "N": N, "C": C, "steps": a.steps,
         "kept": keep, "expo": a.expo,
         "palette": [[round(v, 3) for v in c] for c in pal],
         "perMass": [permass[i] for i in keep],
         "channels": b64_png(grid),
+        "composite": b64_png(comp),
         "force": round(cfg["force"], 2), "beta": round(cfg["beta"], 3),
         "repel": round(cfg["repel"], 3),
         "lobes": len(cfg["kernels"][0]["terms"]),
