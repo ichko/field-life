@@ -209,6 +209,9 @@ def main():
     ap.add_argument("--iters", type=int, default=100000)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--window", type=int, default=16, help="BPTT length")
+    ap.add_argument("--loss-every", type=int, default=4,
+                    help="score the field every N steps inside the window, not "
+                         "only at its end; 0 scores the end only")
     ap.add_argument("--pool", type=int, default=64)
     ap.add_argument("--reseed-every", type=int, default=4,
                     help="iterations between sending a pool state back to the seed")
@@ -283,8 +286,19 @@ def main():
                 worst = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
             batch[worst] = seed
 
-        out = model.rollout(batch, a.window)
-        loss = ((out[:, :3] - target) ** 2).mean()
+        # Score the field THROUGHOUT the window, not only where it ends.
+        # Scoring the last frame alone asks for the shape to be reached at step
+        # 16 and says nothing about step 15 or 17, and a rule can satisfy that
+        # by sweeping through the right arrangement on its way somewhere else.
+        # Charging for every frame asks for the shape to be STOOD IN, which is
+        # what persistence means and what the horizon columns measure.
+        kern = model.kern()
+        out, scored = batch, []
+        for t in range(a.window):
+            out = model.rollout(out, 1, kern=kern)
+            if not a.loss_every or (t + 1) % a.loss_every == 0 or t == a.window - 1:
+                scored.append(((out[:, :3] - target) ** 2).mean())
+        loss = torch.stack(scored).mean()
 
         lam = 0.0
         if a.lam_penalty > 0 and it % 10 == 0:
