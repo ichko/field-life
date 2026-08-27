@@ -300,9 +300,15 @@ class PolarKernels(torch.nn.Module):
 
         R = self.radii()[:, None, None, None, None]
         rr = rad / R
-        # widths below ~2 cells cannot be represented by the stencil and alias
-        # into axis-aligned rings; bakeKernel widens them, so do the same.
-        w = self.logw.exp().clamp_min(2.0 / KR)[:, :, None, None, None, None]
+        # A lobe of relative width w spans w*R cells, so the width below which
+        # the stencil cannot resolve it is 2/R -- a property of the channel's
+        # own reach, not of the shared grid. Clamping at 2/KR instead let a
+        # short-reach channel train lobes finer than it could ever be baked
+        # with, and index.html then widened them on load and ran a different
+        # kernel. The browser check in train/verify_browser.mjs is what caught
+        # it: the R = KR channels matched to 1.0000 and the short ones did not.
+        wmin = (2.0 / R).clamp(max=0.7)
+        w = self.logw.exp()[:, :, None, None, None, None].clamp_min(wmin[:, None])
         mu = torch.sigmoid(self.mu_raw)[:, :, None, None, None, None]
         a = self.a[:, :, None, None, None, None]
         ph = torch.where(self.has_phase[None, :], self.phase,
@@ -320,7 +326,8 @@ class PolarKernels(torch.nn.Module):
         """Export as index.html kernel dicts (with the angular fields added)."""
         R = self.radii().detach().tolist()
         mu = torch.sigmoid(self.mu_raw).detach().tolist()
-        w = self.logw.exp().clamp_min(2.0 / self.KR).detach().tolist()
+        w = self.logw.exp().clamp_min(
+            (2.0 / self.radii().detach())[:, None].clamp(max=0.7)).detach().tolist()
         a = self.a.detach().tolist()
         ph = torch.where(self.has_phase[None, :], self.phase,
                          torch.zeros_like(self.phase)).detach().tolist()
@@ -353,7 +360,10 @@ def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
         rr = rad / R
         v = torch.zeros_like(rr)
         for t in k.get("terms", []):
-            w = max(float(t["w"]), 2.0 / KR)      # below ~2 cells the stencil aliases
+            # below ~2 cells across the stencil cannot resolve the lobe, and
+            # a lobe of relative width w spans w*R cells -- so the floor is
+            # 2/R. index.html's bakeKernel applies the same one.
+            w = max(float(t["w"]), min(2.0 / R, 0.7))
             v = v + (float(t["a"])
                      * torch.exp(-(((rr - float(t["r"])) / w) ** 2))
                      * torch.cos(float(t.get("m", 0)) * theta + float(t.get("phase", 0.0))))

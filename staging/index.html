@@ -600,6 +600,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       <button id="reseed" title="Fill the world with random speckled mass">Noise</button>
       <button id="disc" title="Fill a single circle in the middle, leaving the rest empty">Circle</button>
       <button id="reclear" title="Clear every color out of the world">Empty</button>
+      <button id="lizard" title="Load the trained world and grow it from its seed">Lizard</button>
     </div>
 
     </details>
@@ -621,6 +622,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="blend">Blend</label><select id="blend" title="How overlapping colors combine">
       <option value="0">Dominant</option><option value="1">Soft</option>
       <option value="2">Additive</option><option value="3">Winner</option>
+      <option value="4">RGB</option>
     </select></div>
     <div class="row"><label class="lab" for="expo">Expo</label><input id="expo" type="range" min="0.2" max="6" step="0.1" value="2.2" title="Display brightness only"><span class="val" id="expov">2.2</span></div>
     <div class="row"><label class="lab" for="pixels">Pixels</label>
@@ -1308,6 +1310,15 @@ void main(){
   // Snapping the blend weights to 0 or 1 turns the same bilinear fetch into a
   // nearest one, so zooming in shows the lattice cells as they really are.
   if(uSmooth < 0.5) f = floor(f + 0.5);
+  // Blend 4: the first three channels ARE red, green and blue. No palette, no
+  // tone map, no lifted background -- what is on screen is the density itself,
+  // which is the only way to compare it against a picture.
+  if(uBlend == 4){
+    vec4 v0 = mix(mix(cell(0,i0.x,i0.y),   cell(0,i0.x+1,i0.y),   f.x),
+                  mix(cell(0,i0.x,i0.y+1), cell(0,i0.x+1,i0.y+1), f.x), f.y);
+    oC = vec4(clamp(v0.rgb*uExp, 0.0, 1.0), 1.0);
+    return;
+  }
   // Four ways to turn several densities into one colour. Straight addition
   // washes six channels out to grey, so the default takes hue from whichever
   // color dominates and brightness from the total mass present.
@@ -1588,6 +1599,9 @@ function mipFor(r, stencil){
 // more cells so a cell is square and the world covers the canvas exactly once.
 // Rounded to a multiple of 8 so the pyramid still has halvings to give.
 function sizeGrid(){
+  // A world trained on a square torus has to run on one: the lattice normally
+  // follows the canvas aspect, and a wide canvas would stretch it.
+  if(S.square){ S.NX = S.NY = S.N; return; }
   const w = cv.clientWidth || cv.width || 1, ht = cv.clientHeight || cv.height || 1;
   const asp = w/ht, Q = 8, snap = v => Math.max(Q, Math.round(v/Q)*Q);
   S.NX = asp >= 1 ? snap(S.N*asp) : S.N;
@@ -1665,7 +1679,10 @@ function allocate(keep){
 }
 
 // Resizing the world, or asking for a new one, refills it the way you last chose.
-function reseed(){ (S.seedMode === "disc" ? seedDisc : seed)(); }
+function reseed(){
+  if(S.seedMode === "masses" && S.seedMasses) return seedFromMasses(S.seedMasses);
+  (S.seedMode === "disc" ? seedDisc : seed)();
+}
 
 // Fill the world on the GPU, then rescale so each colour carries the density
 // asked for. Both take a couple of passes rather than a few million JS calls.
@@ -1696,6 +1713,36 @@ function fillField(disc){
 }
 const seed = () => fillField(false);
 const seedDisc = () => fillField(true);
+
+// Seed a soft central disc holding an EXACT mass in each channel. MaCE only
+// moves mass, so a trained world has to be handed the mass its picture costs
+// -- the red the lizard's red adds up to, and so on -- and the whole task is
+// then where to put it. A disc rather than one lit cell because mass travels
+// one cell per step.
+function seedFromMasses(masses){
+  if(!T.rhoA) return;
+  const R = Math.min(S.NX, S.NY)*0.10, soft = 1.5;
+  const w = S.NX*S.L, px = new Float32Array(w*S.NY*4);
+  const disc = new Float64Array(S.NX*S.NY);
+  let sum = 0;
+  for(let y = 0; y < S.NY; y++){
+    for(let x = 0; x < S.NX; x++){
+      const d = Math.hypot(y - (S.NY - 1)/2, x - (S.NX - 1)/2);
+      let e = Math.min(1, Math.max(0, (R - d)/soft));
+      e = e*e*(3 - 2*e);
+      disc[y*S.NX + x] = e; sum += e;
+    }
+  }
+  for(let c = 0; c < S.C; c++){
+    const per = (masses[c] || 0)/Math.max(sum, 1e-9);
+    for(let y = 0; y < S.NY; y++)
+      for(let x = 0; x < S.NX; x++)
+        px[(y*w + (c >> 2)*S.NX + x)*4 + (c & 3)] = per*disc[y*S.NX + x];
+  }
+  gl.bindTexture(gl.TEXTURE_2D, T.rhoA);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, S.NY, gl.RGBA, gl.FLOAT, px);
+  S.tick = 0; mass0 = null;
+}
 
 /* ---------------------------------------------------------------- one simulation step */
 function common(prog){
@@ -2048,7 +2095,7 @@ function setMask(v){
 // outside the disc are left unpainted, so the kernel's real shape is visible.
 function paintKernel(cv2, c, KR, cell, gap, css){
   const K = 2*KR + 1;
-  const k = bakeKernel(kernels[c], KR);
+  const k = bakeKernel(kernels[c], KR, KR);
   let mx = 1e-9;
   for(const v of k) mx = Math.max(mx, Math.abs(v));
   const dpr = Math.min(2, window.devicePixelRatio || 1), px = K*cell;
@@ -2399,8 +2446,16 @@ function vnoise2(x, y, freq, seed){
 }
 
 // Build one colour's kernel as a KxK grid of weights.
-function bakeKernel(k, KR){
+// KR is the grid this is baked on; RR is the kernel's REACH on that grid, in
+// cells. They used to be the same number, which meant a short-reach colour was
+// baked on a smaller grid and pasted into the middle -- so its reach was a
+// resolution, quantised by a round(), and it lost detail for no reason. Baking
+// every colour on the shared grid and letting the reach be a plain radial
+// scale is both sharper and continuous, and continuity is what lets a reach be
+// fitted rather than only chosen.
+function bakeKernel(k, KR, RR){
   const K = 2*KR + 1, out = new Float32Array(K*K);
+  RR = RR || KR;
 
   // A stencil KR cells across cannot carry detail finer than about two cells.
   // Sampled kernels routinely ask for narrower than that -- widths go down to
@@ -2410,8 +2465,13 @@ function bakeKernel(k, KR){
   // built-in force law in FS_FORCE already applies:
   //   1. widen any term below what this KR can represent, and
   //   2. sample every cell on a 3x3 sub-grid rather than at its centre.
-  const wmin = 2.0/KR;
-  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin) }));
+  // A lobe of relative width w spans w*RR cells, so the width the stencil can
+  // no longer resolve is 2/RR -- set by the kernel's reach, not by the grid it
+  // is baked on. Capped, so a very short reach cannot demand a width wider
+  // than the disc itself.
+  const wmin = Math.min(2.0/RR, 0.7);
+  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin),
+                                            m: t.m || 0, phase: t.phase || 0 }));
   // Same limit for noise: the finest octave's lattice must span a few cells.
   const octMax = Math.max(1, Math.floor(Math.log2(Math.max(2, 2*KR/3))));
   const oct = Math.max(1, Math.min(k.oct, octMax));
@@ -2422,7 +2482,7 @@ function bakeKernel(k, KR){
       for(let sy = -1; sy <= 1; sy++){
         for(let sx = -1; sx <= 1; sx++){
           const px = x + sx/3, py = y + sy/3;
-          const rr = Math.hypot(px, py)/KR;
+          const rr = Math.hypot(px, py)/RR;
           if(rr > 1) continue;               // dividing by 9 below, not by the
           let v = 0;                         // hit count, feathers the rim too
           if(k.type === "disc"){
@@ -2440,8 +2500,21 @@ function bakeKernel(k, KR){
               amp *= 0.5; f *= 2;
             }
           }else{
+            // A lobe may carry an angular order m and a phase. m = 0 is the
+            // radial ring this has always drawn -- Lenia's shape. m = 1 is a
+            // signed gradient along an axis, which is exactly what a Sobel
+            // filter is, so an NCA's identity/Sobel-x/Sobel-y perception is
+            // the case m in {0, 1, 1}. Higher orders add finer angular
+            // structure. Orders above zero are also the only way a kernel can
+            // tell one direction from another, and a rotationally symmetric
+            // bank therefore has only rotationally symmetric fixed points --
+            // it cannot hold anything shaped like an animal.
+            // Absent fields mean m = 0 and phase = 0, so every kernel written
+            // before this bakes to exactly what it did.
+            const th = Math.atan2(py, px);
             for(const t of terms)
-              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2));
+              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2))
+                 * (t.m ? Math.cos(t.m*th + t.phase) : 1.0);
           }
           acc += v;
         }
@@ -2474,7 +2547,7 @@ function bakeKernel(k, KR){
   let sumG = 0, sumW = 0, l1 = 0;
   for(let y = -KR; y <= KR; y++){
     for(let x = -KR; x <= KR; x++){
-      const rr = Math.hypot(x, y)/KR, i = (y + KR)*K + (x + KR);
+      const rr = Math.hypot(x, y)/RR, i = (y + KR)*K + (x + KR);
       if(rr > 1){ folded[i] = 0; continue; }
       const f = Math.max(0, Math.min(1, (1 - rr)/Math.max(1e-3, k.feather)));
       const w = f*f*(3 - 2*f);
@@ -2507,6 +2580,10 @@ function separablePlan(){
   for(let c = 0; c < S.C; c++){
     const k = kernels[c];
     if(k.type !== "radial" || k.sym !== "radial") return null;
+    // The separable path rebuilds a kernel from two 1-D blurs, which can only
+    // ever produce a radial shape. An angular lobe run down it would silently
+    // come out as a plain difference of gaussians.
+    if((k.terms || []).some(t => t.m)) return null;
     if(k.terms.length !== 1 && k.terms.length !== 2) return null;
     const t = k.terms.slice().sort((a, b) => b.w - a.w);          // wide term first
     if(t.some(x => x.r !== 0)) return null;
@@ -2546,14 +2623,12 @@ function uploadKernels(){
   const data = new Float32Array(K*K*L*4);
   for(let c = 0; c < S.C; c++){
     const k = kernels[c];
-    const kr = Math.max(2, Math.round(kernelKR*Math.min(1, k.R/Rmax)));
-    const small = bakeKernel(k, kr), SK = 2*kr + 1;
+    const rr = Math.max(2, kernelKR*Math.min(1, k.R/Rmax));
+    const full = bakeKernel(k, kernelKR, rr);
     const layer = c >> 2, comp = c & 3;
-    for(let y = 0; y < SK; y++)
-      for(let x = 0; x < SK; x++){
-        const gy = y - kr + kernelKR, gx = x - kr + kernelKR;
-        data[((layer*K + gy)*K + gx)*4 + comp] = small[y*SK + x];
-      }
+    for(let y = 0; y < K; y++)
+      for(let x = 0; x < K; x++)
+        data[((layer*K + y)*K + x)*4 + comp] = full[y*K + x];
   }
   if(kernTex) gl.deleteTexture(kernTex);
   kernTex = gl.createTexture();
@@ -2568,7 +2643,7 @@ function uploadKernels(){
 
 /* ------------------------------------------------------------- saved setups */
 const PKEY = "fieldlife.setups.v1";
-const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth"];
+const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth","square"];
 
 // localStorage can be absent, full, or throw outright (private windows, preview
 // captures). Every access is guarded and the page works fine with nothing in it.
@@ -2600,9 +2675,13 @@ function validConfig(c){
 
 function applyConfig(c){
   if(!validConfig(c)) return false;
-  const resize = (c.C !== S.C || c.N !== S.N);
+  // A change of lattice shape is a resize too: a world pinned square needs new
+  // textures even when its channel count and size are unchanged.
+  const resize = (c.C !== S.C || c.N !== S.N
+                  || !!c.square !== !!S.square);
   for(const k of SCALARS) if(c[k] !== undefined) S[k] = c[k];
   S.seed = c.seed ?? S.seed;
+  if(Array.isArray(c.seedMasses)) S.seedMasses = c.seedMasses.slice();
   palette = makePalette(S.C, S.palette);
   mat = Float32Array.from(c.mat);
   uploadMatrix();
@@ -2919,6 +2998,7 @@ function boot(){
   $("reseed").addEventListener("click", () => { S.seedMode = "noise"; reseed(); mass0 = null; });
   $("disc").addEventListener("click", () => { S.seedMode = "disc"; reseed(); mass0 = null; });
   $("reclear").addEventListener("click", () => $("clear").click());
+  $("lizard").addEventListener("click", () => loadLizard());
   $("resample").addEventListener("click", () => resampleMatrix((Math.random()*1e6) | 0));
   $("cppn").addEventListener("click", () => cppnMatrix((Math.random()*1e6) | 0));
   slider("kterms", "kterms"); slider("kwidth", "kwidth");
@@ -3271,7 +3351,29 @@ function boot(){
     },
   };
 
+  loadLizard().catch(() => {});     // the trained world, if it is sitting beside us
+
   requestAnimationFrame(frame);
+}
+
+// Load the trained preset and put its seed in the middle. The grid is pinned
+// square because that is the torus it was trained on, and the view is switched
+// to the raw RGB read-out because the first three channels ARE the picture.
+async function loadLizard(){
+  const res = await fetch("lizard.json", { cache: "no-cache" });
+  if(!res.ok) throw new Error("no lizard.json");
+  const cfg = await res.json();
+  cfg.square = true;
+  cfg.blend = 4;
+  cfg.expo = 1;
+  cfg.seedMode = "masses";
+  if(!applyConfig(cfg)) throw new Error("lizard.json was rejected");
+  allocate();                       // the square lattice is a new lattice
+  reseed();
+  S.holdUntil = performance.now() + 400;
+  S.running = true;
+  const btn = document.getElementById("play");
+  if(btn) btn.textContent = "Pause";
 }
 
 addEventListener("error", e => {
