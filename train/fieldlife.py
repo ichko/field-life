@@ -322,3 +322,32 @@ class PolarKernels(torch.nn.Module):
                             "m": orders[l], "phase": ph[c][l]}
                            for l in range(len(orders))]}
                 for c in range(self.C)]
+
+
+def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
+    """Bake index.html-shaped kernel dicts, honouring angular terms.
+
+    This is the reference for what §7 of docs/nca-experiment.md asks bakeKernel
+    to become: `m` and `phase` on a term, and every channel baked on the ONE
+    shared grid with `R` as a continuous radial scale rather than resampled to
+    its own resolution. Terms without `m`/`phase` default to a plain radial
+    lobe, so an existing preset bakes exactly as it does today.
+
+    It is also how a trained preset.json is replayed -- see train/evaluate.py.
+    """
+    px, py = _subsampled(KR, dtype, device)
+    rad, theta = torch.hypot(px, py), torch.atan2(py, px)
+    out = []
+    for c in range(C):
+        k = kernels[c]
+        R = max(float(k["R"]), 1e-3)
+        rr = rad / R
+        v = torch.zeros_like(rr)
+        for t in k.get("terms", []):
+            w = max(float(t["w"]), 2.0 / KR)      # below ~2 cells the stencil aliases
+            v = v + (float(t["a"])
+                     * torch.exp(-(((rr - float(t["r"])) / w) ** 2))
+                     * torch.cos(float(t.get("m", 0)) * theta + float(t.get("phase", 0.0))))
+        v = torch.where(rr > 1, torch.zeros_like(v), v).sum(dim=(0, 1)) / 9
+        out.append(_finish(v, KR, k.get("feather", 0.1), zero_mean=True))
+    return torch.stack(out)

@@ -47,6 +47,7 @@ import fieldlife as fl
 import target as tgt
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+HORIZONS = [16, 32, 64, 128]   # rollout lengths the checkpoint reports
 
 
 # ------------------------------------------------------------------ the model
@@ -128,6 +129,23 @@ def divergence_rate(model, rho, steps=12):
         return (sum((p[0] - mx) * (p[1] - my) for p in gaps) / den) if den else 0.0
 
 
+def horizon_losses(model, target, seed, steps_list):
+    """Loss from the seed at each rollout length.
+
+    The training window is short by necessity, so the number that matters is
+    not the loss at the window but how it behaves well past it: a model that
+    reaches the shape and then smears has a rising curve here, and one that
+    holds has a flat one. Without this the difference is only visible by eye.
+    """
+    with torch.no_grad():
+        out, rho, done = [], seed[None].clone(), 0
+        for s in steps_list:
+            rho = model.rollout(rho, s - done)
+            done = s
+            out.append(((rho[0, :3] - target) ** 2).mean().item())
+    return out
+
+
 def save_progress(path, target, model, seed, steps_list):
     """Target on the left, then the rollout at each checkpoint length."""
     with torch.no_grad():
@@ -157,6 +175,8 @@ def main():
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--window", type=int, default=16, help="BPTT length")
     ap.add_argument("--pool", type=int, default=64)
+    ap.add_argument("--reseed-every", type=int, default=4,
+                    help="iterations between sending a pool state back to the seed")
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--lam-penalty", type=float, default=0.02,
                     help="weight on the measured divergence rate")
@@ -194,7 +214,8 @@ def main():
     logp = os.path.join(run, "log.csv")
     if not os.path.exists(logp):
         with open(logp, "w", newline="") as f:
-            csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta", "secs"])
+            csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta",
+                                    "h16", "h32", "h64", "h128", "secs"])
 
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
           f"window {a.window}  batch {a.batch}  pool {a.pool}")
@@ -205,13 +226,16 @@ def main():
     for it in range(start_it, a.iters):
         idx = torch.randint(0, a.pool, (a.batch,))
         batch = pool[idx].clone()
-        # the worst state in the batch goes back to the seed, so the model has
-        # to keep working from scratch and cannot drift into a pool of its own
-        # comfortable states -- Growing NCA's trick, and the reason the pattern
-        # is asked to persist rather than merely to be reached once
-        with torch.no_grad():
-            worst = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
-        batch[worst] = seed
+        # The worst state in the batch goes back to the seed, so the model has
+        # to keep working from scratch -- Growing NCA's trick. But the RATE
+        # matters as much as the trick: resetting one of a batch of two every
+        # iteration reseeds half the batch, and then no pooled state ever ages
+        # past about two windows, so persistence is never actually asked for.
+        # Reseeding every few iterations instead lets the pool grow old.
+        if it % a.reseed_every == 0:
+            with torch.no_grad():
+                worst = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
+            batch[worst] = seed
 
         out = model.rollout(batch, a.window)
         loss = ((out[:, :3] - target) ** 2).mean()
@@ -241,18 +265,20 @@ def main():
         if it % a.ckpt == 0 or it == a.iters - 1:
             f, r, b = model.scalars()
             secs = time.time() - t0
+            hz = horizon_losses(model, target, seed, HORIZONS)
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
-                                         f"{secs:.0f}"])
+                                         *[f"{v:.6f}" for v in hz], f"{secs:.0f}"])
             json.dump(model.to_config(a.channels, a.grid),
                       open(os.path.join(run, "preset.json"), "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
                         "pool": pool, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
-                          [16, 32, 64, 128])
+                          HORIZONS)
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "
+                  f"horizon {'/'.join(f'{v:.4f}' for v in hz)}  "
                   f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)
 
         if a.minutes and time.time() - t0 > a.minutes * 60:
