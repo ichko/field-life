@@ -221,8 +221,17 @@ def main():
     ap.add_argument("--minutes", type=float, default=0, help="stop after this long")
     ap.add_argument("--resume", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--threads", type=int, default=2,
+                    help="torch intra-op threads; keep the total across concurrent "
+                         "runs at or under the core count")
     a = ap.parse_args()
 
+    # Torch's OpenMP pool spin-waits, so oversubscribing cores does not merely
+    # share them -- a run that asks for more threads than are free burns its
+    # quantum spinning and can crawl to a near halt while a LARGER run beside
+    # it, holding fewer threads, keeps its pace. Default low and set it here
+    # rather than leaving it to whatever the environment happens to carry.
+    torch.set_num_threads(a.threads)
     torch.manual_seed(a.seed)
     orders = tuple(int(x) for x in a.orders.split(","))
     run = os.path.join(HERE, "runs", a.name)
