@@ -386,7 +386,14 @@ def main():
                 if a.reseed_policy == "worst":
                     pick = ((batch[:, :3] - target) ** 2).mean(dim=(1, 2, 3)).argmax()
                 else:
-                    pick = ages[idx].argmax()
+                    # Oldest RELATIVE TO ITS BAND. Plain argmax over age always
+                    # lands on the old band -- its states are older by
+                    # construction -- so the reseed meant to keep fresh seeds
+                    # coming was executing the long-lived states instead, and
+                    # the old band sat at 233 of a 2048 cap. Age over span puts
+                    # a young state at 90 of 96 ahead of an old one at 300 of
+                    # 2048, which is what "due to be retired" actually means.
+                    pick = (ages[idx].double() / span[idx].double()).argmax()
             batch[pick] = seed
             ages[idx[pick]] = 0
         # and retire a state once it has lived its full span, so the pool holds
