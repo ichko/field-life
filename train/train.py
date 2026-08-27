@@ -213,6 +213,17 @@ def main():
                     help="angular order per kernel lobe; all zeros = radial only")
     ap.add_argument("--channels", type=int, default=6)
     ap.add_argument("--grid", type=int, default=64)
+    ap.add_argument("--span", type=int, default=None,
+                    help="cells the animal spans. Growing this WITHOUT growing "
+                         "the kernels is the point: the reach sets a blob size, "
+                         "so a target much larger than the reach has to be built "
+                         "out of blobs of it. At span 40 the reach is a third of "
+                         "the animal; at 200 it is a fourteenth.")
+    ap.add_argument("--init-from", default=None,
+                    help="start from another run's world. Kernels are in "
+                         "absolute cells, so a world fitted at one target size "
+                         "is a legitimate starting point at another -- only the "
+                         "matrix has to adapt to the new scale.")
     ap.add_argument("--kr", type=int, default=13)
     ap.add_argument("--iters", type=int, default=100000)
     ap.add_argument("--batch", type=int, default=2)
@@ -297,7 +308,8 @@ def main():
     atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
 
     # ---- the task
-    target_np = tgt.render_emoji(span=tgt.SPAN, grid=a.grid)
+    span = a.span or tgt.SPAN
+    target_np = tgt.render_emoji(span=span, grid=a.grid)
     masses = tgt.seed_masses(target_np, a.channels,
                              rng=np.random.default_rng(a.seed))
     seed_np = tgt.seed_field(masses, grid=a.grid)
@@ -305,6 +317,13 @@ def main():
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
+    if a.init_from:
+        src = os.path.join(HERE, "runs", a.init_from, "ckpt.pt")
+        if not os.path.exists(src):
+            sys.exit(f"no checkpoint at {src}")
+        model.load_state_dict(torch.load(src, weights_only=False)["model"])
+        print(f"started from {a.init_from}'s world (its pool is not carried: "
+              f"a field grown at one size is not a state at another)")
     opt = torch.optim.Adam(model.parameters(), a.lr)
     pool = seed[None].repeat(a.pool, 1, 1, 1).clone()
     # How many steps each pooled state has lived. Persistence cannot be learned
@@ -318,8 +337,8 @@ def main():
     # steps. Every batch draws from both, and growing and holding stop being
     # the same slot.
     n_young = max(1, min(a.pool - 1, int(a.pool * a.young_frac)))
-    span = torch.full((a.pool,), a.max_age, dtype=torch.long)
-    span[:n_young] = a.young_age
+    lifespan = torch.full((a.pool,), a.max_age, dtype=torch.long)
+    lifespan[:n_young] = a.young_age
     start_it = 0
 
     ck = os.path.join(run, "ckpt.pt")
@@ -336,6 +355,10 @@ def main():
             csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta"]
                                    + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
 
+    reach = tgt.budget(target_np, a.grid)
+    print(f"run {a.name}: grid {a.grid}, animal {span} cells, kernels up to "
+          f"{a.kr} -> reach is {a.kr/span:.2f} of the animal; "
+          f"the far end is {reach} cells from the seed")
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
           f"window {a.window}  batch {a.batch}  pool {a.pool} "
           f"({n_young} young to {a.young_age}, {a.pool - n_young} old to {a.max_age})")
@@ -393,12 +416,12 @@ def main():
                     # the old band sat at 233 of a 2048 cap. Age over span puts
                     # a young state at 90 of 96 ahead of an old one at 300 of
                     # 2048, which is what "due to be retired" actually means.
-                    pick = (ages[idx].double() / span[idx].double()).argmax()
+                    pick = (ages[idx].double() / lifespan[idx].double()).argmax()
             batch[pick] = seed
             ages[idx[pick]] = 0
         # and retire a state once it has lived its full span, so the pool holds
         # a spread of ages rather than drifting to all-old or all-young
-        stale = ages[idx] >= span[idx]
+        stale = ages[idx] >= lifespan[idx]
         if stale.any():
             batch[stale] = seed
             ages[idx[stale]] = 0
@@ -472,6 +495,8 @@ def main():
                         "pool": pool, "ages": ages, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
                           HORIZONS)
+            json.dump({"span": span, "grid": a.grid},
+                      open(os.path.join(run, "scale.json"), "w"))
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "
                   f"age~{int(ages[:n_young].float().mean())}/"
