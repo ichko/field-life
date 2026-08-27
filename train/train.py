@@ -316,6 +316,21 @@ def main():
     # decided by the horizon curve from a fresh seed instead, and the world
     # that scored it is kept beside the running one.
     best_h = float("inf")
+    # ...carried across restarts. Without this every resumed run crowns its own
+    # local best and overwrites a better world with a worse one: iteration 9500
+    # replaced 8520 while losing on five horizons of six, purely because the
+    # process had started again in between.
+    bp = os.path.join(run, "preset-best.json")
+    if a.resume and os.path.exists(bp):
+        try:
+            prev = json.load(open(bp))
+            if "_horizons" in prev:
+                best_h = (sum(h * w for h, w in zip(prev["_horizons"], HZ_WEIGHTS))
+                          / sum(HZ_WEIGHTS))
+                print(f"carrying the best from iteration {prev.get('_bestAt')}: "
+                      f"score {best_h:.5f}")
+        except (json.JSONDecodeError, KeyError, TypeError):
+            pass
     for it in range(start_it, a.iters):
         idx = torch.randint(0, a.pool, (a.batch,))
         batch = pool[idx].clone()
