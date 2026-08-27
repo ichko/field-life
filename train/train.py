@@ -317,6 +317,13 @@ def main():
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
+    # A pool of long-lived states is a REFINEMENT, not a bootstrap. It assumes
+    # the world can already roughly do the task, so that an aged state is a
+    # drifted lizard worth repairing. Hand it a world that cannot build the
+    # shape at all and it poisons itself: the states rot, the loss becomes
+    # dominated by repairing rot, and the world gets further from building --
+    # hires2x went from 0.05 to 0.28 doing exactly this. Start a new scale on
+    # fresh seeds and let the pool age once the shape appears.
     # Fine-tuning wants a smaller step than training from scratch. The
     # per-parameter normalisation below makes every parameter move by about lr
     # whatever its gradient, which is what gets a random world off the ground
