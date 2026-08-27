@@ -178,30 +178,54 @@ Both are already implemented on the torch side as `PolarKernels`
 choice is discrete) and `perlin` kernels (a seeded integer hash, nothing trains
 one). `pl` and `disc` stay ported for parity only.
 
-## 6. How much capacity — the rungs
+## 6. How much capacity — measured
 
-Run these in order. The ablation is the result; jumping to the top rung answers
-"can it" but not "with how little".
+This section predicted that the linear affinity was the capacity ceiling and
+that rung 1 was where a lizard would appear. Both halves are wrong, and the
+run that settles it is `train/runs/rung1b`.
 
-**Rung 0 — the law exactly as shipped.** Trainable: `M` (36 floats at C=6), the
-per-channel polar kernels, and `force`, `repel`, `beta`. About 190 numbers (36
-in the matrix, 150 in the kernel bank, 3 globals), no
-new shaders, loads into the browser today. The affinity is linear in `U`, so my
-honest expectation is a stable coloured organism with the right mass and roughly
-the right envelope — not a lizard. That is still the baseline every other rung
-is measured against.
+**Rung 0 — the law as shipped.** `M`, the per-channel polar kernels, and
+`force`, `repel`, `beta`. 543 numbers at C=12. No new shaders; loads into the
+browser. This is what is deployed.
 
-**Rung 1 — a hidden layer where the matrix was.** Replace `A = force * M·U` with
-`A = W2 · tanh(W1 · U + b1)`, `C → 32 → C`. Structurally this is an NCA's update
-MLP, and it is one new shader in `FS_AFF`. Roughly 400 more parameters. This is
-where I would expect a recognisable lizard, if anywhere.
+**Rung 1 — a hidden layer where the matrix was.** `A = W2·tanh(W1·U + b1)`,
+C→48→C, applied per cell. 1743 numbers. Structurally an NCA's update MLP, and
+one new shader in `FS_AFF`.
 
-**Rung 2 — a full per-cell MLP** over `[rho, U, N]`. Genuinely an NCA with MaCE
-as its transport operator. Keep it in reserve.
+Distance from the target, from a fresh seed, at the best checkpoint each run
+reached:
 
-Every rung keeps MaCE untouched, so mass conservation holds all the way up. That
-is the property worth protecting: whatever this learns, it learns without
-creating matter.
+            h32     h64    h128    h256    h512
+  rung 1   0.0026  0.0034  0.0035  0.0038  0.0058    1743 numbers
+  rung 0   0.0019  0.0022  0.0025  0.0028  0.0039     543 numbers
+
+**The matrix wins on every horizon, by 1.44x overall, with a third of the
+parameters.** Rung 1 went 1600 iterations without improving on 0.00460 against
+rung 0's 0.00300.
+
+(h16 is left out of that ratio: rung 1 trained with `--loss-from 28` so step 16
+was never scored for it, while rung 0 used 16. Including it gives 1.51x, which
+flatters the conclusion.)
+
+The caveat: rung 0 had 13800 iterations and rung 1 had 6800. This is a plateau,
+not a proven convergence. It is worth reporting because rung 0 at 6800 was
+still improving substantially and rung 1 was not.
+
+**Why, plausibly.** The two runs fail differently. Rung 1 learned to BUILD
+quickly — h32 fell fourfold inside 1400 iterations, reaching rung 0's converged
+value — and to HOLD slowly, h512 taking another 4000 to come down at all.
+Holding a pattern for five hundred steps is a stability problem more than an
+expressiveness one, and a linear map has bounded, predictable long-run
+behaviour where a nonlinearity does not. The network buys the ability to say
+more per cell and pays for it in what happens after three hundred steps of
+saying it.
+
+So the capacity that mattered was never in the per-cell function. It was in the
+kernels: §5's angular orders are the difference between a lizard and a ring,
+and no amount of per-cell machinery substitutes for them.
+
+**Rung 2 — a full per-cell MLP** over `[rho, U, N]`. Not run. On this evidence
+it would make the stability problem worse, not better.
 
 ## 7. What `index.html` needs — measured, not argued
 
