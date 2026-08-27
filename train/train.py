@@ -317,6 +317,14 @@ def main():
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
+    # Fine-tuning wants a smaller step than training from scratch. The
+    # per-parameter normalisation below makes every parameter move by about lr
+    # whatever its gradient, which is what gets a random world off the ground
+    # and what kicks a good one out of the configuration it arrived in: warm
+    # started at lr 3e-3, h512 went 0.019 to 0.182 in fifty iterations.
+    if a.init_from and a.lr == ap.get_default("lr"):
+        a.lr = 5e-4
+        print(f"warm start: learning rate reduced to {a.lr}")
     if a.init_from:
         src = os.path.join(HERE, "runs", a.init_from, "ckpt.pt")
         if not os.path.exists(src):
