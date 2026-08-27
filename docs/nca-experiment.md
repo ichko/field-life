@@ -203,38 +203,57 @@ Every rung keeps MaCE untouched, so mass conservation holds all the way up. That
 is the property worth protecting: whatever this learns, it learns without
 creating matter.
 
-## 7. What `index.html` would need — and why it needs nothing
+## 7. What `index.html` needs — measured, not argued
 
-**Training touches the simulation not at all.** It runs against the port in
-`train/`, and a trained result is a preset: `currentConfig`/`applyConfig`
-deep-copy kernels as JSON, so a kernel bank round-trips through the existing
-save/load with no schema work. A bank with three or more lobes already routes
-to the 2-D stencil path, which is the path the port covers. So the minimum diff
-to the shipped file is **zero**, and the first run should take it.
+An earlier draft of this section said the minimum diff was zero, and that a
+trained bank could be dropped into the shipped simulation as a preset. That is
+true only of kernels the shipped `bakeKernel` can bake, and it does not hold
+for anything this experiment actually learns.
 
-That constrains the first run to radial kernels with fixed per-channel reaches.
-Which is worth doing on its own terms: §5 argues that `m > 0` is what lets a
-mass-conserving field break rotational symmetry, and that argument is a
-prediction. Running `m = 0` first turns it into a measurement, and it is the
-Lenia-vs-NCA ablation of §8 taken in the other order. If radial kernels get
-there, nothing below is ever needed.
+`train/verify_browser.mjs` loads a preset into index.html in headless Chromium
+and runs it. Doing that with polar3's bank, against the same bank baked as the
+trainer meant it:
 
-If they plateau, each of these buys back one thing, and can be taken on its own:
+    kernel bank, max abs difference     0.034   on unit-L1 kernels
+    per-channel cosine similarity       +0.58 +0.55 +0.00 +0.12 +0.07 +0.41
+                                        +0.12 +0.25 -0.11 +0.23 -0.11 +0.70
+    loss after 64 steps, trained        0.0052
+    loss after 64 steps, browser today  0.0973      18.7x worse
+
+Two channels come out orthogonal to what was trained and two come out
+anticorrelated. The picture is a lizard through the trained kernels and a set
+of concentric rings through the shipped ones.
+
+And it fails **silently**. `applyConfig` accepts the preset, `validConfig`
+passes, the simulation runs. An unknown field on a term is simply not read, so
+every angular lobe is baked as a plain radial one and the preset loads as a
+different, rotationally symmetric world. Nothing anywhere reports a problem.
+
+So change 1 below is not optional for any result worth having, and the
+zero-diff option and the working option are the same choice, not two:
 
 1. **`bakeKernel`** — honour `m` and `phase` on a term:
    `v += t.a * exp(-((rr - t.r)/t.w)^2) * cos(t.m * theta + t.phase)`, with
-   `theta = atan2(py, px)`. Absent fields default to `m = 0, phase = 0`, so every
-   existing preset is byte-identical. Buys: angular kernels.
-2. **`uploadKernels` / `bakeKernel`** — bake at the shared `kernelKR` with `R_c`
-   as a radial scale, dropping the `round()` resampling. Buys: a trainable
-   reach. Worth doing independently of this experiment, since it also removes
-   resolution loss on short-reach channels.
-3. **`separablePlan()`** — bail out when any term has `m !== 0`. A correctness
-   guard that only matters once (1) exists: without it an angular kernel would
-   be silently run as a radial difference-of-gaussians.
+   `theta = atan2(py, px)`. `fl.bake_from_config` in `train/fieldlife.py` is
+   the reference implementation. Absent fields default to `m = 0, phase = 0`,
+   so every existing preset stays byte-identical. **Required.**
+2. **`separablePlan()`** — bail out when any term has `m !== 0`. Required
+   alongside 1, and for the same reason: without it an angular kernel takes the
+   separable path and is run as a radial difference-of-gaussians. (polar3 has
+   enough lobes to miss that path anyway, but nothing guarantees that in
+   general.)
+3. **`uploadKernels` / `bakeKernel`** — bake at the shared `kernelKR` with
+   `R_c` as a radial scale, dropping the `round()` resampling. Buys a trainable
+   reach, and removes resolution loss on short-reach channels. Worth doing
+   independently.
 4. **`FS_DRAW`** — a "Raw RGB" blend mapping channels 0-2 straight to R, G, B
-   with no palette, tone-map or lifted background. Buys: seeing the result in
-   the browser rather than in a plot. Pure convenience.
+   with no palette, tone-map or lifted background. Convenience only.
+
+If a genuinely zero-diff result is wanted, it has to be an all-`m = 0` bank --
+and §6's ablation is that those cannot do the task at all. Choose one.
+
+Rung 1 needs its own change on top: `FS_AFF` computes a matrix multiply, and a
+per-cell network is not one.
 
 ## 8. Protocol
 
