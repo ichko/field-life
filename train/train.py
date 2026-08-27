@@ -230,7 +230,15 @@ def main():
                          "the seed; the pool's oldest states are what teach the "
                          "shape to hold rather than merely to arrive")
     ap.add_argument("--reseed-every", type=int, default=4,
-                    help="iterations between sending a pool state back to the seed")
+                    help="iterations between sending a pool state back to the "
+                         "seed. This sets how old the pool gets, and the "
+                         "relationship is arithmetic, not a matter of taste: "
+                         "each iteration adds window*batch step-years to the "
+                         "pool and reseeding removes the oldest at rate "
+                         "1/reseed_every, so the mean age settles at about "
+                         "window*batch*reseed_every/2. At 32x2x8 that is 256, "
+                         "which is what it sat at while the far horizons "
+                         "refused to move")
     ap.add_argument("--reseed-policy", default="oldest", choices=["oldest", "worst"],
                     help="which pooled state goes back to the seed. Growing NCA "
                          "retires the worst, to stop a pool filling with "
