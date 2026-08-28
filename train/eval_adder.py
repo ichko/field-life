@@ -62,6 +62,28 @@ def sample_pairs(nbits, count, rng):
             for _ in range(count)], False
 
 
+def baseline(task, pairs, chunk=256):
+    """What answering every slot with its own majority bit would score.
+
+    Without this the accuracy columns cannot be read. `and` is 1 in a quarter of
+    cases, so a field that has learned nothing and pushes every blob to the zero
+    rail scores 0.75 per bit -- which looks like most of the way to solved and is
+    none of it. `copy`, `xor` and `add` all sit at 0.5, but only because their
+    answers happen to be balanced.
+    """
+    ones = None
+    n = 0
+    for lo in range(0, len(pairs), chunk):
+        _, _, bits, _ = task.build(pairs[lo:lo + chunk])
+        b = bits.sum(0).numpy()
+        ones = b if ones is None else ones + b
+        n += bits.shape[0]
+    p = ones / max(n, 1)
+    per_slot = np.maximum(p, 1 - p)
+    # exact: every slot right at once, if each is answered by its own majority
+    return float(per_slot.mean()), float(np.prod(per_slot))
+
+
 def evaluate(world, task, pairs, horizons, chunk=64):
     bit = np.zeros(len(horizons))
     exact = np.zeros(len(horizons))
@@ -135,20 +157,26 @@ def main():
               f"has never seen")
     print()
     head = "  ".join(f"{h:>13d}" for h in horizons)
-    print(f"{'width':>16}  {head}")
-    print(f"{'':>16}  " + "  ".join(f"{'bit / exact':>13}" for _ in horizons))
+    print(f"{'width':>16}  {head}   {'majority':>13}")
+    print(f"{'':>16}  " + "  ".join(f"{'bit / exact':>13}" for _ in horizons)
+          + f"   {'bit / exact':>13}")
 
     for s in (int(x) for x in a.slots.split(",")):
         task = Task(s, a.channels, op)
         pairs, full = sample_pairs(task.geo.nbits, a.pairs, rng)
         bit, exact = evaluate(world, task, pairs, horizons)
+        bb, be = baseline(task, pairs)
         tag = (f"{task.geo.nbits}-bit, {s} slots"
                + ("" if full else "*"))
         print(f"{tag:>16}  " + "  ".join(
-            f"{b:6.3f} /{e:6.3f}" for b, e in zip(bit, exact)))
+            f"{b:6.3f} /{e:6.3f}" for b, e in zip(bit, exact))
+            + f"   {bb:6.3f} /{be:6.3f}")
         if a.strip and s == int(a.slots.split(",")[0]):
             print(f"  wrote {strip(a.strip, world, task, pairs[:6], horizons)}")
     print("\n* sampled, not enumerated: the space is larger than --pairs")
+    print("majority is the trivial world: answer every slot with its own most "
+          "common bit\nand move nothing. Anything at or below it has learned "
+          "nothing.")
 
 
 if __name__ == "__main__":
