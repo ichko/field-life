@@ -4,3 +4,7 @@ run and4: 4-bit `and` on 5 slots, grid 30 x 24, 192 train pairs / 64 held out
   also evaluated, never trained, at slots [9, 17]
   reach pinned to 7 cells, so the export bakes exactly
   183 trainable numbers against 256 input pairs at this width
+  it      0  loss 0.01692  force   12.0  beta 0.35  lam +0.00  age~1  bit 0.17/0.18/0.23/0.22/0.22/0.26  exact 0.00/0.00/0.00/0.00/0.00/0.00  held-out 0.33/0.00  s9:0.28/0.00  s17:0.31/0.00  0.23s/it  *best*
+  it    100  loss 0.01663  force   16.2  beta 0.46  lam +0.06  age~41  bit 0.82/0.82/0.82/0.82/0.82/0.82  exact 0.28/0.28/0.28/0.28/0.28/0.28  held-out 0.76/0.22  s9:0.28/0.00  s17:0.31/0.00  0.36s/it  *best*
+  it    200  loss 0.01800  force   19.5  beta 0.55  lam +0.00  age~42  bit 0.82/0.82/0.82/0.56/0.37/0.26  exact 0.28/0.28/0.28/0.16/0.06/0.03  held-out 0.24/0.00  s9:0.28/0.00  s17:0.31/0.00  0.29s/it
+  it    300  loss 0.01518  force   18.8  beta 0.55  lam +0.00  age~39  bit 0.82/0.82/0.82/0.80/0.47/0.28  exact 0.28/0.28/0.28/0.28/0.16/0.06  held-out 0.29/0.00  s9:0.28/0.00  s17:0.31/0.00  0.26s/it
