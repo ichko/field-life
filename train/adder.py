@@ -44,11 +44,21 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-PITCH = 6          # cells between neighbouring bit slots
-HEIGHT = 24        # rows; the rails use eight of them and the rest is free space
-RAIL = 3           # rails sit this far above and below the mid line
-BLOB_R = 1.7       # blob radius in cells
-BLOB_SOFT = 1.2    # smoothstep width at the blob's rim
+# A blob has to be a DISC, and on an integer lattice that takes radius. At 1.7
+# the centre and its four orthogonal neighbours light at 0.62 while the diagonals
+# sit at distance 1.41 and get 0.14 -- which is a plus sign, not a circle, and it
+# is what the first runs here were trained on. Anything under about 2 is a cross.
+# 2.6 fills out to a round disc five cells across.
+#
+# The rest of the geometry follows from that and is not free to leave alone: a
+# disc five cells across on rails six apart overlaps the mid line it started
+# from and its own opposite rail, which blurs exactly the distinction the readout
+# has to make. Rails and slots both get room in proportion.
+PITCH = 8          # cells between neighbouring bit slots
+HEIGHT = 28        # rows; the rails use most of the middle and the rest is free
+RAIL = 4           # rails sit this far above and below the mid line
+BLOB_R = 2.6       # blob radius in cells
+BLOB_SOFT = 1.4    # smoothstep width at the blob's rim
 
 # channel roles. 0-2 are read as RGB, so a rollout is directly viewable.
 CH_A, CH_B, CH_S = 0, 1, 2
