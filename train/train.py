@@ -41,6 +41,7 @@ import time
 
 import numpy as np
 import torch
+from torch.utils.checkpoint import checkpoint
 from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -128,12 +129,26 @@ class World(torch.nn.Module):
                 self.log_repel.exp().clamp(0.0, 50.0),
                 self.log_beta.exp().clamp(0.01, 10.0))
 
-    def rollout(self, rho, steps, kern=None):
+    def rollout(self, rho, steps, kern=None, recompute=False):
+        """Advance the field. `recompute` trades time for memory.
+
+        A step keeps about ten full-field intermediates alive for the backward
+        pass, so a long window on a large grid runs out of memory long before
+        it runs out of gradient: 88 steps at 256x256 with twelve channels
+        wanted several gigabytes and was killed. Checkpointing keeps only the
+        field at each step boundary and recomputes the rest during backward,
+        which costs roughly one extra forward pass and turns the memory from
+        ten tensors per step into one.
+        """
         kern = self.kern() if kern is None else kern
         f, r, b = self.globals()
         mix = self.mix if self.hidden else self.mat
         for _ in range(steps):
-            rho = fl.step(rho, kern, mix, f, r, b, self.mip)
+            if recompute and torch.is_grad_enabled():
+                rho = checkpoint(fl.step, rho, kern, mix, f, r, b, self.mip,
+                                 use_reentrant=False)
+            else:
+                rho = fl.step(rho, kern, mix, f, r, b, self.mip)
         return rho
 
     def scalars(self):
@@ -244,6 +259,16 @@ def main():
                          "level doubles the reach a given stencil buys and "
                          "quarters what it costs. Needs a grid of 96 or more per "
                          "level, since the pyramid stops at 48 cells.")
+    ap.add_argument("--seed-radius", type=float, default=0.0,
+                    help="seed disc radius in cells; 0 keeps the old default of "
+                         "a tenth of the grid. Scaling it to the animal rather "
+                         "than the grid shortens how far mass must travel, and "
+                         "that distance sets the window and so the cost.")
+    ap.add_argument("--recompute", action="store_true",
+                    help="recompute activations in the backward pass instead of "
+                         "storing them. Roughly one extra forward pass, and the "
+                         "difference between fitting a big grid in memory and "
+                         "being killed by it.")
     ap.add_argument("--mat-init", default="random", choices=["random", "zeros"],
                     help="zeros starts from the benign end: no interaction at "
                          "all, so structure is grown rather than rescued from a "
@@ -335,7 +360,8 @@ def main():
     target_np = tgt.render_emoji(span=span, grid=a.grid)
     masses = tgt.seed_masses(target_np, a.channels,
                              rng=np.random.default_rng(a.seed))
-    seed_np = tgt.seed_field(masses, grid=a.grid)
+    seed_np = tgt.seed_field(masses, grid=a.grid,
+                             radius=a.seed_radius or None)
     target = torch.tensor(target_np, dtype=torch.float32)
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
@@ -475,7 +501,7 @@ def main():
         kern = model.kern()
         out, scored = batch, []
         for t in range(a.window):
-            out = model.rollout(out, 1, kern=kern)
+            out = model.rollout(out, 1, kern=kern, recompute=a.recompute)
             step_no = t + 1
             if step_no < a.loss_from and step_no != a.window:
                 continue          # too early for the shape to exist at all

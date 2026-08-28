@@ -75,6 +75,13 @@ def seed_masses(target, C, hidden_floor=HIDDEN_FLOOR, rng=None):
 
 
 def seed_field(masses, grid=GRID, radius=None, softness=1.5):
+    # radius defaults to a tenth of the GRID, which is the wrong thing to scale
+    # with once the grid carries padding: a 120-cell animal on a 256 grid gets
+    # a 25-cell seed and has to carry mass 73 cells to reach its far end, which
+    # sets the BPTT window and therefore the cost of every iteration. Sizing
+    # the seed to the animal instead shortens the journey without making the
+    # task easier in any way that matters -- the seed is a blob of the right
+    # stuff, not a hint about where the stuff goes.
     """A soft disc at the centre carrying exactly `masses` in each channel.
 
     One disc, not one cell: MaCE moves mass at most one cell per step, so a
