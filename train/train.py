@@ -101,13 +101,24 @@ class World(torch.nn.Module):
     where the gradient it is following stops meaning anything.
     """
 
-    def __init__(self, C, orders, KR, seed=0, hidden=0):
+    def __init__(self, C, orders, KR, seed=0, hidden=0, mat_init="random", mip=0):
         super().__init__()
         self.kern = fl.PolarKernels(C, orders=orders, KR=KR, seed=seed)
         g = torch.Generator().manual_seed(seed + 1)
         self.hidden = hidden
+        self.mip = mip
         self.mix = Mix(C, hidden, seed) if hidden else None
-        self.mat = torch.nn.Parameter(torch.randn(C, C, generator=g) * 0.5)
+        # A random matrix is a random world: at 2x it scrambles a large field
+        # before anything has been learned. Zeros start from the benign end
+        # instead -- with M = 0 the affinity is only the crowding term, so the
+        # field spreads gently and structure has to be grown rather than
+        # rescued. This is Growing NCA's zeroed last layer, whose initial
+        # update does nothing. It is not literally nothing here: the neutral
+        # state of MaCE is a 3x3 blur, not the identity, because there is no
+        # setting of the affinity that makes mass stay put.
+        self.mat = torch.nn.Parameter(
+            torch.zeros(C, C) if mat_init == "zeros"
+            else torch.randn(C, C, generator=g) * 0.5)
         self.log_force = torch.nn.Parameter(torch.tensor(math.log(12.0)))
         self.log_repel = torch.nn.Parameter(torch.tensor(math.log(1.0)))
         self.log_beta = torch.nn.Parameter(torch.tensor(math.log(0.35)))
@@ -122,7 +133,7 @@ class World(torch.nn.Module):
         f, r, b = self.globals()
         mix = self.mix if self.hidden else self.mat
         for _ in range(steps):
-            rho = fl.step(rho, kern, mix, f, r, b)
+            rho = fl.step(rho, kern, mix, f, r, b, self.mip)
         return rho
 
     def scalars(self):
@@ -131,7 +142,7 @@ class World(torch.nn.Module):
     def to_config(self, C, N):
         """A preset index.html can load, with no changes to it."""
         f, r, b = self.scalars()
-        R = self.kern.radii().detach().tolist()
+        R = (self.kern.radii() * (1 << self.mip)).detach().tolist()
         return {"seed": 1, "mat": self.mat.detach().flatten().tolist(),
                 "kernels": self.kern.to_config(),
                 "N": N, "C": C, "density": 0.12,
@@ -224,7 +235,19 @@ def main():
                          "absolute cells, so a world fitted at one target size "
                          "is a legitimate starting point at another -- only the "
                          "matrix has to adapt to the new scale.")
-    ap.add_argument("--kr", type=int, default=13)
+    ap.add_argument("--kr", type=int, default=13,
+                    help="stencil half-width, in cells of whatever resolution "
+                         "the convolution runs at. index.html caps it at 15.")
+    ap.add_argument("--mip", type=int, default=0,
+                    help="halve the field this many times before convolving, as "
+                         "index.html does for reaches past its stencil cap. Each "
+                         "level doubles the reach a given stencil buys and "
+                         "quarters what it costs. Needs a grid of 96 or more per "
+                         "level, since the pyramid stops at 48 cells.")
+    ap.add_argument("--mat-init", default="random", choices=["random", "zeros"],
+                    help="zeros starts from the benign end: no interaction at "
+                         "all, so structure is grown rather than rescued from a "
+                         "random world")
     ap.add_argument("--iters", type=int, default=100000)
     ap.add_argument("--batch", type=int, default=2)
     ap.add_argument("--window", type=int, default=16, help="BPTT length")
@@ -316,7 +339,8 @@ def main():
     target = torch.tensor(target_np, dtype=torch.float32)
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
-    model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden)
+    model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden,
+                  mat_init=a.mat_init, mip=a.mip)
     # A pool of long-lived states is a REFINEMENT, not a bootstrap. It assumes
     # the world can already roughly do the task, so that an aged state is a
     # drifted lizard worth repairing. Hand it a world that cannot build the
@@ -371,9 +395,10 @@ def main():
                                    + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
 
     reach = tgt.budget(target_np, a.grid)
-    print(f"run {a.name}: grid {a.grid}, animal {span} cells, kernels up to "
-          f"{a.kr} -> reach is {a.kr/span:.2f} of the animal; "
-          f"the far end is {reach} cells from the seed")
+    max_reach = a.kr * (1 << a.mip)
+    print(f"run {a.name}: grid {a.grid}, animal {span} cells, stencil {a.kr} at "
+          f"mip {a.mip} -> reach up to {max_reach} cells, {max_reach/span:.2f} of "
+          f"the animal; the far end is {reach} cells from the seed")
     print(f"run {a.name}: orders {orders}  C {a.channels}  grid {a.grid}  "
           f"window {a.window}  batch {a.batch}  pool {a.pool} "
           f"({n_young} young to {a.young_age}, {a.pool - n_young} old to {a.max_age})")

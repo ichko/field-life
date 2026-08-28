@@ -98,11 +98,13 @@ def up(x, out_h, out_w):
         return b + 0.5 * t * (c - a + t * (2 * a - 5 * b + 4 * c - d
                                            + t * (3 * (b - c) + d - a)))
 
-    rows = []
-    for j in range(4):
-        r = x[..., ys[j], :]
-        rows.append(cr(r[..., xs[0]], r[..., xs[1]], r[..., xs[2]], r[..., xs[3]], tx))
-    return cr(rows[0], rows[1], rows[2], rows[3], ty)
+    # Separably: along x first, then y. Catmull-Rom is a tensor product, so
+    # this is the same arithmetic as gathering the 4x4 neighbourhood outright
+    # and a good deal cheaper -- four gathers at the half-height intermediate
+    # and four at full size, rather than sixteen at full size.
+    xr = cr(x[..., xs[0]], x[..., xs[1]], x[..., xs[2]], x[..., xs[3]], tx)
+    return cr(xr[..., ys[0], :], xr[..., ys[1], :],
+              xr[..., ys[2], :], xr[..., ys[3], :], ty)
 
 
 def sum3x3(x):
