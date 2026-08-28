@@ -142,9 +142,9 @@ class World(torch.nn.Module):
     def to_config(self, C, N):
         """A preset index.html can load, with no changes to it."""
         f, r, b = self.scalars()
-        R = (self.kern.radii() * (1 << self.mip)).detach().tolist()
+        R = (self.kern.radii() * (1 << self.mip)).detach().tolist()   # for radMin/radMax
         return {"seed": 1, "mat": self.mat.detach().flatten().tolist(),
-                "kernels": self.kern.to_config(),
+                "kernels": self.kern.to_config(self.mip),
                 "N": N, "C": C, "density": 0.12,
                 "radMin": min(R), "radMax": max(R),
                 "force": f, "repel": r, "beta": b,

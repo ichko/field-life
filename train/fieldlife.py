@@ -394,9 +394,15 @@ class PolarKernels(torch.nn.Module):
         return torch.stack([_finish(v[c], KR, self.feather, True, RR=float(R[c]))
                             for c in range(self.C)])
 
-    def to_config(self):
-        """Export as index.html kernel dicts (with the angular fields added)."""
-        R = self.radii().detach().tolist()
+    def to_config(self, mip=0):
+        """Export as index.html kernel dicts (with the angular fields added).
+
+        Radii are held in cells of whatever resolution the convolution runs at,
+        so a mipped world has to scale them out to full-resolution cells on the
+        way out -- that is the unit index.html stores, and what it re-derives
+        the mip level from.
+        """
+        R = (self.radii() * (1 << mip)).detach().tolist()
         mu = torch.sigmoid(self.mu_raw).detach().tolist()
         w = self.logw.exp().clamp_min(
             (2.0 / self.radii().detach())[:, None].clamp(max=0.7)).detach().tolist()
