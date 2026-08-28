@@ -1,2 +1,7 @@
 video/
 explore/
+train/*.png
+train/*.npz
+train/*.json
+train/runs/*/ckpt.pt
+train/runs/*/progress.png
