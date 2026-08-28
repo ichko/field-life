@@ -41,7 +41,16 @@ DIGIT = 16         # the digit is scaled to this, from MNIST's 28
 RING = 14          # how far the class regions sit from the centre
 REGION_R = 4.0     # radius of a class region
 BALL_R = 5.0       # radius of the chemicals' starting ball
-BALL_JITTER = 7.0  # how far from centre that ball may be dropped
+# Where the chemicals land. Zero means dead centre, every time.
+#
+# It was 7, drawn afresh on every reseed, on the reasoning that finding the
+# digit should be part of the task. That is a real thing to ask for and it is
+# not this experiment's first question: it makes every rollout start from a
+# different geometry, so the rule has to be right everywhere before it can score
+# anywhere. Fixed placement and a fixed (learned) pattern means one starting
+# condition, and whether the field can classify AT ALL gets asked on its own.
+# Put the jitter back once something works.
+BALL_JITTER = 0.0
 NCLASS = 10
 
 # How much mass each chemical channel carries, as a multiple of the digit's own.

@@ -102,10 +102,27 @@ def accuracy(model, task, imgs, labs, horizons, rng, siren=None, chunk=32):
     return [v / max(n, 1) for v in hits]
 
 
+def channel_colours(C):
+    """One hue per channel, so a composite does not draw five fields as one.
+
+    The digit is white and the chemicals are spread around the hue circle. The
+    previous version summed every chemical into the blue component, which meant
+    five distinct fields were rendered as a single colour -- they looked like one
+    wash before they had diffused into one, and the picture could not have shown
+    the difference.
+    """
+    out = [np.array([1.0, 1.0, 1.0])]
+    for i in range(C - 1):
+        h = i / max(C - 1, 1)
+        rgb = [abs(((h * 6 + o) % 6) - 3) - 1 for o in (0, 4, 2)]
+        out.append(np.clip(rgb, 0, 1))
+    return out
+
+
 def save_progress(path, model, task, imgs, labs, horizons, rng, siren=None):
     with torch.no_grad():
         seeds, targets, y = task.build(imgs, labs, rng, siren)
-    ring = torch.tensor(task.geo.regions.sum(0), dtype=torch.float32)
+    ring = task.geo.regions.sum(0)
     ring = ring / ring.max()
     with torch.no_grad():
         rho, done, frames = seeds.clone(), 0, [seeds.clone()]
@@ -113,14 +130,18 @@ def save_progress(path, model, task, imgs, labs, horizons, rng, siren=None):
             rho = model.rollout(rho, h - done)
             done = h
             frames.append(rho.clone())
+    cols = channel_colours(seeds.shape[1])
     rows = []
     for k in range(len(labs)):
         tiles = []
         for f in frames:
-            d = f[k, 0].numpy()
-            chem = f[k, 1:].sum(0).numpy()
-            tiles.append(np.stack([d / max(d.max(), 1e-9), ring.numpy(),
-                                   chem / max(chem.max(), 1e-9)], -1))
+            # each channel normalised by its own max, so a faint but structured
+            # channel is still visible beside a bright one
+            v = ring[..., None] * np.array([0.0, 0.35, 0.0])
+            for c in range(f.shape[1]):
+                a = f[k, c].numpy()
+                v = v + (a / max(a.max(), 1e-9))[..., None] * cols[c]
+            tiles.append(v / max(v.max(), 1e-9))
         rows.append(np.concatenate([np.clip(t, 0, 1) for t in tiles], axis=1))
     img = Image.fromarray((np.concatenate(rows, axis=0) * 255).astype(np.uint8))
     img.resize((img.width * 3, img.height * 3), Image.NEAREST).save(path)
