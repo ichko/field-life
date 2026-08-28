@@ -156,8 +156,13 @@ def main():
                          "the carry ripple")
     ap.add_argument("--wider", default="9,17",
                     help="slot counts to also evaluate at, never trained on")
-    ap.add_argument("--wider-pairs", type=int, default=256,
+    ap.add_argument("--wider-pairs", type=int, default=64,
                     help="input pairs sampled at each wider width")
+    ap.add_argument("--wide-every", type=int, default=5,
+                    help="checkpoints between wide-width evaluations. A rollout "
+                         "at 17 slots costs about what forty training iterations "
+                         "do, so measuring it every checkpoint spends more of the "
+                         "budget watching than training.")
     ap.add_argument("--train-frac", type=float, default=0.75,
                     help="fraction of the width's input pairs used for training; "
                          "the rest is held out")
@@ -168,6 +173,16 @@ def main():
                          "the field is a torus and a kernel wider than it makes "
                          "a cell see itself from the far side.")
     ap.add_argument("--mat-init", default="zeros", choices=["random", "zeros"])
+    ap.add_argument("--free-reach", action="store_true",
+                    help="let each channel learn its own reach. Off by default, "
+                         "and the reason is portability: index.html bakes a "
+                         "channel whose reach is short at a COARSER grid rather "
+                         "than as a radial scale on the shared one, so a learned "
+                         "R exports to a different kernel than the one trained "
+                         "(docs/nca-experiment.md 7.3). Pinning every reach to "
+                         "the stencil makes the two bakers agree exactly, and "
+                         "costs little: mu and w still decide where inside that "
+                         "reach a lobe's weight sits.")
     ap.add_argument("--hidden", type=int, default=0, help="rung 1 width; 0 keeps the matrix")
     ap.add_argument("--iters", type=int, default=100000)
     ap.add_argument("--batch", type=int, default=8)
@@ -242,7 +257,11 @@ def main():
             sys.exit(f"no checkpoint at {src}")
         model.load_state_dict(torch.load(src, weights_only=False)["model"])
         print(f"started from {a.init_from}'s world")
-    opt = torch.optim.Adam(model.parameters(), a.lr)
+    if not a.free_reach:
+        with torch.no_grad():
+            model.kern.logR.fill_(math.log(float(a.kr)))
+        model.kern.logR.requires_grad_(False)
+    opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], a.lr)
 
     # ---- the pool: a state, the problem it belongs to, and its age
     pick = torch.from_numpy(rng.integers(0, len(train_pairs), a.pool))
@@ -284,9 +303,11 @@ def main():
           f"{a.kr / ad.PITCH:.1f} slots), orders {orders}, C {a.channels}")
     print(f"  window {a.window}  batch {a.batch}  pool {a.pool}  settle {a.settle}")
     print(f"  also evaluated, never trained, at slots {wider}")
-    print(f"  {sum(p.numel() for p in model.parameters())} trainable numbers "
+    print(f"  reach {'learned per channel' if a.free_reach else f'pinned to {a.kr} cells, so the export bakes exactly'}")
+    print(f"  {sum(p.numel() for p in model.parameters() if p.requires_grad)} trainable numbers "
           f"against {len(all_pairs)} input pairs at this width")
 
+    last_wide = [([float("nan")], [float("nan")]) for _ in wide_tasks]
     t0, best, best_score = time.time(), float("inf"), -1.0
     bp = os.path.join(run, "preset-best.json")
     if a.resume and os.path.exists(bp):
@@ -356,8 +377,12 @@ def main():
             secs = time.time() - t0
             bit_tr, ex_tr = accuracy(model, task, eval_tr, HORIZONS)
             bit_te, ex_te = accuracy(model, task, eval_te, HORIZONS)
-            wide = [accuracy(model, wt, wp, [HORIZONS[-1]])
-                    for wt, wp in wide_tasks]
+            if (it // a.ckpt) % a.wide_every == 0 or it == a.iters - 1:
+                wide = [accuracy(model, wt, wp, [HORIZONS[-1]])
+                        for wt, wp in wide_tasks]
+                last_wide[:] = wide
+            else:
+                wide = last_wide
             # what "best" means: the held-out exact-answer rate at the longest
             # horizon, tie-broken by per-bit accuracy. Not the loss -- the loss
             # is measured off a pool whose contents wander.
