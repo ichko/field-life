@@ -7,7 +7,7 @@ The score weights the horizon curve toward the far end: reaching the shape
 is easy and holding it is not, so a world that decays is not a better world
 for having been briefly sharper. Lower is better throughout.
 
-_Last generated 2026-08-28 22:16 UTC._
+_Last generated 2026-08-28 23:40 UTC._
 
 | run | score | grid | animal | reach | C | lobes | orders | iters | hours |
 |---|---|---|---|---|---|---|---|---|---|
@@ -16,6 +16,7 @@ _Last generated 2026-08-28 22:16 UTC._
 | `polar3-worstreseed` | **0.00342** | 64 | - | 13.0 | 12 | 8 | 0,1,2,3 | 10000 | 0.1 |
 | `hires2xb` | **0.00445** | 144 | 80 | 15.0 | 12 | 8 | 0,1,2,3 | 900 | 1.6 |
 | `rung1b` (rung 1) | **0.00460** | 64 | 40 | 13.0 | 12 | 8 | 0,1,2,3 | 6800 | 2.5 |
+| `native` | **0.00488** | 256 | 120 | 60.0 | 12 | 8 | 0,1,2,3 | 525 | 1.3 |
 | `hires2x` | **0.02225** | 144 | 80 | 13.0 | 12 | 8 | 0,1,2,3 | 2500 | 8.9 |
 
 Runs from before the long horizons were measured, so not comparable:
@@ -42,4 +43,5 @@ Distance from the target, from a fresh seed, after N steps.
 | `polar3-worstreseed` | 0.0032 | 0.0019 | 0.0019 | 0.0021 | 0.0025 | 0.0054 |
 | `hires2xb` | 0.0124 | 0.0079 | 0.0036 | 0.0031 | 0.0039 | 0.0048 |
 | `rung1b` | 0.0133 | 0.0026 | 0.0034 | 0.0035 | 0.0038 | 0.0058 |
+| `native` | 0.0073 | 0.0061 | 0.0048 | 0.0039 | 0.0040 | 0.0058 |
 | `hires2x` | 0.0764 | 0.0629 | 0.0312 | 0.0196 | 0.0169 | 0.0168 |
