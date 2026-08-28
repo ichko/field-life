@@ -53,7 +53,13 @@ BALL_R = 5.0       # radius of the chemicals' starting ball
 BALL_JITTER = 0.0
 NCLASS = 10
 
-# How much mass each chemical channel carries, as a multiple of the digit's own.
+# TOTAL chemical mass, as a multiple of the digit's own, split evenly across
+# however many chemical channels there are.
+#
+# Total rather than per-channel, because per-channel silently ties the mass
+# budget to the channel count: at 4x each, going from five chemicals to fifteen
+# takes the reagents from 20x the digit to 60x, and the experiment changes
+# underneath while only the channel count was meant to.
 #
 # This ratio is the one mass number that matters. A GLOBAL scale is not a free
 # parameter of the task, it is a reparameterisation: the affinity is
@@ -62,7 +68,7 @@ NCLASS = 10
 # trained. What no rescaling can reach is how much mass the chemicals have
 # against the mass they are trying to move. At 1:1 the reagents are the same
 # size as the workpiece; the machinery should be bigger than the part.
-CHEM = 4.0
+CHEM = 5.0
 
 
 def load(split="train"):
@@ -117,7 +123,7 @@ class Geometry:
     def seed(self, img, C, rng, chem=CHEM):
         rho = np.zeros((C, self.grid, self.grid))
         rho[0] = self.place(img)
-        m = rho[0].sum() * chem
+        m = rho[0].sum() * chem / max(C - 1, 1)      # chem is the TOTAL
         for c in range(1, C):
             rho[c] = self.ball(rng, m)
         return rho

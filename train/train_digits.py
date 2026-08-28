@@ -71,10 +71,10 @@ class Task:
             m = float(digit.sum())
             if siren is None:
                 chem = torch.tensor(
-                    np.stack([g.ball(rng, m * self.chem) for _ in range(self.C - 1)]),
-                    dtype=self.dtype)
+                    np.stack([g.ball(rng, m * self.chem / max(self.C - 1, 1))
+                              for _ in range(self.C - 1)]), dtype=self.dtype)
             else:
-                chem = siren.place(m * self.chem, rng)
+                chem = siren.place(m * self.chem / max(self.C - 1, 1), rng)
             out.append(torch.cat([digit[None], chem], 0))
             targets[k] = torch.tensor(g.target(int(labs[k]), m), dtype=self.dtype)
         return (torch.stack(out), targets,
@@ -157,7 +157,11 @@ def main():
     ap.add_argument("--grid", type=int, default=dg.GRID)
     ap.add_argument("--digit", type=int, default=dg.DIGIT)
     ap.add_argument("--orders", default="0,0,0,1,1,2")
-    ap.add_argument("--channels", type=int, default=6)
+    ap.add_argument("--channels", type=int, default=16,
+                    help="one for the digit, the rest chemicals. Measured cost "
+                         "at grid 40: C=6 is 0.53 s/iter, C=16 is 0.86, C=24 is "
+                         "1.29, C=32 is 1.89 -- so more working memory is far "
+                         "cheaper here than the convolution count suggests.")
     ap.add_argument("--kr", type=int, default=9)
     ap.add_argument("--mat-init", default="zeros", choices=["random", "zeros"])
     ap.add_argument("--hidden", type=int, default=0)
@@ -185,10 +189,12 @@ def main():
     ap.add_argument("--young-frac", type=float, default=0.5)
     ap.add_argument("--young-age", type=int, default=48)
     ap.add_argument("--chem", type=float, default=dg.CHEM,
-                    help="mass per chemical channel, as a multiple of the "
-                         "digit's own. The one mass number that is not a "
-                         "reparameterisation -- a global scale is absorbed by "
-                         "force and repel, which are trained; this ratio is not.")
+                    help="TOTAL chemical mass as a multiple of the digit's, "
+                         "split across the chemical channels. The one mass "
+                         "number that is not a reparameterisation -- a global "
+                         "scale is absorbed by force and repel, which are "
+                         "trained; this ratio is not. Total, not per-channel, so "
+                         "changing --channels does not silently change it.")
     ap.add_argument("--train-images", type=int, default=4096)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--lam-penalty", type=float, default=0.02)
@@ -275,9 +281,9 @@ def main():
     print(f"  window {a.window}  batch {a.batch}  pool {a.pool}  settle "
           f"{a.settle}  stencil {a.kr}  orders {orders}")
     _s, _t, _ = task.build(xtr[:1], ytr[:1], np.random.default_rng(0))
-    print(f"  mass: digit {_s[0, 0].sum():.1f}, each of {a.channels - 1} "
-          f"chemical channels {_s[0, 1].sum():.1f} ({a.chem:g}x the digit), "
-          f"{(a.channels - 1) * a.chem:g}x in total against it")
+    print(f"  mass: digit {_s[0, 0].sum():.1f}; {a.channels - 1} chemical "
+          f"channels holding {_s[0, 1].sum():.1f} each, "
+          f"{float(_s[0, 1:].sum()):.1f} in total ({a.chem:g}x the digit)")
     nw = sum(p.numel() for p in model.parameters() if p.requires_grad)
     ns = sum(p.numel() for p in siren.parameters()) if siren else 0
     print(f"  {nw} trainable numbers in the law"
