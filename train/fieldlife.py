@@ -65,6 +65,46 @@ def corr2d(rho, weight):
     return out.squeeze(0) if flat else out
 
 
+def down(x):
+    """One pyramid level, matching FS_DOWN.
+
+    FS_DOWN loops a 4x4 window with weights 1.5 - |d - 0.5| over d in -1..2,
+    which is [0, 1, 1, 0]: twelve of its sixteen taps are multiplied by zero
+    and it computes a 2x2 box average. Its comment says a tent was chosen over
+    a box because the box aliases, so the intent and the arithmetic disagree.
+    Reproduced as written, because matching the simulation is the point.
+    """
+    return F.avg_pool2d(x, 2)
+
+
+def up(x, out_h, out_w):
+    """Stretch a mip back to full resolution with Catmull-Rom, matching FS_UP.
+
+    A cubic, not eased bilinear: easing a linear blend flattens the value at
+    every source texel, which plateaus each block and stamps a grid onto the
+    affinity map that the transport then faithfully carries.
+    """
+    h, w = x.shape[-2], x.shape[-1]
+    fy, fx = out_h / h, out_w / w
+    dev, dt = x.device, x.dtype
+    gy = (torch.arange(out_h, device=dev, dtype=dt) + 0.5) / fy - 0.5
+    gx = (torch.arange(out_w, device=dev, dtype=dt) + 0.5) / fx - 0.5
+    ty, tx = (gy - gy.floor())[:, None], gx - gx.floor()
+    iy, ix = gy.floor().long(), gx.floor().long()
+    ys = [(iy + j - 1) % h for j in range(4)]
+    xs = [(ix + i - 1) % w for i in range(4)]
+
+    def cr(a, b, c, d, t):
+        return b + 0.5 * t * (c - a + t * (2 * a - 5 * b + 4 * c - d
+                                           + t * (3 * (b - c) + d - a)))
+
+    rows = []
+    for j in range(4):
+        r = x[..., ys[j], :]
+        rows.append(cr(r[..., xs[0]], r[..., xs[1]], r[..., xs[2]], r[..., xs[3]], tx))
+    return cr(rows[0], rows[1], rows[2], rows[3], ty)
+
+
 def sum3x3(x):
     """3x3 toroidal sum, per channel."""
     flat = x.ndim == 3
@@ -101,16 +141,36 @@ def crowd_gaussian(KR, kern, C, dtype=torch.float64, device="cpu"):
     return out
 
 
-def step(rho, kern, mat, force, repel, beta):
+def step(rho, kern, mat, force, repel, beta, mip=0):
     """One simulation tick. rho (B,C,H,W) or (C,H,W); kern (C,K,K); mat (C,C).
 
     mat's row is the feeling channel and its column the felt one, matching
     FS_AFF's texelFetch(uMat, ivec2(d, cc)) against a C-wide R32F texture.
+
+    `mip` is how many times the field is halved before the convolution, which
+    is what lets a kernel reach further than the stencil is wide: index.html
+    caps the stencil at KMAX = 15 cells and buys longer reaches by convolving a
+    smaller copy of the field. It is also what makes them affordable -- a reach
+    of 26 costs a 27-wide stencil on a quarter of the cells instead of a
+    53-wide one on all of them. The transport still runs at full resolution;
+    only the neighbourhood integral is measured coarsely.
     """
     KR = kern.shape[-1] // 2
     C = kern.shape[0]
-    U = corr2d(rho, kern)
-    N = corr2d(rho, crowd_gaussian(KR, kern, C, rho.dtype, rho.device))
+    H, W = rho.shape[-2], rho.shape[-1]
+    src = rho
+    for _ in range(mip):
+        src = down(src.unsqueeze(0) if src.ndim == 3 else src)
+        if rho.ndim == 3:
+            src = src.squeeze(0)
+    U = corr2d(src, kern)
+    N = corr2d(src, crowd_gaussian(KR, kern, C, rho.dtype, rho.device))
+    if mip:
+        flat = U.ndim == 3
+        U = up(U.unsqueeze(0) if flat else U, H, W)
+        N = up(N.unsqueeze(0) if flat else N, H, W)
+        if flat:
+            U, N = U.squeeze(0), N.squeeze(0)
 
     # `mat` may be a plain C x C matrix -- the law as it ships, linear in the
     # convolved fields -- or a callable, which is rung 1 of the design doc: the
@@ -132,9 +192,9 @@ def step(rho, kern, mat, force, repel, beta):
     return E * sum3x3(S)
 
 
-def run(rho, kern, mat, force, repel, beta, steps):
+def run(rho, kern, mat, force, repel, beta, steps, mip=0):
     for _ in range(steps):
-        rho = step(rho, kern, mat, force, repel, beta)
+        rho = step(rho, kern, mat, force, repel, beta, mip)
     return rho
 
 
@@ -350,7 +410,28 @@ class PolarKernels(torch.nn.Module):
                 for c in range(self.C)]
 
 
-def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
+def plan_from_config(kernels, C, grid):
+    """Work out the mip level and stencil half-width index.html would choose.
+
+    uploadKernels halves the field while the widest reach still exceeds KMAX,
+    but only as far as the pyramid goes -- allocate() stops building levels
+    once a side would fall below 48. So the reach a world can actually ask for
+    is bounded by its grid, and a preset that wants more silently gets a
+    stencil clamped to KMAX instead.
+    """
+    Rmax = max(max(k["R"] for k in kernels[:C]), 1.0)
+    levels, px = 0, grid
+    while px % 2 == 0 and (px >> 1) >= 48 and levels < 6:
+        px >>= 1
+        levels += 1
+    mip = 0
+    while mip < 6 and (Rmax / (1 << mip)) > KMAX and levels > mip:
+        mip += 1
+    KR = max(3, min(KMAX, round(Rmax / (1 << mip))))
+    return mip, KR
+
+
+def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu", mip=0):
     """Bake index.html-shaped kernel dicts, honouring angular terms.
 
     This is the reference for what §7 of docs/nca-experiment.md asks bakeKernel
@@ -366,7 +447,9 @@ def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
     out = []
     for c in range(C):
         k = kernels[c]
-        R = max(float(k["R"]), 1e-3)
+        # R is stored in full-resolution cells; the stencil lives on the mip,
+        # so the reach it sees is that many times smaller.
+        R = max(float(k["R"]) / (1 << mip), 1e-3)
         rr = rad / R
         v = torch.zeros_like(rr)
         for t in k.get("terms", []):
@@ -374,9 +457,16 @@ def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu"):
             # a lobe of relative width w spans w*R cells -- so the floor is
             # 2/R. index.html's bakeKernel applies the same one.
             w = max(float(t["w"]), min(2.0 / R, 0.7))
+            m = float(t.get("m", 0))
+            # A lobe of order zero has no angle, and index.html writes that as
+            # a literal 1.0 rather than cos(phase) -- so a phase stored beside
+            # m = 0 is ignored there and must be ignored here. Trained kernels
+            # never carry one (PolarKernels zeroes it), which is why this went
+            # unnoticed until a hand-written test preset set both.
+            ang = (torch.cos(m * theta + float(t.get("phase", 0.0)))
+                   if m else torch.ones_like(theta))
             v = v + (float(t["a"])
-                     * torch.exp(-(((rr - float(t["r"])) / w) ** 2))
-                     * torch.cos(float(t.get("m", 0)) * theta + float(t.get("phase", 0.0))))
+                     * torch.exp(-(((rr - float(t["r"])) / w) ** 2)) * ang)
         v = torch.where(rr > 1, torch.zeros_like(v), v).sum(dim=(0, 1)) / 9
         out.append(_finish(v, KR, k.get("feather", 0.1), True, RR=R))
     return torch.stack(out)

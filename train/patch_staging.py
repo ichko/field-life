@@ -20,6 +20,8 @@ Idempotent: running it on an already-patched file exits without touching it.
   5  a Rate control, capping how often the world advances
   6  FS_DRAW gains blend 5: channels 0-2 as themselves, the rest screened
      in behind them
+  7  FS_UP offsets tiles by the source stride, fixing every layer past the
+     first whenever a mip is in use
 
 plus seedFromMasses, so a preset can carry the mass its picture costs, and a
 square lattice for worlds trained on one.
@@ -252,6 +254,10 @@ addEventListener("error", e => {'''),
 
     ('      <option value="4">RGB</option>',
      '      <option value="4">RGB</option>\n      <option value="5">RGB first</option>'),
+
+    # ---- FS_UP: tile offset must use the source stride ----------------
+    ('    xs[i] = tile*uN.x + wrapi(i0.x + i - 1, uNm.x);',
+     "    // The tile offset must use the SOURCE's stride, not the destination's.\n    // uA is a mip, packed with tile stride uNm.x by whichever pass wrote it --\n    // FS_CONV across the full width, the separable path per layer -- while\n    // uN.x is the full-resolution width. They are equal at mip 0, which is why\n    // this held for so long; above it, every layer past the first read its\n    // neighbourhood integral out of the wrong region, so colours 4 and up got\n    // another layer's field. Any world with more than four colours and a reach\n    // past KMAX was affected.\n    xs[i] = tile*uNm.x + wrapi(i0.x + i - 1, uNm.x);"),
 ]
 
 

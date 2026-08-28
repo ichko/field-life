@@ -13,3 +13,4 @@ train/runs/*/RUNNING
 train/runs/*/growth.gif
 train/staging_run.json
 train/orientation.png
+train/mip_run.json
