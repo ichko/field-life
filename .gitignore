@@ -5,3 +5,5 @@ train/*.npz
 train/*.json
 train/runs/*/ckpt.pt
 train/runs/*/progress.png
+train/runs-*.log
+train/eval-*.txt
