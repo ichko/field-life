@@ -125,14 +125,30 @@ a table, which is why held-out accuracy is the only number worth printing.
 The kernels carry **angular orders**. A lobe of order `m = 0` is a ring, which is
 every kernel this simulation has ever sampled; `m = 1` is a signed gradient
 along an axis, which is what a Sobel filter is. A bank of rings cannot prefer a
-direction, and a carry has to travel one way along the slot axis. §8 is what
-`index.html` needed before a bank like that would load.
+direction, and a carry has to travel one way along the slot axis.
+
+**A trained world with angular orders does not load into `index.html`.** The
+shipped `bakeKernel` reads `a`, `r` and `w` on a term and nothing else, so a
+lobe's `m` and `phase` are not rejected -- they are skipped, and the preset
+loads as the rotationally symmetric world you get by deleting every angle. It
+runs, and it looks fine, and it is a different simulation. `docs/nca-experiment.md`
+§7 called that change required and it has deliberately not been made: the page
+is not this experiment's to edit. `train/verify_bake.py` measures the gap rather
+than assuming it, and any world trained here should be understood as a PyTorch
+result until somebody decides what the page should do.
+
+The alternative is to train with radial-only kernels -- `--orders 0,0,0,0` --
+which exports faithfully and is a legal preset today. That is a real experiment
+and worth running as the ablation it is; §4's `copy` result already holds
+without needing an angle. But a bank of rings cannot prefer a direction, so it
+is also the thing most likely to be the reason a carry never ripples, and the
+two questions have to be kept apart when reading any negative result.
 
 Reaches are **pinned to the stencil** rather than learned, and that is a
 portability decision, not a modelling one: `uploadKernels` bakes a short-reach
 channel at a coarser grid rather than as a radial scale on the shared one, so a
 learned reach exports to a different kernel than the one trained. Pinning makes
-the two bakers agree to float precision (§8), and costs little -- `mu` and `w`
+the two bakers agree, and costs little -- `mu` and `w`
 still decide where inside the reach a lobe's weight sits.
 
 ## 6. Protocol
