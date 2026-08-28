@@ -1,40 +1,35 @@
 """
-The task: an 8-bit adder, encoded so that a mass-conserving field could hold it.
-
-field-life's step (MaCE) only ever MOVES mass, exactly, per channel. Nothing is
-created. So "compute" has to mean "transport", and the encoding is most of the
-experiment. Three decisions make an adder expressible at all.
-
-**Dual rail.** A bit is not "mass present / mass absent" -- it is one unit of
-mass sitting at one of two places. Slot `i` owns two cells: a 0-rail below the
-mid line and a 1-rail above it. Then the mass a channel holds is the same for
-every input, the answer is purely *which side*, and there is no do-nothing
-escape: a blob left in the middle is equally wrong for a 0 and for a 1. With
-presence/absence the loss has a trivial minimum -- dump everything and score the
-background -- and a mass-conserving rule cannot hit a target whose total mass
-depends on the input anyway (1 + 1 = 2 turns two lit bits into one).
-
-**The output is pre-charged, not grown.** Channel 2 starts with one blob per
-slot on the mid line, exactly as much mass as the answer costs. Solving the
-task is moving each of those blobs to the rail the arithmetic says. That is the
-lizard's mass contract (docs/nca-experiment.md §3) with an input-dependent
-target: the loss is about arrangement only, and there is no mass term.
-
-**The bit axis is the torus.** A ripple-carry adder is a chain of identical
-1-bit full adders with a carry running along it -- which is to say it is a
-cellular automaton in the bit index, and field-life's rule is already the same
-everywhere. Slots tile the x-axis exactly, so W = nslots * pitch and the
-adder is CYCLIC. That sounds wrong and is not: the top slot's two input bits
-are pinned to 0, so its carry-out is always 0, so the carry-in that wraps
-around into slot 0 is always 0. An `n`-bit adder therefore needs n+1 slots --
-the extra one both carries the answer's top bit and terminates the ripple.
-
-The reason to want that is generalisation. A world trained on 5 slots is a
-local rule, and the same rule dropped on 9 slots is an 8-bit adder it has never
-seen. Width generalisation is the test that separates a learned algorithm from
-a memorised table, and no fitted lookup can pass it.
+An 8-bit adder, laid out the way it is written: two columns in, one column out.
 
     python3 train/adder.py --show
+
+The field is a torus of C channels. **Channel 0 is the only one that carries
+data.** Input is written into it and the answer is read out of it. The other
+channels hold nothing anyone reads -- they exist to steer channel 0, and they
+are pre-charged because they have to be: MaCE conserves mass per channel, so a
+channel that starts empty is empty forever and cannot steer anything.
+
+Layout, all in channel 0:
+
+    column A     column B          column OUT
+      a7  .        b7  .              s7  .        <- most significant, at the top
+      ...          ...                ...
+      a0  .        b0  .              s0  .        <- least significant
+
+A bit is a disc of mass present, or nothing. The OUT column starts EMPTY, so
+the answer is not rearranged in place -- the mass that spells it has to travel
+across the field from the input columns, which is about twenty cells and
+therefore at least twenty steps, since MaCE moves mass one cell per step.
+
+There is always enough of it: popcount(a + b) <= popcount(a) + popcount(b) for
+every input, so the answer never costs more than the inputs brought. Whatever is
+left over has to be parked somewhere outside the read-out band, which is the
+only region scored.
+
+The eight bit rows sit in the middle of a taller field with empty space above
+and below. That gap is what stops the carry: the rule is the same everywhere and
+the field wraps, so without it the carry out of the top bit would come round into
+the bottom one. The gap is wider than the kernel reaches, so it does not.
 """
 
 import argparse
@@ -44,80 +39,51 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
-# A blob has to be a DISC, and on an integer lattice that takes radius. At 1.7
-# the centre and its four orthogonal neighbours light at 0.62 while the diagonals
-# sit at distance 1.41 and get 0.14 -- which is a plus sign, not a circle, and it
-# is what the first runs here were trained on. Anything under about 2 is a cross.
-# 2.6 fills out to a round disc five cells across.
-#
-# The rest of the geometry follows from that and is not free to leave alone: a
-# disc five cells across on rails six apart overlaps the mid line it started
-# from and its own opposite rail, which blurs exactly the distinction the readout
-# has to make. Rails and slots both get room in proportion.
-PITCH = 8          # cells between neighbouring bit slots
-HEIGHT = 28        # rows; the rails use most of the middle and the rest is free
-RAIL = 4           # rails sit this far above and below the mid line
-BLOB_R = 2.6       # blob radius in cells
-BLOB_SOFT = 1.4    # smoothstep width at the blob's rim
+PITCH_Y = 6        # cells between neighbouring bit rows
+COL_A, COL_B, COL_O = 6, 16, 28    # x of the three columns
+WIDTH = 40         # so OUT and A are 18 cells apart the other way round the torus
+TOP = 8            # y of the most significant row
+BLOB_R = 2.6       # disc radius in cells -- under about 2 a disc is a plus sign
+BLOB_SOFT = 1.4
+READ_HALF = 5      # half-width of the band around OUT that the loss scores
 
-# channel roles. 0-2 are read as RGB, so a rollout is directly viewable.
-CH_A, CH_B, CH_S = 0, 1, 2
+CH_DATA = 0        # the one channel that is written and read
 
 
 class Geometry:
-    """Where the slots and rails are, and the blob stamps for each."""
-
-    def __init__(self, nslots, pitch=PITCH, height=HEIGHT, rail=RAIL):
-        self.nslots, self.pitch = nslots, pitch
-        self.W, self.H = nslots * pitch, height
-        self.ym = height // 2
-        self.y1, self.y0 = self.ym - rail, self.ym + rail      # 1-rail above, 0-rail below
-        self.xs = [i * pitch + pitch // 2 for i in range(nslots)]
-        # (nslots, H, W) stamps: one per slot for each of the three rows
-        self.T1 = np.stack([self.blob(x, self.y1) for x in self.xs])
-        self.T0 = np.stack([self.blob(x, self.y0) for x in self.xs])
-        self.Tm = np.stack([self.blob(x, self.ym) for x in self.xs])
-
-    @property
-    def nbits(self):
-        """Input width. The top slot is pinned to zero and terminates the ripple."""
-        return self.nslots - 1
+    def __init__(self, nbits=8, pitch=PITCH_Y, width=WIDTH, top=TOP):
+        self.nbits, self.pitch = nbits, pitch
+        self.W = width
+        # rows in the middle, with a gap to the wrap that is wider than any reach
+        self.ys = [top + (nbits - 1 - i) * pitch for i in range(nbits)]
+        self.H = self.ys[0] + top + pitch * 2
+        self.A = np.stack([self.blob(COL_A, y) for y in self.ys])
+        self.B = np.stack([self.blob(COL_B, y) for y in self.ys])
+        self.O = np.stack([self.blob(COL_O, y) for y in self.ys])
+        self.norm = float((self.O[0] ** 2).sum())          # a full disc's self-overlap
+        x = np.arange(self.W)[None, :].repeat(self.H, 0)
+        dx = np.minimum(np.abs(x - COL_O), self.W - np.abs(x - COL_O))
+        self.mask = (dx <= READ_HALF).astype(np.float64)   # the read-out band
 
     def blob(self, cx, cy, r=BLOB_R, soft=BLOB_SOFT):
-        """A smoothstep disc of peak 1, wrapped on the torus."""
-        y, x = np.mgrid[0:self.H, 0:self.W]
+        y, x = np.mgrid[0:self.H, 0:self.W] if hasattr(self, "H") else \
+               np.mgrid[0:(self.ys[0] + TOP + self.pitch * 2), 0:self.W]
         dx = np.minimum(np.abs(x - cx), self.W - np.abs(x - cx))
-        dy = np.minimum(np.abs(y - cy), self.H - np.abs(y - cy))
-        d = np.hypot(dx, dy)
-        t = np.clip((r - d) / soft, 0.0, 1.0)
+        dy = np.minimum(np.abs(y - cy), y.shape[0] - np.abs(y - cy))
+        t = np.clip((r - np.hypot(dx, dy)) / soft, 0.0, 1.0)
         return t * t * (3 - 2 * t)
 
-    def rails(self, bits):
-        """(H,W) field holding one blob per slot, on the rail each bit names."""
+    def write(self, bits, stamps):
         b = np.asarray(bits, dtype=np.float64)[:, None, None]
-        return (b * self.T1 + (1 - b) * self.T0).sum(0)
+        return (b * stamps).sum(0)
 
-    def mid(self):
-        """(H,W) field holding one blob per slot, undecided on the mid line."""
-        return self.Tm.sum(0)
+    def read(self, field):
+        """A row reads 1 when its disc is more than half filled."""
+        c = (self.O * np.asarray(field)).sum(axis=(1, 2)) / self.norm
+        return (c > 0.5).astype(np.int64), c
 
-    def decode(self, field):
-        """Read a slot as whichever rail holds more of its blob's mass.
-
-        Correlation against the blob stamp itself, not a box: it is the shape
-        the loss asks for, so it is the shape the readout should measure, and it
-        falls off smoothly instead of caring where a box edge landed.
-        """
-        f = np.asarray(field)
-        s1 = (self.T1 * f).sum(axis=(1, 2))
-        s0 = (self.T0 * f).sum(axis=(1, 2))
-        return (s1 > s0).astype(np.int64), s1 - s0
-
-
-# ------------------------------------------------------------------ the sums
 
 def bits_of(v, n):
-    """Little-endian: index 0 is the least significant bit."""
     return [(int(v) >> i) & 1 for i in range(n)]
 
 
@@ -125,122 +91,41 @@ def value_of(bits):
     return sum(int(b) << i for i, b in enumerate(bits))
 
 
-def ripple(a_bits, b_bits):
-    """The answer, and the carry chain that produces it, on nslots slots.
-
-    Cyclic in the slot index, which is well defined here because the top slot's
-    inputs are zero: its carry-out is 0, so the carry that wraps into slot 0 is
-    0, and the fixed point is unique and is ordinary addition.
-    """
-    n = len(a_bits)
-    s, c, carry = [0] * n, [0] * n, 0
+def add(a_bits, b_bits):
+    """a + b, dropped to the input width. The carry out of the top bit is lost,
+    which is what an n-bit adder without a carry flag does."""
+    n, s, carry = len(a_bits), [], 0
     for i in range(n):
-        c[i] = carry
         t = a_bits[i] + b_bits[i] + carry
-        s[i] = t & 1
+        s.append(t & 1)
         carry = t >> 1
-    assert carry == 0, "top slot must not carry out; its inputs are pinned to 0"
-    return s, c
+    return s
 
 
-# A ladder of tasks, in increasing order of what the field has to do. Reporting
-# where it breaks says more than a single pass/fail on the adder does.
-#
-#   copy  transport only: the answer is one input, unchanged. If this fails,
-#         nothing about the encoding works and the arithmetic is beside the point.
-#   and   one gate per slot, no communication between slots. A threshold on the
-#         local density of two channels -- the easiest thing this law could do.
-#   or    the same, at the other threshold.
-#   xor   still one slot at a time, but NOT a threshold: the answer is high in
-#         the middle of the input range and low at both ends, so no single
-#         monotone response to local density produces it. It has to come from
-#         the dynamics -- one stage computing the AND and a later one subtracting
-#         it -- which is exactly the nonlinearity a bare linear affinity lacks.
-#   add   xor plus a carry that has to travel along the slot axis, so the answer
-#         at slot i is not a function of anything inside slot i.
-OPS = ("copy", "and", "or", "xor", "add")
+def problem(a, b, geo):
+    a_bits, b_bits = bits_of(a, geo.nbits), bits_of(b, geo.nbits)
+    return a_bits, b_bits, add(a_bits, b_bits)
 
 
-def answer(a_bits, b_bits, op):
-    """The bits the sum channel has to end up holding, and the carry chain."""
-    if op == "add":
-        return ripple(a_bits, b_bits)
-    zeros = [0] * len(a_bits)
-    if op == "copy":
-        return list(a_bits), zeros
-    if op == "and":
-        return [x & y for x, y in zip(a_bits, b_bits)], zeros
-    if op == "or":
-        return [x | y for x, y in zip(a_bits, b_bits)], zeros
-    if op == "xor":
-        return [x ^ y for x, y in zip(a_bits, b_bits)], zeros
-    raise ValueError(f"unknown op {op!r}; pick one of {OPS}")
+def seed_field(a_bits, b_bits, C, geo, steer=1.0):
+    """Inputs written into channel 0; the steering channels pre-charged flat.
 
-
-def problem(a, b, geo, op="add"):
-    """Input bits and answer bits, padded to the slot count.
-
-    The top slot's inputs are pinned to zero for every op, not only for `add`.
-    It is only load-bearing for the adder -- it is what terminates the carry
-    ripple -- but keeping it means one geometry serves the whole ladder and the
-    widths stay comparable across it.
-    """
-    n = geo.nslots
-    a_bits, b_bits = bits_of(a, n), bits_of(b, n)
-    assert a_bits[-1] == 0 and b_bits[-1] == 0, \
-        f"a and b must fit in {geo.nbits} bits"
-    s_bits, c_bits = answer(a_bits, b_bits, op)
-    return a_bits, b_bits, s_bits, c_bits
-
-
-# ---------------------------------------------------------------- the fields
-
-def seed_field(a_bits, b_bits, C, geo, hidden_mass=1.0):
-    """The initial state: inputs on their rails, output and workspace on the mid.
-
-    Every channel gets one blob per slot, so the per-channel mass is the same
-    for every input and the whole task is arrangement. The hidden channels are
-    pre-charged on the mid line too -- they are the only place a carry can live,
-    and a carry needs mass to be made of.
+    Flat rather than patterned on purpose: a steering channel that starts with
+    structure has been told something about the task, and the point is for it to
+    find its own. Flat is the one starting state that says nothing -- but it
+    cannot be EMPTY, because mass is conserved per channel and empty is a fixed
+    point.
     """
     rho = np.zeros((C, geo.H, geo.W))
-    rho[CH_A] = geo.rails(a_bits)
-    rho[CH_B] = geo.rails(b_bits)
-    rho[CH_S] = geo.mid()
-    for c in range(3, C):
-        rho[c] = hidden_mass * geo.mid()
+    rho[CH_DATA] = geo.write(a_bits, geo.A) + geo.write(b_bits, geo.B)
+    if C > 1:
+        per = steer * geo.nbits * float(geo.O[0].sum()) / (geo.H * geo.W)
+        rho[1:] = per
     return rho
 
 
 def target_field(s_bits, geo):
-    """What channel 2 has to look like: the answer, on the rails."""
-    return geo.rails(s_bits)
-
-
-# ---------------------------------------------------------------- the dataset
-
-def pairs(nbits, count, rng, exclude=None):
-    """Random (a, b) with a, b < 2^nbits, optionally avoiding a held-out set."""
-    lim, out, seen = 1 << nbits, [], set(exclude or ())
-    while len(out) < count:
-        a, b = int(rng.integers(0, lim)), int(rng.integers(0, lim))
-        if (a, b) in seen:
-            continue
-        seen.add((a, b))
-        out.append((a, b))
-    return out
-
-
-def split(nbits, n_train, seed=0):
-    """A training set of (a,b) pairs, and everything else is the test set.
-
-    At 8 bits there are 65536 pairs and the world has a couple of hundred
-    numbers, so held-out accuracy is the only interesting number: nothing here
-    has the capacity to memorise a table it could look the answer up in.
-    """
-    rng = np.random.default_rng(seed)
-    tr = pairs(nbits, n_train, rng)
-    return tr, set(tr)
+    return geo.write(s_bits, geo.O)
 
 
 def main():
@@ -249,42 +134,39 @@ def main():
     ap.add_argument("--channels", type=int, default=6)
     ap.add_argument("--a", type=int, default=0b10110101)
     ap.add_argument("--b", type=int, default=0b01001111)
-    ap.add_argument("--op", default="add", choices=list(OPS))
     ap.add_argument("--show", action="store_true")
     args = ap.parse_args()
 
-    geo = Geometry(args.bits + 1)
-    a_bits, b_bits, s_bits, c_bits = problem(args.a, args.b, geo, args.op)
+    geo = Geometry(args.bits)
+    a_bits, b_bits, s_bits = problem(args.a, args.b, geo)
     seed = seed_field(a_bits, b_bits, args.channels, geo)
     target = target_field(s_bits, geo)
 
-    print(f"{args.bits}-bit adder on {geo.nslots} slots, "
-          f"grid {geo.W} x {geo.H} = {geo.W * geo.H} cells")
-    print(f"  rails at y {geo.y1} (one) and y {geo.y0} (zero), mid {geo.ym}; "
-          f"slots at x {geo.xs}")
-    print(f"  op {args.op}: {args.a} . {args.b} = {value_of(s_bits)}"
-          + (f"   (check {args.a + args.b})" if args.op == "add" else ""))
-    print(f"  a     {''.join(str(x) for x in a_bits[::-1])}")
-    print(f"  b     {''.join(str(x) for x in b_bits[::-1])}")
-    print(f"  carry {''.join(str(x) for x in c_bits[::-1])}")
-    print(f"  sum   {''.join(str(x) for x in s_bits[::-1])}")
-    print(f"  mass per channel: {seed.sum(axis=(1, 2)).round(2).tolist()}")
-    print(f"  target mass {target.sum():.2f} vs channel 2 seed mass "
-          f"{seed[CH_S].sum():.2f}  (equal by construction)")
-    got, margin = geo.decode(target)
-    signed = margin * np.where(np.array(s_bits) > 0, 1.0, -1.0)
-    print(f"  decoding the target returns it: {list(got) == s_bits}, "
-          f"worst margin toward the right rail {signed.min():.3f}")
+    print(f"{args.bits}-bit adder, grid {geo.W} x {geo.H} = {geo.W * geo.H} cells")
+    print(f"  columns: A at x {COL_A}, B at x {COL_B}, OUT at x {COL_O}; "
+          f"rows at y {geo.ys}")
+    print(f"  the answer's mass has to cross {COL_O - COL_A} cells, so no rollout "
+          f"shorter than that many steps can work")
+    print(f"  {args.a} + {args.b} = {value_of(s_bits)}  (check "
+          f"{(args.a + args.b) & ((1 << args.bits) - 1)}, carry out dropped)")
+    print(f"  a   {''.join(str(x) for x in a_bits[::-1])}")
+    print(f"  b   {''.join(str(x) for x in b_bits[::-1])}")
+    print(f"  sum {''.join(str(x) for x in s_bits[::-1])}")
+    print(f"  channel 0 seed mass {seed[CH_DATA].sum():.2f}, answer costs "
+          f"{target.sum():.2f} -- enough, always")
+    got, c = geo.read(target)
+    print(f"  reading the target back returns it: {list(got) == s_bits}; "
+          f"fill per row {np.round(c, 2).tolist()}")
 
     if args.show:
         from PIL import Image
-        for name, arr in (("adder_seed", seed[:3]), ("adder_target", target)):
-            v = arr.transpose(1, 2, 0) if arr.ndim == 3 else np.stack([arr] * 3, -1)
-            v = np.clip(v / max(v.max(), 1e-9), 0, 1)
-            p = os.path.join(HERE, f"{name}.png")
-            Image.fromarray((v * 255).astype(np.uint8)).resize(
-                (geo.W * 8, geo.H * 8), Image.NEAREST).save(p)
-            print(f"  wrote {p}")
+        both = np.stack([seed[CH_DATA], target, np.zeros_like(target)], -1)
+        both = np.clip(both / max(both.max(), 1e-9), 0, 1)
+        p = os.path.join(HERE, "adder_seed.png")
+        Image.fromarray((both * 255).astype(np.uint8)).resize(
+            (geo.W * 8, geo.H * 8), Image.NEAREST).save(p)
+        print(f"  wrote {p}  (red = channel 0 at the seed, green = the answer "
+              f"it has to end up holding)")
 
 
 if __name__ == "__main__":
