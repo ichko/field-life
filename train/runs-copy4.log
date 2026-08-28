@@ -15,3 +15,5 @@ Consider using tensor.detach() first. (Triggered internally at /__w/pytorch/pyto
   it    600  loss 0.00278  force   21.3  beta 0.61  lam +0.00  age~39  bit 1.00/1.00/1.00/1.00/0.88/0.52  exact 1.00/1.00/1.00/1.00/0.62/0.00  held-out 0.48/0.00  s9:0.53/0.00  s17:0.53/0.00  0.27s/it
   it    700  loss 0.00191  force   22.1  beta 0.62  lam +0.07  age~38  bit 1.00/1.00/1.00/1.00/1.00/0.97  exact 1.00/1.00/1.00/1.00/1.00/0.84  held-out 0.94/0.72  s9:0.53/0.00  s17:0.53/0.00  0.26s/it  *best*
   it    800  loss 0.00183  force   22.9  beta 0.63  lam +0.00  age~36  bit 1.00/1.00/1.00/1.00/1.00/0.94  exact 1.00/1.00/1.00/1.00/1.00/0.75  held-out 0.96/0.78  s9:0.53/0.00  s17:0.53/0.00  0.26s/it  *best*
+  it    900  loss 0.00128  force   24.0  beta 0.66  lam +0.00  age~38  bit 1.00/1.00/1.00/1.00/1.00/0.95  exact 1.00/1.00/1.00/1.00/1.00/0.78  held-out 0.93/0.66  s9:0.53/0.00  s17:0.53/0.00  0.26s/it
+  it   1000  loss 0.00102  force   26.3  beta 0.71  lam +1.28  age~45  bit 1.00/1.00/1.00/1.00/1.00/1.00  exact 1.00/1.00/1.00/1.00/1.00/1.00  held-out 1.00/1.00  s9:1.00/1.00  s17:1.00/1.00  0.26s/it  *best*

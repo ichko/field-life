@@ -1,0 +1,11 @@
+runs/copy4/preset-best.json  op copy  force 26.31  repel 0.27  beta 0.715  stencil 7  (best at iteration 1000)
+trained on 5 slots; anything else below is a width it has never seen
+
+           width             64            128            256
+                    bit / exact    bit / exact    bit / exact
+ 4-bit, 5 slots*   1.000 / 1.000   1.000 / 1.000   1.000 / 1.000
+  wrote train/copy4_strip.png
+ 8-bit, 9 slots*   1.000 / 1.000   1.000 / 1.000   1.000 / 1.000
+16-bit, 17 slots*   1.000 / 1.000   1.000 / 1.000   1.000 / 1.000
+
+* sampled, not enumerated: the space is larger than --pairs

@@ -1,0 +1,6 @@
+run and4: 4-bit `and` on 5 slots, grid 30 x 24, 192 train pairs / 64 held out
+  stencil half-width 7 (reach 7 cells, 1.2 slots), orders (0, 0, 0, 1, 1, 2), C 6
+  window 16  batch 8  pool 64  settle 12
+  also evaluated, never trained, at slots [9, 17]
+  reach pinned to 7 cells, so the export bakes exactly
+  183 trainable numbers against 256 input pairs at this width

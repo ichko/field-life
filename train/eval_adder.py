@@ -68,7 +68,7 @@ def evaluate(world, task, pairs, horizons, chunk=64):
     nbits_seen = 0
     with torch.no_grad():
         for lo in range(0, len(pairs), chunk):
-            seeds, _, bits = task.build(pairs[lo:lo + chunk])
+            seeds, _, bits, _ = task.build(pairs[lo:lo + chunk])
             rho, done = seeds.clone(), 0
             nbits_seen += bits.numel()
             for j, h in enumerate(horizons):
@@ -83,7 +83,7 @@ def evaluate(world, task, pairs, horizons, chunk=64):
 def strip(path, world, task, pairs, horizons, scale=4):
     """Seed, target, then the rollout at each horizon -- one row per problem."""
     from PIL import Image
-    seeds, targets, _ = task.build(pairs)
+    seeds, targets, _, _ = task.build(pairs)
     frames, rho, done = [], seeds.clone(), 0
     with torch.no_grad():
         for h in horizons:

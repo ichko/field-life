@@ -78,19 +78,22 @@ class Task:
         self.Tm = torch.tensor(self.geo.mid(), dtype=dtype)
 
     def build(self, ab):
-        """(seeds, targets, answer bits) for a list of (a, b) pairs."""
+        """(seeds, targets, answer bits, carry targets) for a list of (a,b) pairs."""
         n = len(ab)
         seeds = torch.zeros(n, self.C, self.geo.H, self.geo.W, dtype=self.dtype)
         targets = torch.zeros(n, self.geo.H, self.geo.W, dtype=self.dtype)
+        carries = torch.zeros(n, self.geo.H, self.geo.W, dtype=self.dtype)
         bits = torch.zeros(n, self.geo.nslots, dtype=torch.long)
         for k, (a, b) in enumerate(ab):
-            a_bits, b_bits, s_bits, _ = ad.problem(a, b, self.geo, self.op)
+            a_bits, b_bits, s_bits, c_bits = ad.problem(a, b, self.geo, self.op)
+            carries[k] = torch.tensor(
+                ad.target_field(c_bits, self.geo), dtype=self.dtype)
             seeds[k] = torch.tensor(
                 ad.seed_field(a_bits, b_bits, self.C, self.geo), dtype=self.dtype)
             targets[k] = torch.tensor(
                 ad.target_field(s_bits, self.geo), dtype=self.dtype)
             bits[k] = torch.tensor(s_bits)
-        return seeds, targets, bits
+        return seeds, targets, bits, carries
 
     def decode(self, rho):
         """Bits read off channel 2 of a batch of fields: (B, nslots)."""
@@ -107,7 +110,7 @@ def accuracy(model, task, ab, horizons, chunk=64):
     total_bits = 0
     with torch.no_grad():
         for lo in range(0, len(ab), chunk):
-            seeds, _, bits = task.build(ab[lo:lo + chunk])
+            seeds, _, bits, _ = task.build(ab[lo:lo + chunk])
             rho, done = seeds.clone(), 0
             total_bits += bits.numel()
             for j, h in enumerate(horizons):
@@ -124,7 +127,7 @@ def accuracy(model, task, ab, horizons, chunk=64):
 
 def save_progress(path, model, task, ab, horizons):
     """One row per problem: seed, target, then the rollout at each horizon."""
-    seeds, targets, _ = task.build(ab)
+    seeds, targets, _, _ = task.build(ab)
     rows = []
     with torch.no_grad():
         rho, done, frames = seeds.clone(), 0, []
@@ -191,6 +194,15 @@ def main():
                     help="steps of absolute age before a frame is scored. Below "
                          "this the carry has not had time to ripple and the "
                          "answer cannot exist yet.")
+    ap.add_argument("--carry-aux", type=float, default=0.0,
+                    help="weight on an extra loss that asks channel 3 to hold "
+                         "the CARRY on its rails. This hands the field the "
+                         "algorithm's intermediate variable rather than making "
+                         "it discover one, so a result that needs it is a "
+                         "weaker result and has to be reported as such -- but "
+                         "whether it is needed is itself the finding. Channel 3 "
+                         "is pre-charged on the mid line like every other, so "
+                         "the carry target costs exactly the mass it has.")
     ap.add_argument("--loss-every", type=int, default=4,
                     help="score every N steps inside the window; 0 scores the end only")
     ap.add_argument("--pool", type=int, default=64)
@@ -236,7 +248,9 @@ def main():
     rng.shuffle(all_pairs)
     ntr = max(1, int(len(all_pairs) * a.train_frac))
     train_pairs, test_pairs = all_pairs[:ntr], all_pairs[ntr:]
-    seeds_tr, targets_tr, _ = task.build(train_pairs)
+    seeds_tr, targets_tr, _, carries_tr = task.build(train_pairs)
+    if a.carry_aux and a.channels < 4:
+        sys.exit("--carry-aux needs a channel 3 to put the carry in")
 
     eval_tr = train_pairs[:a.eval_pairs]
     eval_te = test_pairs[:a.eval_pairs] or train_pairs[:a.eval_pairs]
@@ -267,6 +281,7 @@ def main():
     pick = torch.from_numpy(rng.integers(0, len(train_pairs), a.pool))
     pool = seeds_tr[pick].clone()
     pool_t = targets_tr[pick].clone()
+    pool_c = carries_tr[pick].clone()
     ages = torch.zeros(a.pool, dtype=torch.long)
     n_young = max(1, min(a.pool - 1, int(a.pool * a.young_frac)))
     lifespan = torch.full((a.pool,), a.max_age, dtype=torch.long)
@@ -277,12 +292,14 @@ def main():
         """Send pool slot k back to the seed of a newly drawn problem."""
         j = int(rng.integers(0, len(train_pairs)))
         pool[k], pool_t[k], ages[k] = seeds_tr[j], targets_tr[j], 0
+        pool_c[k] = carries_tr[j]
 
     ck = os.path.join(run, "ckpt.pt")
     if a.resume and os.path.exists(ck):
         st = torch.load(ck, weights_only=False)
         model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
         pool, pool_t = st["pool"], st["pool_t"]
+        pool_c = st.get("pool_c", pool_c)
         ages, start_it = st["ages"], st["iter"]
         print(f"resumed {a.name} at iteration {start_it}")
 
@@ -330,6 +347,7 @@ def main():
                 fresh(k)
 
         batch, btgt, bage = pool[idx].clone(), pool_t[idx], ages[idx]
+        bcar = pool_c[idx]
         kern = model.kern()
         out, scored = batch, []
         for t in range(a.window):
@@ -345,6 +363,9 @@ def main():
             if not ready.any():
                 continue
             err = ((out[:, ad.CH_S] - btgt) ** 2).mean(dim=(1, 2))
+            if a.carry_aux:
+                err = err + a.carry_aux * (
+                    (out[:, 3] - bcar) ** 2).mean(dim=(1, 2))
             scored.append((err * ready).sum() / ready.sum())
         loss = (torch.stack(scored).mean() if scored
                 else ((out[:, ad.CH_S] - btgt) ** 2).mean())
@@ -408,7 +429,8 @@ def main():
                                _bit=bit_te, _exact=ex_te),
                           open(bp, "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
-                        "pool": pool, "pool_t": pool_t, "ages": ages, "iter": it}, ck)
+                        "pool": pool, "pool_t": pool_t, "pool_c": pool_c,
+                        "ages": ages, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), model, task,
                           eval_te[:4], HORIZONS)
             wide_txt = "  ".join(
