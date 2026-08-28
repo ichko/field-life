@@ -27,9 +27,11 @@ centred is not a rule that scores. Finding the digit is part of the task.
 """
 
 import argparse
+import math
 import os
 
 import numpy as np
+import torch
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DATA = os.path.join(HERE, "data", "mnist.npz")
@@ -160,3 +162,80 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+# --------------------------------------------------------- the learned reagent
+
+class SirenSeed(torch.nn.Module):
+    """The chemicals' starting pattern, as a coordinate network rather than a ball.
+
+        rho_c(x, y) = softplus( MLP_sin(x, y) )_c  *  window(x, y),  renormalised
+
+    A SIREN: sine activations with the omega0 scaling and the matching
+    initialisation, so the field it emits has structure at every scale the grid
+    can hold instead of the one blob a hand-written disc has.
+
+    Two properties make this legitimate rather than a way of cheating.
+
+    **It never sees the digit.** The pattern is the same for every input, so it
+    cannot smuggle in the answer -- it is the reagent, not the reading. All it
+    can learn is what shape of stuff is a good thing to drop next to an unknown
+    digit.
+
+    **It is still dropped somewhere random.** The window keeps it a compact clump
+    and the clump is rolled to a random offset every time, so finding the digit
+    stays part of the task. What is learned is the clump's structure, not where
+    it lands.
+
+    The mass is renormalised per channel afterwards, so --chem still means what
+    it says and the network cannot win by simply asking for more matter.
+    """
+
+    def __init__(self, grid, nchem, hidden=32, layers=2, omega0=30.0,
+                 window_r=None, seed=0):
+        super().__init__()
+        self.grid, self.nchem, self.omega0 = grid, nchem, omega0
+        g = torch.Generator().manual_seed(seed + 11)
+        dims = [2] + [hidden] * layers
+        self.lin = torch.nn.ModuleList(
+            [torch.nn.Linear(dims[i], dims[i + 1]) for i in range(layers)])
+        self.out = torch.nn.Linear(hidden, nchem)
+        with torch.no_grad():
+            # SIREN's initialisation: the first layer spans omega0 periods across
+            # the input range, the rest are scaled so the pre-activations keep a
+            # unit-ish spread through the sines rather than saturating them.
+            for i, l in enumerate(self.lin):
+                b = 1.0 / dims[i] if i == 0 else math.sqrt(6.0 / dims[i]) / omega0
+                l.weight.uniform_(-b, b, generator=g)
+                l.bias.uniform_(-b, b, generator=g)
+            b = math.sqrt(6.0 / hidden) / omega0
+            self.out.weight.uniform_(-b, b, generator=g)
+            self.out.bias.zero_()
+
+        c = (grid - 1) / 2
+        y, x = torch.meshgrid(torch.arange(grid, dtype=torch.float32),
+                              torch.arange(grid, dtype=torch.float32),
+                              indexing="ij")
+        r = window_r if window_r is not None else BALL_R + 2.0
+        d = torch.hypot(x - c, y - c)
+        t = ((r - d) / 1.6).clamp(0, 1)
+        self.register_buffer("window", t * t * (3 - 2 * t))
+        # coordinates normalised so the window spans [-1, 1], which is the range
+        # omega0 is calibrated for
+        self.register_buffer("coords", torch.stack([(x - c) / r, (y - c) / r], -1))
+
+    def forward(self, mass):
+        """(nchem, grid, grid), each channel carrying `mass`, centred."""
+        h = self.coords.reshape(-1, 2)
+        for l in self.lin:
+            h = torch.sin(self.omega0 * l(h))
+        v = torch.nn.functional.softplus(self.out(h))
+        v = v.T.reshape(self.nchem, self.grid, self.grid) * self.window
+        return v * (mass / v.sum(dim=(1, 2), keepdim=True).clamp_min(1e-9))
+
+    def place(self, mass, rng, jitter=BALL_JITTER):
+        """The pattern, rolled to a random spot near the centre. Torus, so exact."""
+        th = rng.random() * 2 * np.pi
+        d = jitter * np.sqrt(rng.random())
+        dy, dx = int(round(d * np.sin(th))), int(round(d * np.cos(th)))
+        return torch.roll(self(mass), shifts=(dy, dx), dims=(1, 2))

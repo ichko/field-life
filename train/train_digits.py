@@ -56,17 +56,29 @@ class Task:
 
     chem = dg.CHEM
 
-    def build(self, imgs, labs, rng):
-        n = len(labs)
-        g = self.geo
-        seeds = torch.zeros(n, self.C, g.grid, g.grid, dtype=self.dtype)
-        targets = torch.zeros(n, g.grid, g.grid, dtype=self.dtype)
-        for k in range(n):
-            s = g.seed(imgs[k], self.C, rng, chem=self.chem)
-            seeds[k] = torch.tensor(s, dtype=self.dtype)
-            targets[k] = torch.tensor(g.target(int(labs[k]), s[0].sum()),
-                                      dtype=self.dtype)
-        return seeds, targets, torch.tensor(np.asarray(labs), dtype=torch.long)
+    def build(self, imgs, labs, rng, siren=None):
+        """Seeds, targets and labels. With a siren the seed carries gradient.
+
+        The chemicals' pattern is a parameter now, so a batch built here is part
+        of the graph -- which is the whole reason the loop below has to roll some
+        states out from scratch every iteration. A pooled state is detached
+        history and teaches the seed nothing.
+        """
+        g, out = self.geo, []
+        targets = torch.zeros(len(labs), g.grid, g.grid, dtype=self.dtype)
+        for k in range(len(labs)):
+            digit = torch.tensor(g.place(imgs[k]), dtype=self.dtype)
+            m = float(digit.sum())
+            if siren is None:
+                chem = torch.tensor(
+                    np.stack([g.ball(rng, m * self.chem) for _ in range(self.C - 1)]),
+                    dtype=self.dtype)
+            else:
+                chem = siren.place(m * self.chem, rng)
+            out.append(torch.cat([digit[None], chem], 0))
+            targets[k] = torch.tensor(g.target(int(labs[k]), m), dtype=self.dtype)
+        return (torch.stack(out), targets,
+                torch.tensor(np.asarray(labs), dtype=torch.long))
 
     def scores(self, rho):
         return torch.einsum("khw,bhw->bk", self.w, rho[:, 0])
@@ -75,12 +87,13 @@ class Task:
         return ((rho[:, 0] - target) ** 2).mean(dim=(1, 2))
 
 
-def accuracy(model, task, imgs, labs, horizons, rng, chunk=32):
+def accuracy(model, task, imgs, labs, horizons, rng, siren=None, chunk=32):
     hits = [0] * len(horizons)
     n = len(labs)
     with torch.no_grad():
         for lo in range(0, n, chunk):
-            seeds, _, y = task.build(imgs[lo:lo + chunk], labs[lo:lo + chunk], rng)
+            seeds, _, y = task.build(imgs[lo:lo + chunk], labs[lo:lo + chunk],
+                                     rng, siren)
             rho, done = seeds.clone(), 0
             for j, h in enumerate(horizons):
                 rho = model.rollout(rho, h - done)
@@ -89,8 +102,9 @@ def accuracy(model, task, imgs, labs, horizons, rng, chunk=32):
     return [v / max(n, 1) for v in hits]
 
 
-def save_progress(path, model, task, imgs, labs, horizons, rng):
-    seeds, targets, y = task.build(imgs, labs, rng)
+def save_progress(path, model, task, imgs, labs, horizons, rng, siren=None):
+    with torch.no_grad():
+        seeds, targets, y = task.build(imgs, labs, rng, siren)
     ring = torch.tensor(task.geo.regions.sum(0), dtype=torch.float32)
     ring = ring / ring.max()
     with torch.no_grad():
@@ -129,7 +143,21 @@ def main():
     ap.add_argument("--iters", type=int, default=1000000)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--window", type=int, default=16)
-    ap.add_argument("--settle", type=int, default=24)
+    ap.add_argument("--settle", type=int, default=8,
+                    help="absolute age before a frame is scored. It was 24, "
+                         "which is past the point where the digit has dissolved "
+                         "and also past every frame a freshly seeded rollout "
+                         "ever reaches -- so the learned seed would have gotten "
+                         "no gradient at all.")
+    ap.add_argument("--siren-hidden", type=int, default=32,
+                    help="width of the coordinate network that emits the "
+                         "chemicals' starting pattern; 0 keeps the plain ball")
+    ap.add_argument("--siren-layers", type=int, default=2)
+    ap.add_argument("--fresh-frac", type=float, default=0.25,
+                    help="fraction of each batch rolled out from a brand new "
+                         "seed, differentiably. The pool holds detached history, "
+                         "so without these the seed network never sees a "
+                         "gradient.")
     ap.add_argument("--loss-every", type=int, default=4)
     ap.add_argument("--pool", type=int, default=64)
     ap.add_argument("--max-age", type=int, default=128)
@@ -180,10 +208,17 @@ def main():
     with torch.no_grad():
         model.kern.logR.fill_(math.log(float(a.kr)))
     model.kern.logR.requires_grad_(False)
-    opt = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], a.lr)
+    siren = (dg.SirenSeed(a.grid, a.channels - 1, a.siren_hidden,
+                          a.siren_layers, seed=a.seed)
+             if a.siren_hidden else None)
+    params = [p for p in model.parameters() if p.requires_grad]
+    if siren is not None:
+        params += list(siren.parameters())
+    opt = torch.optim.Adam(params, a.lr)
 
     pick = rng.integers(0, len(ytr), a.pool)
-    pool, pool_t, pool_y = task.build(xtr[pick], ytr[pick], rng)
+    with torch.no_grad():
+        pool, pool_t, pool_y = task.build(xtr[pick], ytr[pick], rng, siren)
     ages = torch.zeros(a.pool, dtype=torch.long)
     n_young = max(1, min(a.pool - 1, int(a.pool * a.young_frac)))
     lifespan = torch.full((a.pool,), a.max_age, dtype=torch.long)
@@ -193,13 +228,16 @@ def main():
     def fresh(k):
         """A new digit AND a new place for the chemicals to land."""
         j = int(rng.integers(0, len(ytr)))
-        s, t, y = task.build(xtr[j:j + 1], ytr[j:j + 1], rng)
+        with torch.no_grad():
+            s, t, y = task.build(xtr[j:j + 1], ytr[j:j + 1], rng, siren)
         pool[k], pool_t[k], pool_y[k], ages[k] = s[0], t[0], y[0], 0
 
     ck = os.path.join(run, "ckpt.pt")
     if a.resume and os.path.exists(ck):
         st = torch.load(ck, weights_only=False)
         model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
+        if siren is not None and st.get("siren"):
+            siren.load_state_dict(st["siren"])
         pool, pool_t, pool_y = st["pool"], st["pool_t"], st["pool_y"]
         ages, start_it = st["ages"], st["iter"]
         print(f"resumed {a.name} at iteration {start_it}")
@@ -219,19 +257,32 @@ def main():
     print(f"  mass: digit {_s[0, 0].sum():.1f}, each of {a.channels - 1} "
           f"chemical channels {_s[0, 1].sum():.1f} ({a.chem:g}x the digit), "
           f"{(a.channels - 1) * a.chem:g}x in total against it")
-    print(f"  {sum(p.numel() for p in model.parameters() if p.requires_grad)} "
-          f"trainable numbers; chance is {1 / a.classes:.2f}")
+    nw = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    ns = sum(p.numel() for p in siren.parameters()) if siren else 0
+    print(f"  {nw} trainable numbers in the law"
+          + (f" and {ns} in the learned seed, which never sees the digit and so "
+             f"cannot carry the answer" if ns else " (plain ball seed)"))
+    print(f"  chance is {1 / a.classes:.2f}")
 
     t0, best = time.time(), -1.0
     bp = os.path.join(run, "preset-best.json")
     for it in range(start_it, a.iters):
-        half = max(1, a.batch // 2)
+        n_fresh = int(a.batch * a.fresh_frac) if siren is not None else 0
+        n_pool = a.batch - n_fresh
+        half = max(1, n_pool // 2) if n_pool else 0
         idx = torch.cat([torch.randint(0, n_young, (half,)),
-                         torch.randint(n_young, a.pool, (a.batch - half,))])
+                         torch.randint(n_young, a.pool, (n_pool - half,))]) \
+            if n_pool else torch.zeros(0, dtype=torch.long)
         for k in idx.tolist():
             if ages[k] >= lifespan[k]:
                 fresh(k)
         batch, btgt, bage = pool[idx].clone(), pool_t[idx], ages[idx]
+        if n_fresh:
+            j = rng.integers(0, len(ytr), n_fresh)
+            fs, ft, _ = task.build(xtr[j], ytr[j], rng, siren)
+            batch = torch.cat([fs, batch]) if n_pool else fs
+            btgt = torch.cat([ft, btgt]) if n_pool else ft
+            bage = torch.cat([torch.zeros(n_fresh, dtype=torch.long), bage])
 
         kern = model.kern()
         out, scored = batch, []
@@ -262,8 +313,11 @@ def main():
         opt.step()
 
         with torch.no_grad():
-            good = torch.isfinite(out).all(dim=(1, 2, 3))
-            pool[idx[good]] = out[good].detach()
+            # the fresh rollouts sit at the front of the batch and belong to no
+            # pool slot; only the pooled tail is written back
+            tail = out[len(out) - len(idx):] if len(idx) else out[:0]
+            good = torch.isfinite(tail).all(dim=(1, 2, 3))
+            pool[idx[good]] = tail[good].detach()
             ages[idx[good]] += a.window
             for k in idx[~good].tolist():
                 fresh(k)
@@ -272,7 +326,7 @@ def main():
             f, r, b = model.scalars()
             secs = time.time() - t0
             ev = np.random.default_rng(1234)     # the same digits every checkpoint
-            acc = accuracy(model, task, xte, yte, HORIZONS, ev)
+            acc = accuracy(model, task, xte, yte, HORIZONS, ev, siren)
             score = max(acc)
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow(
@@ -287,10 +341,19 @@ def main():
                 best = score
                 json.dump(dict(cfg, _bestAt=it, _acc=acc), open(bp, "w"))
             torch.save({"model": model.state_dict(), "opt": opt.state_dict(),
+                        "siren": siren.state_dict() if siren else None,
                         "pool": pool, "pool_t": pool_t, "pool_y": pool_y,
                         "ages": ages, "iter": it}, ck)
+            if siren is not None:
+                with torch.no_grad():
+                    v = siren(1.0)[:3].numpy().transpose(1, 2, 0)
+                Image.fromarray((np.clip(v / max(v.max(), 1e-9), 0, 1) * 255)
+                                .astype(np.uint8)).resize(
+                    (a.grid * 6, a.grid * 6), Image.NEAREST).save(
+                    os.path.join(run, "seed_learned.png"))
             save_progress(os.path.join(run, "progress.png"), model, task,
-                          xte[:4], yte[:4], HORIZONS, np.random.default_rng(7))
+                          xte[:4], yte[:4], HORIZONS, np.random.default_rng(7),
+                          siren)
             print(f"  it {it:6d}  loss {loss.item():.5f}  force {f:6.1f}  "
                   f"beta {b:.2f}  lam {lam:+.2f}  age~{int(ages.float().mean())}  "
                   f"test acc {'/'.join(f'{v:.3f}' for v in acc)}  best {best:.3f}  "
