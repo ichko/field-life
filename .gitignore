@@ -7,3 +7,7 @@ train/runs/*/ckpt.pt
 train/runs/*/progress.png
 train/runs-*.log
 train/eval-*.txt
+node_modules/
+__pycache__/
+*.pyc
+package-lock.json

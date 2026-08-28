@@ -2494,14 +2494,7 @@ function bakeKernel(k, KR){
   //   1. widen any term below what this KR can represent, and
   //   2. sample every cell on a 3x3 sub-grid rather than at its centre.
   const wmin = 2.0/KR;
-  // `m` is a lobe's ANGULAR order and `phase` is where its crest points. A lobe
-  // without them is a ring, which is every kernel this page has ever sampled;
-  // one with m = 1 is a signed gradient along an axis, which is what a Sobel
-  // filter is, and it is the only way a kernel can prefer one DIRECTION. The
-  // fields default so that every preset written before this bakes unchanged.
-  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin),
-                                            m: t.m || 0, phase: t.phase || 0 }));
-  const angular = terms.some(t => t.m !== 0);
+  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin) }));
   // Same limit for noise: the finest octave's lattice must span a few cells.
   const octMax = Math.max(1, Math.floor(Math.log2(Math.max(2, 2*KR/3))));
   const oct = Math.max(1, Math.min(k.oct, octMax));
@@ -2530,11 +2523,8 @@ function bakeKernel(k, KR){
               amp *= 0.5; f *= 2;
             }
           }else{
-            // atan2 is only paid for when some lobe actually asks for an angle
-            const th = angular ? Math.atan2(py, px) : 0;
             for(const t of terms)
-              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2))
-                     *(t.m ? Math.cos(t.m*th + t.phase) : 1.0);
+              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2));
           }
           acc += v;
         }
@@ -2601,11 +2591,6 @@ function separablePlan(){
     const k = kernels[c];
     if(k.type !== "radial" || k.sym !== "radial") return null;
     if(k.terms.length !== 1 && k.terms.length !== 2) return null;
-    // An angular lobe is not a difference of isotropic gaussians and there is
-    // no separable pair that stands in for one. Without this bail it would take
-    // the fast path and run as the ring it is not -- silently, and only at the
-    // widths where the plan happens to apply.
-    if(k.terms.some(t => t.m)) return null;
     const t = k.terms.slice().sort((a, b) => b.w - a.w);          // wide term first
     if(t.some(x => x.r !== 0)) return null;
     const one = t.length === 1;
