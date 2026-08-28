@@ -54,13 +54,15 @@ class Task:
         self.C, self.dtype, self.nclass = C, dtype, nclass
         self.w = torch.tensor(self.geo.w, dtype=dtype)
 
+    chem = dg.CHEM
+
     def build(self, imgs, labs, rng):
         n = len(labs)
         g = self.geo
         seeds = torch.zeros(n, self.C, g.grid, g.grid, dtype=self.dtype)
         targets = torch.zeros(n, g.grid, g.grid, dtype=self.dtype)
         for k in range(n):
-            s = g.seed(imgs[k], self.C, rng)
+            s = g.seed(imgs[k], self.C, rng, chem=self.chem)
             seeds[k] = torch.tensor(s, dtype=self.dtype)
             targets[k] = torch.tensor(g.target(int(labs[k]), s[0].sum()),
                                       dtype=self.dtype)
@@ -133,6 +135,11 @@ def main():
     ap.add_argument("--max-age", type=int, default=128)
     ap.add_argument("--young-frac", type=float, default=0.5)
     ap.add_argument("--young-age", type=int, default=48)
+    ap.add_argument("--chem", type=float, default=dg.CHEM,
+                    help="mass per chemical channel, as a multiple of the "
+                         "digit's own. The one mass number that is not a "
+                         "reparameterisation -- a global scale is absorbed by "
+                         "force and repel, which are trained; this ratio is not.")
     ap.add_argument("--train-images", type=int, default=4096)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--lam-penalty", type=float, default=0.02)
@@ -159,6 +166,7 @@ def main():
     atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
 
     task = Task(a.channels, a.classes, a.grid, a.digit)
+    task.chem = a.chem
     rng = np.random.default_rng(a.seed)
     xtr, ytr = dg.load("train")
     xte, yte = dg.load("test")
@@ -207,6 +215,10 @@ def main():
           f"digit {a.digit}, {len(ytr)} training images")
     print(f"  window {a.window}  batch {a.batch}  pool {a.pool}  settle "
           f"{a.settle}  stencil {a.kr}  orders {orders}")
+    _s, _t, _ = task.build(xtr[:1], ytr[:1], np.random.default_rng(0))
+    print(f"  mass: digit {_s[0, 0].sum():.1f}, each of {a.channels - 1} "
+          f"chemical channels {_s[0, 1].sum():.1f} ({a.chem:g}x the digit), "
+          f"{(a.channels - 1) * a.chem:g}x in total against it")
     print(f"  {sum(p.numel() for p in model.parameters() if p.requires_grad)} "
           f"trainable numbers; chance is {1 / a.classes:.2f}")
 

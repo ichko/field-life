@@ -38,9 +38,20 @@ GRID = 40          # field side; the ring has to fit inside it
 DIGIT = 16         # the digit is scaled to this, from MNIST's 28
 RING = 14          # how far the class regions sit from the centre
 REGION_R = 4.0     # radius of a class region
-BALL_R = 3.0       # radius of the chemicals' starting ball
+BALL_R = 5.0       # radius of the chemicals' starting ball
 BALL_JITTER = 7.0  # how far from centre that ball may be dropped
 NCLASS = 10
+
+# How much mass each chemical channel carries, as a multiple of the digit's own.
+#
+# This ratio is the one mass number that matters. A GLOBAL scale is not a free
+# parameter of the task, it is a reparameterisation: the affinity is
+# force*M.U - repel*sum(N), both U and N are linear in density, so doubling
+# every channel is the same as halving force and repel -- and both of those are
+# trained. What no rescaling can reach is how much mass the chemicals have
+# against the mass they are trying to move. At 1:1 the reagents are the same
+# size as the workpiece; the machinery should be bigger than the part.
+CHEM = 4.0
 
 
 def load(split="train"):
@@ -92,7 +103,7 @@ class Geometry:
         s = b.sum()
         return b * (mass / s) if s > 0 else b
 
-    def seed(self, img, C, rng, chem=1.0):
+    def seed(self, img, C, rng, chem=CHEM):
         rho = np.zeros((C, self.grid, self.grid))
         rho[0] = self.place(img)
         m = rho[0].sum() * chem
