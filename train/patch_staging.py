@@ -221,10 +221,13 @@ async function loadLizard(){
   const res = await fetch("lizard.json", { cache: "no-cache" });
   if(!res.ok) throw new Error("no lizard.json");
   const cfg = await res.json();
-  cfg.square = true;
-  cfg.blend = 5;
-  cfg.expo = 1;
-  cfg.seedMode = "masses";
+  // Defaults, not overrides: the preset is the world, and a trained one
+  // carries its own display settings. Hardcoding expo here quietly undid an
+  // exposure the export had chosen and left the animal under its scaffold.
+  cfg.square = cfg.square ?? true;
+  cfg.blend = cfg.blend ?? 5;
+  cfg.expo = cfg.expo ?? 2.2;
+  cfg.seedMode = cfg.seedMode ?? "masses";
   if(!applyConfig(cfg)) throw new Error("lizard.json was rejected");
   allocate();                       // the square lattice is a new lattice
   reseed();
