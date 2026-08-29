@@ -598,7 +598,11 @@ def main():
                         "pool": pool, "ages": ages, "iter": it}, ck)
             save_progress(os.path.join(run, "progress.png"), target, model, seed,
                           HORIZONS)
-            json.dump({"span": span, "grid": a.grid},
+            # seed radius belongs here too: a world is only meaningful from
+            # the disc it was fitted against, and the exporter has no other
+            # way to know the run did not use the page's default tenth-grid.
+            json.dump({"span": span, "grid": a.grid,
+                       "seed_radius": a.seed_radius or a.grid * 0.10},
                       open(os.path.join(run, "scale.json"), "w"))
             print(f"  it {it:6d}  loss {loss.item():.5f}  best {best:.5f}  "
                   f"lam {lam:+.2f}  force {f:6.1f}  beta {b:.2f}  "

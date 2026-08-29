@@ -42,7 +42,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--run", default="polar3")
     ap.add_argument("--name", default="Lizard")
-    ap.add_argument("--kr", type=int, default=13)
+    ap.add_argument("--kr", type=int, default=0,
+                    help="stencil half-width; 0 derives it from the preset the "
+                         "way uploadKernels does")
+    ap.add_argument("--seed-radius", type=float, default=0.0,
+                    help="0 reads it from the run's scale.json")
     ap.add_argument("--steps", type=int, default=64, help="rollout length for the thumbnail")
     ap.add_argument("--no-flip", action="store_true",
                     help="skip the vertical flip that matches the page's y axis")
@@ -62,9 +66,24 @@ def main():
     if "_note" in cfg:
         sys.exit(f"{a.run} is a rung 1 world; index.html's FS_AFF cannot run it")
 
-    tg = tgt.render_emoji(span=tgt.SPAN, grid=N)
+    # The run's own scale, not the module default. A world fitted to a
+    # 120-cell animal exported against the 40-cell one gets the wrong seed
+    # masses, and MaCE only moves mass -- wrong masses is a different world.
+    scale = {}
+    sp = os.path.join(HERE, "runs", a.run, "scale.json")
+    if os.path.exists(sp):
+        scale = json.load(open(sp))
+    span = scale.get("span", tgt.SPAN)
+    tg = tgt.render_emoji(span=span, grid=N)
     masses = tgt.seed_masses(tg, C, rng=np.random.default_rng(0))
     tg_shown = tg
+
+    # The seed disc, likewise. The page defaults to a tenth of the grid; a run
+    # that trained on a wider one starts from a disc it never saw.
+    radius = a.seed_radius or scale.get("seed_radius") or N * 0.10
+    mip, KR = fl.plan_from_config(cfg["kernels"], C, N)
+    kr = a.kr or KR
+    print(f"  span {span}, seed radius {radius:g}, mip {mip}, stencil {kr}")
 
     cfg = dict(cfg)
     cfg.pop("_bestAt", None); cfg.pop("_horizons", None)
@@ -91,6 +110,7 @@ def main():
         print("  flipped in y to match the page's axis (phases negated)")
     cfg["seedMasses"] = [float(m) for m in masses]
     cfg["seedMode"] = "masses"
+    cfg["seedRadius"] = float(radius)
     cfg["square"] = True
     # blend 5: the three visible channels as themselves, the hidden ones
     # screened in behind them. RGB alone hides that the shape sits inside a
@@ -104,10 +124,12 @@ def main():
         json.dump(cfg, f)
 
     # roll it out here, both for the thumbnail and to report what it scores
-    kern = fl.bake_from_config(cfg["kernels"], C, a.kr)
+    kern = fl.bake_from_config(cfg["kernels"], C, kr, mip=mip)
     mat = torch.tensor(cfg["mat"], dtype=torch.float64).reshape(C, C)
-    rho = torch.tensor(tgt.seed_field(masses, grid=N), dtype=torch.float64)[None]
-    rho = fl.run(rho, kern, mat, cfg["force"], cfg["repel"], cfg["beta"], a.steps)
+    rho = torch.tensor(tgt.seed_field(masses, grid=N, radius=radius),
+                       dtype=torch.float64)[None]
+    rho = fl.run(rho, kern, mat, cfg["force"], cfg["repel"], cfg["beta"], a.steps,
+                 mip=mip)
     if not a.no_flip:
         tg_shown = tg[:, ::-1, :].copy()      # the target as the flipped world builds it
     loss = ((rho[0, :3] - torch.tensor(tg_shown)) ** 2).mean().item()

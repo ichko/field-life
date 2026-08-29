@@ -148,7 +148,10 @@ const seedDisc = () => fillField(true);
 // because mass travels one cell per step.
 function seedFromMasses(masses){
   if(!T.rhoA) return;
-  const R = Math.min(S.NX, S.NY)*0.10, soft = 1.5;
+  // A tenth of the grid is only right when the grid is the animal. Once the
+  // grid carries padding the disc has to be sized to the animal instead, so
+  // a preset fitted against a wider one says so and is handed that one back.
+  const R = S.seedRadius || Math.min(S.NX, S.NY)*0.10, soft = 1.5;
   const w = S.NX*S.L, px = new Float32Array(w*S.NY*4);
   const disc = new Float64Array(S.NX*S.NY);
   let sum = 0;
@@ -190,6 +193,7 @@ function seedFromMasses(masses){
   palette = makePalette(S.C, S.palette);''',
      '''  S.seed = c.seed ?? S.seed;
   if(Array.isArray(c.seedMasses)) S.seedMasses = c.seedMasses.slice();
+  S.seedRadius = c.seedRadius ?? 0;
   palette = makePalette(S.C, S.palette);'''),
 
     # ---- a button, and the world loaded on open --------------------------
