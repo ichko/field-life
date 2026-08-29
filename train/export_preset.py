@@ -81,6 +81,11 @@ def main():
     # The seed disc, likewise. The page defaults to a tenth of the grid; a run
     # that trained on a wider one starts from a disc it never saw.
     radius = a.seed_radius or scale.get("seed_radius") or N * 0.10
+    if not a.seed_radius and not scale.get("seed_radius"):
+        print(f"  WARNING: {a.run}/scale.json does not record a seed radius, so "
+              f"this falls back to the page default of {N * 0.10:g}. If the run "
+              f"trained on a different disc the export is a different world -- "
+              f"pass --seed-radius.")
     mip, KR = fl.plan_from_config(cfg["kernels"], C, N)
     kr = a.kr or KR
     print(f"  span {span}, seed radius {radius:g}, mip {mip}, stencil {kr}")
@@ -116,7 +121,13 @@ def main():
     # screened in behind them. RGB alone hides that the shape sits inside a
     # much larger scaffold; a flat blend of everything drowns the shape.
     cfg["blend"] = 5
-    cfg["expo"] = 1.0
+    # Exposure 1.0 leaves the three visible channels dim -- blend 5 draws them
+    # as clamp(rgb*expo), so mass around 0.3 stays a third lit -- while the
+    # hidden scaffold behind them is screened in through 1-exp(-total*expo),
+    # which saturates regardless. The animal ends up underneath its own
+    # scaffold. 2.2 is what the offline renders use and what the page's own
+    # worlds ship with.
+    cfg["expo"] = 2.2
     cfg["palette"] = "Spectrum"
 
     os.makedirs(os.path.join(STAGING, "worlds"), exist_ok=True)
