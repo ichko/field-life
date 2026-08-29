@@ -2810,7 +2810,16 @@ function applyConfig(c){
     kernels = [];
     for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
   }
-  for(const k of kernels) k.R = Math.min(k.R, radiusCap());
+  // radiusCap() bounds the blur-bank sliders, whose cost is a separable blur
+  // run over the whole field. The kernel bank is bounded by something else
+  // entirely: a KMAX stencil over a field halved once per pyramid level. So
+  // the slider's cap has no business here, and applying it silently shortened
+  // every long kernel a trained preset asked for -- five of the lizard's
+  // twelve channels, from reach 60 down to 56. Measured, that clipping cost a
+  // factor of three and a half at a thousand steps: 0.0025 as fitted against
+  // 0.0088 as loaded. Clamp to what the kernel path can actually serve.
+  const kcap = KMAX << pyramid.length;
+  for(const k of kernels) k.R = Math.min(k.R, kcap);
   uploadKernels();
   buildMatrixUI(); buildKernelUI(); buildSwatches();
   syncControls();

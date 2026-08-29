@@ -141,11 +141,11 @@ const seedDisc = () => fillField(true);''',
      '''const seed = () => fillField(false);
 const seedDisc = () => fillField(true);
 
-// Seed a soft central disc holding an EXACT mass in each channel. The update
-// only MOVES mass, so a trained world has to be handed the mass its picture
-// costs -- the red that the lizard's red adds up to, and so on -- and the
-// whole of the task is then where to put it. A disc rather than one lit cell
-// because mass travels one cell per step.
+// Seed a soft central disc holding an EXACT mass in each channel. MaCE only
+// moves mass, so a trained world has to be handed the mass its picture costs
+// -- the red the lizard's red adds up to, and so on -- and the whole task is
+// then where to put it. A disc rather than one lit cell because mass travels
+// one cell per step.
 function seedFromMasses(masses){
   if(!T.rhoA) return;
   // A tenth of the grid is only right when the grid is the animal. Once the
@@ -262,6 +262,19 @@ addEventListener("error", e => {'''),
     # ---- FS_UP: tile offset must use the source stride ----------------
     ('    xs[i] = tile*uN.x + wrapi(i0.x + i - 1, uNm.x);',
      "    // The tile offset must use the SOURCE's stride, not the destination's.\n    // uA is a mip, packed with tile stride uNm.x by whichever pass wrote it --\n    // FS_CONV across the full width, the separable path per layer -- while\n    // uN.x is the full-resolution width. They are equal at mip 0, which is why\n    // this held for so long; above it, every layer past the first read its\n    // neighbourhood integral out of the wrong region, so colours 4 and up got\n    // another layer's field. Any world with more than four colours and a reach\n    // past KMAX was affected.\n    xs[i] = tile*uNm.x + wrapi(i0.x + i - 1, uNm.x);"),
+
+    # ---- a loaded kernel is bounded by the kernel path, not the sliders ----
+    ('  for(const k of kernels) k.R = Math.min(k.R, radiusCap());',
+     '  // radiusCap() bounds the blur-bank sliders, whose cost is a separable blur\n'
+     '  // run over the whole field. The kernel bank is bounded by something else\n'
+     '  // entirely: a KMAX stencil over a field halved once per pyramid level. So\n'
+     '  // the slider\'s cap has no business here, and applying it silently shortened\n'
+     '  // every long kernel a trained preset asked for -- five of the lizard\'s\n'
+     '  // twelve channels, from reach 60 down to 56. Measured, that clipping cost a\n'
+     '  // factor of three and a half at a thousand steps: 0.0025 as fitted against\n'
+     '  // 0.0088 as loaded. Clamp to what the kernel path can actually serve.\n'
+     '  const kcap = KMAX << pyramid.length;\n'
+     '  for(const k of kernels) k.R = Math.min(k.R, kcap);'),
 ]
 
 
