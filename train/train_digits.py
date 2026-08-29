@@ -49,12 +49,16 @@ HORIZONS = [32, 64, 96, 128, 192, 256]
 
 class Task:
     def __init__(self, C, nclass=10, grid=dg.GRID, digit=dg.DIGIT,
-                 dtype=torch.float32):
-        self.geo = dg.Geometry(grid=grid, digit=digit, nclass=nclass)
+                 n_static=4, ring=dg.RING, dtype=torch.float32):
+        self.geo = dg.Geometry(grid=grid, digit=digit, nclass=nclass, ring=ring)
         self.C, self.dtype, self.nclass = C, dtype, nclass
+        self.n_static = n_static      # channels 0..n_static-1 never move
+        self.ptr = n_static           # the pointer: the only channel read
         self.w = torch.tensor(self.geo.w, dtype=dtype)
 
     chem = dg.CHEM
+    pointer = 1.0
+    fixed_class = None
 
     def build(self, imgs, labs, rng, siren=None):
         """Seeds, targets and labels. With a siren the seed carries gradient.
@@ -69,22 +73,52 @@ class Task:
         for k in range(len(labs)):
             digit = torch.tensor(g.place(imgs[k]), dtype=self.dtype)
             m = float(digit.sum())
+            nchem = self.C - self.n_static - 1
+            head = torch.cat([digit[None].expand(self.n_static, -1, -1),
+                              torch.tensor(g.ball(rng, m * self.pointer,
+                                                  jitter=0.0),
+                                           dtype=self.dtype)[None]], 0)
+            per = m * self.chem / max(nchem, 1)
             if siren is None:
-                chem = torch.tensor(
-                    np.stack([g.ball(rng, m * self.chem / max(self.C - 1, 1))
-                              for _ in range(self.C - 1)]), dtype=self.dtype)
+                chem = torch.tensor(np.stack([g.ball(rng, per)
+                                              for _ in range(nchem)]),
+                                    dtype=self.dtype)
             else:
-                chem = siren.place(m * self.chem / max(self.C - 1, 1), rng)
-            out.append(torch.cat([digit[None], chem], 0))
-            targets[k] = torch.tensor(g.target(int(labs[k]), m), dtype=self.dtype)
+                chem = siren.place(per, rng)
+            out.append(torch.cat([head, chem], 0))
+            k_cls = self.fixed_class if self.fixed_class is not None else int(labs[k])
+            targets[k] = torch.tensor(g.target(k_cls, m * self.pointer),
+                                      dtype=self.dtype)
         return (torch.stack(out), targets,
                 torch.tensor(np.asarray(labs), dtype=torch.long))
 
     def scores(self, rho):
-        return torch.einsum("khw,bhw->bk", self.w, rho[:, 0])
+        return torch.einsum("khw,bhw->bk", self.w, rho[:, self.ptr])
 
     def loss(self, rho, target):
-        return ((rho[:, 0] - target) ** 2).mean(dim=(1, 2))
+        return ((rho[:, self.ptr] - target) ** 2).mean(dim=(1, 2))
+
+    def answer(self, labs):
+        """The class the pointer is supposed to reach."""
+        return (torch.full_like(labs, self.fixed_class)
+                if self.fixed_class is not None else labs)
+
+
+def roll(model, task, rho, steps, kern=None):
+    """Advance, then put the static channels back exactly as they were.
+
+    fl.step transports every channel independently, and the affinity each cell
+    feels is computed from the state BEFORE the step -- so restoring channels
+    0..n_static-1 afterwards leaves every moving channel with exactly the
+    dynamics it would have had, and makes the digit a landscape rather than
+    something to be shoved. Mass is still conserved exactly on everything that
+    moves.
+    """
+    keep = rho[:, :task.n_static]
+    for _ in range(steps):
+        rho = model.rollout(rho, 1, kern=kern)
+        rho = torch.cat([keep, rho[:, task.n_static:]], dim=1)
+    return rho
 
 
 def accuracy(model, task, imgs, labs, horizons, rng, siren=None, chunk=32):
@@ -95,10 +129,11 @@ def accuracy(model, task, imgs, labs, horizons, rng, siren=None, chunk=32):
             seeds, _, y = task.build(imgs[lo:lo + chunk], labs[lo:lo + chunk],
                                      rng, siren)
             rho, done = seeds.clone(), 0
+            want = task.answer(y)
             for j, h in enumerate(horizons):
-                rho = model.rollout(rho, h - done)
+                rho = roll(model, task, rho, h - done)
                 done = h
-                hits[j] += int((task.scores(rho).argmax(1) == y).sum())
+                hits[j] += int((task.scores(rho).argmax(1) == want).sum())
     return [v / max(n, 1) for v in hits]
 
 
@@ -127,7 +162,7 @@ def save_progress(path, model, task, imgs, labs, horizons, rng, siren=None):
     with torch.no_grad():
         rho, done, frames = seeds.clone(), 0, [seeds.clone()]
         for h in horizons:
-            rho = model.rollout(rho, h - done)
+            rho = roll(model, task, rho, h - done)
             done = h
             frames.append(rho.clone())
     cols = channel_colours(seeds.shape[1])
@@ -137,10 +172,14 @@ def save_progress(path, model, task, imgs, labs, horizons, rng, siren=None):
         for f in frames:
             # each channel normalised by its own max, so a faint but structured
             # channel is still visible beside a bright one
-            v = ring[..., None] * np.array([0.0, 0.35, 0.0])
-            for c in range(f.shape[1]):
+            v = ring[..., None] * np.array([0.0, 0.30, 0.0])
+            d = f[k, 0].numpy()
+            v = v + (d / max(d.max(), 1e-9))[..., None] * np.array([.35, .35, .35])
+            p = f[k, task.ptr].numpy()
+            v = v + (p / max(p.max(), 1e-9))[..., None] * np.array([1.0, 1.0, .3])
+            for c in range(task.ptr + 1, f.shape[1]):
                 a = f[k, c].numpy()
-                v = v + (a / max(a.max(), 1e-9))[..., None] * cols[c]
+                v = v + 0.5 * (a / max(a.max(), 1e-9))[..., None] * cols[c]
             tiles.append(v / max(v.max(), 1e-9))
         rows.append(np.concatenate([np.clip(t, 0, 1) for t in tiles], axis=1))
     img = Image.fromarray((np.concatenate(rows, axis=0) * 255).astype(np.uint8))
@@ -155,6 +194,21 @@ def main():
                          "is the honest way to find out whether the substrate "
                          "can do any of it before blaming the class count.")
     ap.add_argument("--grid", type=int, default=dg.GRID)
+    ap.add_argument("--ring", type=int, default=dg.RING)
+    ap.add_argument("--static", type=int, default=4,
+                    help="channels holding a copy of the digit that never moves. "
+                         "Several, not one: a static field reaches the dynamics "
+                         "only through its own convolution, so one copy is one "
+                         "filter response, and one filter cannot separate ten "
+                         "classes.")
+    ap.add_argument("--pointer", type=float, default=1.0,
+                    help="pointer mass as a multiple of the digit's")
+    ap.add_argument("--fixed-class", type=int, default=None,
+                    help="rung A of the ladder: send the pointer to this region "
+                         "whatever the digit is. No input dependence at all, so "
+                         "it asks only whether a blob can be driven to a target "
+                         "and HELD there -- which is not obvious, because MaCE "
+                         "has no identity and its neutral state is a blur.")
     ap.add_argument("--digit", type=int, default=dg.DIGIT)
     ap.add_argument("--orders", default="0,0,0,1,1,2")
     ap.add_argument("--channels", type=int, default=16,
@@ -220,8 +274,10 @@ def main():
         fh.write(str(os.getpid()))
     atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
 
-    task = Task(a.channels, a.classes, a.grid, a.digit)
+    task = Task(a.channels, a.classes, a.grid, a.digit, a.static, a.ring)
     task.chem = a.chem
+    task.pointer = a.pointer
+    task.fixed_class = a.fixed_class
     rng = np.random.default_rng(a.seed)
     xtr, ytr = dg.load("train")
     xte, yte = dg.load("test")
@@ -235,9 +291,10 @@ def main():
     with torch.no_grad():
         model.kern.logR.fill_(math.log(float(a.kr)))
     model.kern.logR.requires_grad_(False)
-    siren = (dg.SirenSeed(a.grid, a.channels - 1, a.siren_hidden,
-                          a.siren_layers, seed=a.seed)
-             if a.siren_hidden else None)
+    nchem = a.channels - a.static - 1
+    siren = (dg.SirenSeed(a.grid, nchem, a.siren_hidden, a.siren_layers,
+                          seed=a.seed)
+             if a.siren_hidden and nchem > 0 else None)
     params = [p for p in model.parameters() if p.requires_grad]
     if siren is not None:
         params += list(siren.parameters())
@@ -276,20 +333,29 @@ def main():
                                    + [f"acc{h}" for h in HORIZONS]
                                    + ["acc_test", "age", "secs"])
 
-    print(f"run {a.name}: {a.classes}-way MNIST by transport, grid {a.grid}, "
-          f"digit {a.digit}, {len(ytr)} training images")
+    goal = (f"every digit to region {a.fixed_class}" if a.fixed_class is not None
+            else f"{a.classes}-way MNIST")
+    print(f"run {a.name}: {goal} by transport, grid {a.grid}, digit {a.digit}, "
+          f"ring {a.ring}, {len(ytr)} training images")
+    print(f"  channels: {a.static} static copies of the digit, 1 pointer "
+          f"(the only channel read), {nchem} chemicals")
     print(f"  window {a.window}  batch {a.batch}  pool {a.pool}  settle "
           f"{a.settle}  stencil {a.kr}  orders {orders}")
     _s, _t, _ = task.build(xtr[:1], ytr[:1], np.random.default_rng(0))
-    print(f"  mass: digit {_s[0, 0].sum():.1f}; {a.channels - 1} chemical "
-          f"channels holding {_s[0, 1].sum():.1f} each, "
-          f"{float(_s[0, 1:].sum()):.1f} in total ({a.chem:g}x the digit)")
+    print(f"  mass: digit {_s[0, 0].sum():.1f} (x{a.static} static); "
+          f"pointer {_s[0, task.ptr].sum():.1f}; {nchem} chemicals holding "
+          f"{float(_s[0, task.ptr + 1].sum()):.1f} each, "
+          f"{float(_s[0, task.ptr + 1:].sum()):.1f} in total "
+          f"({a.chem:g}x the digit)")
     nw = sum(p.numel() for p in model.parameters() if p.requires_grad)
     ns = sum(p.numel() for p in siren.parameters()) if siren else 0
     print(f"  {nw} trainable numbers in the law"
           + (f" and {ns} in the learned seed, which never sees the digit and so "
              f"cannot carry the answer" if ns else " (plain ball seed)"))
-    print(f"  chance is {1 / a.classes:.2f}")
+    print(f"  chance is {1.0 if a.fixed_class is not None else 1 / a.classes:.2f}"
+          + ("  (rung A has no input dependence: anything below 1.0 is the "
+             "substrate failing, not the classifier)" if a.fixed_class is not None
+             else ""))
 
     t0, best = time.time(), -1.0
     bp = os.path.join(run, "preset-best.json")
@@ -314,7 +380,7 @@ def main():
         kern = model.kern()
         out, scored = batch, []
         for t in range(a.window):
-            out = model.rollout(out, 1, kern=kern)
+            out = roll(model, task, out, 1, kern=kern)
             step_no = t + 1
             if not (step_no == a.window or not a.loss_every
                     or step_no % a.loss_every == 0):

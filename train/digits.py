@@ -38,7 +38,10 @@ DATA = os.path.join(HERE, "data", "mnist.npz")
 
 GRID = 40          # field side; the ring has to fit inside it
 DIGIT = 16         # the digit is scaled to this, from MNIST's 28
-RING = 14          # how far the class regions sit from the centre
+RING = 8           # how far the class regions sit from the centre. It was 14,
+                   # and mass moves one cell per step, so nothing could be right
+                   # before step 14 -- by which point train/survival.py measured
+                   # the class as already gone from the field.
 REGION_R = 4.0     # radius of a class region
 BALL_R = 5.0       # radius of the chemicals' starting ball
 # Where the chemicals land. Zero means dead centre, every time.
@@ -120,12 +123,30 @@ class Geometry:
         s = b.sum()
         return b * (mass / s) if s > 0 else b
 
-    def seed(self, img, C, rng, chem=CHEM):
+    def seed(self, img, C, rng, chem=CHEM, n_static=4, pointer=1.0):
+        """Static digit copies, then the pointer, then the chemicals.
+
+        Channels 0..n_static-1 all hold the SAME digit and never move. Several
+        copies rather than one because a static field enters every channel's
+        affinity only through its own convolution, so one copy is one filter
+        response and one filter cannot separate ten classes. Four copies with
+        four learned kernels is a learned filter bank -- which is what an NCA's
+        perception layer is.
+
+        Channel n_static is the POINTER: a compact ball at the centre, and the
+        only thing read. It is what the answer is written with, and a ball is
+        chosen because a ball survives being pushed across the field where the
+        digit's own fine structure does not.
+        """
         rho = np.zeros((C, self.grid, self.grid))
-        rho[0] = self.place(img)
-        m = rho[0].sum() * chem / max(C - 1, 1)      # chem is the TOTAL
-        for c in range(1, C):
-            rho[c] = self.ball(rng, m)
+        d = self.place(img)
+        m = d.sum()
+        for c in range(n_static):
+            rho[c] = d
+        rho[n_static] = self.ball(rng, m * pointer, jitter=0.0)
+        nchem = C - n_static - 1
+        for c in range(n_static + 1, C):
+            rho[c] = self.ball(rng, m * chem / max(nchem, 1))
         return rho
 
     def scores(self, field):
