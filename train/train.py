@@ -53,10 +53,15 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # is backpropagated through, because reaching the shape and holding it are
 # different things and only the long ones can tell them apart: a world can
 # score 0.0019 at step 64 and 0.0077 at step 512.
-HORIZONS = [16, 32, 64, 128, 256, 512]
+HORIZONS = [16, 32, 64, 128, 256, 512, 1024]
 # What "best" means. Weighted hard toward the far end -- a world that decays is
 # not a better world for having been briefly sharper.
-HZ_WEIGHTS = [0.25, 0.5, 1, 2, 3, 4]
+#
+# 1024 is here because without it the score was blind to the actual failure:
+# the native world scored its best at iteration 3725 with 0.0020 at step 128
+# and 0.0078 at step 1024. It builds the animal and then loses it, and every
+# horizon the score could see was on the way up.
+HZ_WEIGHTS = [0.25, 0.5, 1, 2, 3, 4, 5]
 
 
 # ------------------------------------------------------------------ the model
@@ -446,7 +451,9 @@ def main():
     if a.resume and os.path.exists(bp):
         try:
             prev = json.load(open(bp))
-            if "_horizons" in prev:
+            # only if it was scored on the same horizons -- zipping six
+            # against seven weights makes a stale world look unbeatable
+            if len(prev.get("_horizons", ())) == len(HORIZONS):
                 best_h = (sum(h * w for h, w in zip(prev["_horizons"], HZ_WEIGHTS))
                           / sum(HZ_WEIGHTS))
                 print(f"carrying the best from iteration {prev.get('_bestAt')}: "

@@ -17,19 +17,24 @@ from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
-HORIZONS = [16, 32, 64, 128, 256, 512]
+# Every horizon any run has recorded. The score below deliberately uses only
+# the first six: the trainer now selects on seven (h1024 was added once it
+# turned out the native world's decay lived entirely past h512), but ranking
+# runs against each other needs a scale every run shares, and rescoring the
+# history on seven would drop all of it. So h1024 is reported, not ranked.
+HORIZONS = [16, 32, 64, 128, 256, 512, 1024]
 WEIGHTS = [0.25, 0.5, 1, 2, 3, 4]
 
 
 def score(hz):
-    """None unless the run measured every horizon.
+    """None unless the run measured at least the six common horizons.
 
     Runs from before h256 and h512 existed carry four values, and zipping four
     against six weights silently drops the far end while still dividing by the
     full weight sum -- which made an early checkpoint look four times better
     than the world that actually ships. Refuse to score those instead.
     """
-    if not hz or len(hz) != len(WEIGHTS):
+    if not hz or len(hz) < len(WEIGHTS):
         return None
     return sum(h * w for h, w in zip(hz, WEIGHTS)) / sum(WEIGHTS)
 
@@ -61,7 +66,7 @@ def read(run):
         except json.JSONDecodeError:
             pass
     hz = best["_horizons"] if best else None
-    if hz is not None and len(hz) != len(WEIGHTS):
+    if hz is not None and len(hz) < len(WEIGHTS):
         hz = None
     ks = cfg.get("kernels") or [{}]
     return {
@@ -112,7 +117,9 @@ def main():
             "| run | " + " | ".join(f"h{h}" for h in HORIZONS) + " |",
             "|---|" + "---|" * len(HORIZONS)]
     for r in scored:
-        out.append(f"| `{r['run']}` | " + " | ".join(f"{v:.4f}" for v in r["hz"]) + " |")
+        cells = [f"{v:.4f}" for v in r["hz"]]
+        cells += ["\u2014"] * (len(HORIZONS) - len(cells))
+        out.append(f"| `{r['run']}` | " + " | ".join(cells) + " |")
     out.append("")
 
     p = os.path.join(ROOT, "docs", "results.md")
