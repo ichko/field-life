@@ -359,6 +359,21 @@ def main():
 
     t0, best = time.time(), -1.0
     bp = os.path.join(run, "preset-best.json")
+    # ...carried across restarts. Without this a resumed run crowns its own
+    # local best and overwrites a better world with a worse one -- which is
+    # exactly what happened here: a checkpoint scoring 0.52 on a thousand
+    # held-out digits was replaced by one scoring 0.46, purely because the
+    # process had started again in between. train.py documents this and it was
+    # not ported.
+    if a.resume and os.path.exists(bp):
+        try:
+            prev = json.load(open(bp))
+            if "_acc" in prev:
+                best = max(prev["_acc"])
+                print(f"carrying the best from iteration "
+                      f"{prev.get('_bestAt')}: {best:.3f}")
+        except (json.JSONDecodeError, TypeError, ValueError):
+            pass
     for it in range(start_it, a.iters):
         n_fresh = int(a.batch * a.fresh_frac) if siren is not None else 0
         n_pool = a.batch - n_fresh
