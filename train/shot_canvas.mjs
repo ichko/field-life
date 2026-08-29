@@ -49,5 +49,9 @@ const info = await page.evaluate(async (steps) => {
 }, STEPS);
 console.log(JSON.stringify(info));
 if (errors.length) console.log("PAGE ERRORS:\n  " + errors.join("\n  "));
-await page.locator("canvas").first().screenshot({ path: OUT });
+// Clip a full-page shot to the canvas rather than shooting the element: the
+// element screenshot waits for the node to be "stable", and a canvas the page
+// keeps repainting never is, so it times out having drawn nothing.
+const box = await page.locator("canvas").first().boundingBox();
+await page.screenshot({ path: OUT, clip: box });
 await browser.close(); server.close();
