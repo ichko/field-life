@@ -420,10 +420,33 @@ def main():
         print(f"resumed {a.name} at iteration {start_it}")
 
     logp = os.path.join(run, "log.csv")
-    if not os.path.exists(logp):
+    head = (["iter", "loss", "best", "lam", "force", "beta"]
+            + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
+    # A resumed run that measures more horizons than the file was opened with
+    # writes wider rows than its own header, and every reader of the csv then
+    # mis-columns the far end. Rewrite the header in place when that happens.
+    if os.path.exists(logp):
+        with open(logp, newline="") as f:
+            rows = list(csv.reader(f))
+        if rows and rows[0] != head:
+            # widening also means the rows written before the new horizon
+            # existed are a column short -- and a short row does not read as
+            # "not measured", it reads as age and secs shifted into the
+            # horizon columns. Pad them where the gap actually is: after the
+            # horizons they did measure, before the two trailing fields.
+            n_old_h = max(len(rows[0]) - 8, 0)
+            pad = len(HORIZONS) - n_old_h
+            if pad > 0:
+                for r in rows[1:]:
+                    if len(r) == len(rows[0]):
+                        r[6 + n_old_h:6 + n_old_h] = [""] * pad
+            rows[0] = head
+            with open(logp, "w", newline="") as f:
+                csv.writer(f).writerows(rows)
+            print(f"rewrote the log header for {len(HORIZONS)} horizons")
+    else:
         with open(logp, "w", newline="") as f:
-            csv.writer(f).writerow(["iter", "loss", "best", "lam", "force", "beta"]
-                                   + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
+            csv.writer(f).writerow(head)
 
     reach = tgt.budget(target_np, a.grid)
     max_reach = a.kr * (1 << a.mip)
