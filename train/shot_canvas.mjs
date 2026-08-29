@@ -12,7 +12,7 @@
  */
 import { chromium } from "playwright";
 import { createServer } from "node:http";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
 
 const ROOT = resolve(import.meta.dirname, "..");
@@ -44,14 +44,21 @@ const info = await page.evaluate(async (steps) => {
   reseed();
   for (let i = 0; i < steps; i++) step();
   render();
-  await new Promise(r => requestAnimationFrame(r));
-  return { tick: S.tick, blend: S.blend, expo: S.expo, C: S.C, grid: `${S.NX}x${S.NY}` };
+  // Copy the drawing buffer here, synchronously, the way the page's own camera
+  // button does: the context is created with preserveDrawingBuffer false, so
+  // anything that waits for a frame -- an element screenshot, toBlob, even
+  // page.screenshot's own font and stability waits -- photographs a buffer
+  // that has already been wiped, or times out waiting for a canvas that never
+  // holds still.
+  const c = document.createElement("canvas");
+  c.width = cv.width; c.height = cv.height;
+  c.getContext("2d").drawImage(cv, 0, 0);
+  return { tick: S.tick, blend: S.blend, expo: S.expo, C: S.C,
+           grid: `${S.NX}x${S.NY}`, png: c.toDataURL("image/png") };
 }, STEPS);
-console.log(JSON.stringify(info));
+const { png, ...rest } = info;
+console.log(JSON.stringify(rest));
 if (errors.length) console.log("PAGE ERRORS:\n  " + errors.join("\n  "));
-// Clip a full-page shot to the canvas rather than shooting the element: the
-// element screenshot waits for the node to be "stable", and a canvas the page
-// keeps repainting never is, so it times out having drawn nothing.
-const box = await page.locator("canvas").first().boundingBox();
-await page.screenshot({ path: OUT, clip: box });
+await writeFile(OUT, Buffer.from(png.split(",")[1], "base64"));
+console.log(`wrote ${OUT}`);
 await browser.close(); server.close();
