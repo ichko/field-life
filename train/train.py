@@ -448,6 +448,13 @@ def main():
         with open(logp, "w", newline="") as f:
             csv.writer(f).writerow(head)
 
+    # Record how the run was actually invoked. The flags that matter most --
+    # reseed rate, band caps, window -- live only on the command line, so a
+    # run directory without this cannot say which settings produced it, and
+    # a resume under changed flags leaves no trace at all.
+    with open(os.path.join(run, "args.jsonl"), "a") as f:
+        f.write(json.dumps({"at": start_it, "argv": sys.argv[1:]}) + "\n")
+
     reach = tgt.budget(target_np, a.grid)
     max_reach = a.kr * (1 << a.mip)
     print(f"run {a.name}: grid {a.grid}, animal {span} cells, stencil {a.kr} at "
