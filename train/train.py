@@ -113,6 +113,7 @@ class World(torch.nn.Module):
         g = torch.Generator().manual_seed(seed + 1)
         self.hidden = hidden
         self.mip = mip
+        self.chunk = 1                 # steps per checkpointed segment
         self.mix = Mix(C, hidden, seed) if hidden else None
         # A random matrix is a random world: at 2x it scrambles a large field
         # before anything has been learned. Zeros start from the benign end
@@ -148,12 +149,29 @@ class World(torch.nn.Module):
         kern = self.kern() if kern is None else kern
         f, r, b = self.globals()
         mix = self.mix if self.hidden else self.mat
-        for _ in range(steps):
-            if recompute and torch.is_grad_enabled():
-                rho = checkpoint(fl.step, rho, kern, mix, f, r, b, self.mip,
-                                 use_reentrant=False)
-            else:
+        if not (recompute and torch.is_grad_enabled()):
+            for _ in range(steps):
                 rho = fl.step(rho, kern, mix, f, r, b, self.mip)
+            return rho
+
+        # Checkpointing every step keeps `steps` boundaries alive; checkpointing
+        # every k keeps steps/k of them, but the backward pass then rebuilds k
+        # steps at once and holds their ten intermediates each. So the total is
+        # steps/k + 10k tensors, smallest near k = sqrt(steps/10) -- about 4 for
+        # a 144-step window, which is roughly half the memory of k = 1 for the
+        # same one extra forward pass. That difference is what decides whether a
+        # longer window fits at all.
+        def seg(x, n):
+            for _ in range(n):
+                x = fl.step(x, kern, mix, f, r, b, self.mip)
+            return x
+
+        k = max(1, self.chunk)
+        done = 0
+        while done < steps:
+            n = min(k, steps - done)
+            rho = checkpoint(seg, rho, n, use_reentrant=False)
+            done += n
         return rho
 
     def scalars(self):
@@ -269,6 +287,10 @@ def main():
                          "a tenth of the grid. Scaling it to the animal rather "
                          "than the grid shortens how far mass must travel, and "
                          "that distance sets the window and so the cost.")
+    ap.add_argument("--recompute-every", type=int, default=1,
+                    help="steps per checkpointed segment. 1 stores one boundary "
+                         "per step; larger stores fewer and rebuilds more, which "
+                         "is cheaper in memory up to about sqrt(window/10)")
     ap.add_argument("--recompute", action="store_true",
                     help="recompute activations in the backward pass instead of "
                          "storing them. Roughly one extra forward pass, and the "
@@ -372,6 +394,7 @@ def main():
 
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden,
                   mat_init=a.mat_init, mip=a.mip)
+    model.chunk = a.recompute_every
     # A pool of long-lived states is a REFINEMENT, not a bootstrap. It assumes
     # the world can already roughly do the task, so that an aged state is a
     # drifted lizard worth repairing. Hand it a world that cannot build the
