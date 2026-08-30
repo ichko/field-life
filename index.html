@@ -183,17 +183,20 @@ button.primary:hover{filter:brightness(1.08)}
   display:flex; flex-direction:column; gap:16px}
 /* Both on one baseline, so the subtitle costs the page no height. */
 header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+/* Not a flex row: a flex container takes its baseline from its first item, and
+   the first item here is a picture, so the subtitle beside the title was
+   sitting on the jellyfish's bottom edge instead of on the words. Inline flow
+   keeps the text's own baseline, and the jellyfish rides on it. */
 h1{
   font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
   font-size:clamp(24px,3.2vw,33px); letter-spacing:-.035em; margin:0; text-wrap:balance;
-  display:flex; align-items:center; gap:9px;
 }
 /* Noto's jellyfish, inlined. The character renders as a different creature on
    every platform, and Apple's own artwork is licensed for Apple devices only,
    so it cannot ship in a web page. Of the sets that can, Noto's is the closest
    to it: translucent, blue, with tentacles that trail.
    Source: googlefonts/noto-emoji, U+1FABC, Apache 2.0. */
-h1 .jelly{width:1em; height:1em; flex:0 0 auto; overflow:visible}
+h1 .jelly{width:1em; height:1em; overflow:visible; vertical-align:-.16em; margin-right:7px}
 .tag{color:var(--ink2); font-size:12px; letter-spacing:.02em}
 .tag b{color:var(--ink); font-weight:500}
 .app{position:relative; width:100%; aspect-ratio:7/5; overflow:hidden;
@@ -227,14 +230,37 @@ h1 .jelly{width:1em; height:1em; flex:0 0 auto; overflow:visible}
   font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
   margin:0 0 10px}
 .below p{margin:0 0 10px}
+/* A caption under the field, before the writing starts: where the thing lives. */
+.source{font-family:"IBM Plex Mono", ui-monospace, monospace; font-size:11px;
+  letter-spacing:.02em; color:var(--ink3)}
 .below b{color:var(--ink); font-weight:500}
 /* A shelf of worlds under the field. The thumbnails are the same 7:5 frames
    the browser page uses; object-fit crops them square here rather than
    generating a second set of images. */
 /* The shelf belongs to the field under it, so it sits closer than the page's
    own 16px flex gap would put it. The negative margin cancels most of that gap. */
-.strip{margin:0 0 -13px}
-.striprow{display:flex; align-items:stretch; gap:4px}
+/* Two shelves side by side, not one rail: picking a creature to drop into an
+   empty world is a different act from picking a world to run. The worlds take
+   the room they need for ten times as many; the creatures sit to their right. */
+.strip{margin:0 0 -13px; display:flex; gap:18px; align-items:flex-end}
+.shelf{display:flex; flex-direction:column; gap:2px; min-width:0}
+/* The creature shelf asks for exactly the width its tiles need, so a handful
+   of them never comes with arrows; the worlds take everything left over, and
+   both shrink together when the window does. */
+#cshelf{flex:0 1 auto; min-width:0}
+#cshelf .striprail{flex:0 1 auto}
+#wshelf{flex:1 1 0; min-width:0}
+.shelflab{
+  font:10px/1.2 "IBM Plex Mono", ui-monospace, monospace; color:var(--ink3);
+  letter-spacing:.04em; user-select:none; padding-left:2px;
+}
+.striprow{display:flex; align-items:stretch; gap:4px; min-width:0}
+/* Side by side needs width. On a narrow screen they go back to one over the
+   other rather than shrinking to two windows a tile and a half wide. */
+@media (max-width:760px){
+  .strip{display:block}
+  .shelf + .shelf{margin-top:4px}
+}
 .stepper{
   flex:0 0 auto; width:21px; padding:0; cursor:pointer; align-self:stretch;
   margin-bottom:6px;                       /* clear the rail's scrollbar gutter */
@@ -243,6 +269,7 @@ h1 .jelly{width:1em; height:1em; flex:0 0 auto; overflow:visible}
   transition:color .12s ease, border-color .12s ease;
 }
 .stepper:hover{color:var(--accent); border-color:var(--accent)}
+.stepper[hidden]{display:none}
 /* Dimmed, not faded out: at the end of the rail the arrow still has to read as
    an arrow, or it just looks like a gap in the row. */
 .stepper:disabled{cursor:default; opacity:.72; color:var(--ink2);
@@ -614,18 +641,33 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
 <div class="page">
   <header>
     <h1><svg class="jelly" viewBox="0 0 128 128" aria-hidden="true"><path style="fill:#0284FF;" d="M65.26,86.93c-3.21-0.07-6.15-1.29-7.94-4.75c-2.07-4-1.32-8.38,2.19-12.66 c2.49-3.05,4.97-4.49,5.09-4.57c0.69-0.44,1.6-0.23,2.03,0.45c0.44,0.69,0.23,1.6-0.45,2.04c-0.11,0.07-9.93,6.29-6.25,13.38 c2.56,4.94,8.64,3.54,16.99-0.09c3.81-1.66,6.93-1.73,9.68-1.79c2.34-0.06,4.36-0.1,6.57-1.05c4.94-2.12,5.9-6.47,6.9-11.07 c0.53-2.41,1.08-4.91,2.23-7.08c2.37-4.48,5.98-6.94,6.63-7.32c0.77-0.45,1.61-0.99,2.11-0.34c0.5,0.64-0.26,1.44-0.9,1.94 c-0.04,0.03-3.1,2.2-5.37,6.65c-0.94,1.84-1.31,4.47-1.82,6.79c-1.07,4.89-2.29,10.43-8.62,13.15c-2.73,1.17-5.24,1.23-7.66,1.29 c-2.6,0.06-5.29,0.12-8.57,1.55c-3.14,1.36-8.27,3.59-12.84,3.49L65.26,86.93z"/> <path style="fill:#0284FF;" d="M80.99,123.66c-0.92-0.49-9.54-5.2-17.73-8.48c-1.51-0.6-3.08-1.16-4.75-1.76 c-6.68-2.38-14.98-5.33-24.34-13.38C21.68,89.3,20.38,79.44,20.72,74.52c0.27-3.96,1.88-6.92,3.59-10.05 c0.71-1.32,1.45-2.68,2.11-4.14c1.88-4.24,1.37-10.93,1.36-10.99c-0.07-0.81,0.54-1.52,1.35-1.59c0.81-0.06,1.52,0.54,1.59,1.35 c0.02,0.3,0.58,7.49-1.61,12.43c-0.7,1.58-1.47,2.99-2.21,4.36c-1.61,2.97-3.01,5.53-3.23,8.85c-0.24,3.52,0.48,12.81,12.43,23.08 c8.94,7.68,16.63,10.42,23.41,12.83c1.7,0.6,3.3,1.17,4.86,1.8c8.43,3.38,15.99,8.25,17.08,8.87s2.55,2.07,2.12,2.76 C83.28,124.54,81.91,124.15,80.99,123.66z"/> <path style="fill:#0284FF;" d="M61.49,98.96c-1.31-0.03-2.65-0.17-4-0.43c-13-2.56-20.72-12.47-18.77-24.1 c2.03-12.13,10.65-21.2,11.01-21.58c0.56-0.59,1.5-0.6,2.09-0.04c0.59,0.56,0.61,1.5,0.04,2.09c-0.08,0.09-8.35,8.81-10.23,20.02 c-1.96,11.69,6.84,18.83,16.43,20.72c8.66,1.71,16.55-2.58,22.31-5.71c1.28-0.69,2.48-1.35,3.55-1.85c2.62-1.24,5-1.51,7.3-1.77 c3.05-0.35,6.26-0.45,9.96-2.92c4.58-3.07,6.52-8.02,6.54-8.07c0.28-0.87,0.79-1.98,1.56-1.72c0.77,0.27,0.55,2.04,0.28,2.81 c-0.38,1.08-1.64,5.57-7.07,9.2c-4.29,2.88-7.82,3.28-10.93,3.64c-2.16,0.25-4.2,0.48-6.37,1.51c-0.99,0.47-2.16,1.1-3.4,1.78 c-5,2.71-12.2,6.62-20.29,6.44L61.49,98.96z"/> <radialGradient id="jf3" cx="47.5874" cy="74.7414" r="73.31" gradientTransform="matrix(0.9998 0.0223 0.0223 -0.9998 -12.688 149.9519)" gradientUnits="userSpaceOnUse"> <stop offset="0.12" style="stop-color:#C2BDFF"/> <stop offset="0.33" style="stop-color:#BFC8FF"/> <stop offset="0.78" style="stop-color:#BCDDFF"/> </radialGradient> <path style="opacity:0.7;fill:url(#jf3);enable-background:new ;" d="M33.37,50.56c0,1.61,0.75,5.83-1.13,10.9 c-3.17,8.55-15.4,10.93-11.18,24.85c2.3,7.58,7.29,7.83,7.56,8.84s-1.75,15.64,15.98,20.17c16.65,4.25,24.94-10,29.86-11.14 c5.07-1.17,4.71,3.92,5.68,8.86c0.81,4.15,3.18,7.12,7.06,8.83c4.09,1.81,6.57-0.56,6.57-0.56s3.84,3.05,9.34,1.82 c10.23-2.29,9.26-13,8.56-13.12s-5.06,6.51-11.98,3.66c-6.09-2.51-5.54-9.1-4.04-13.1s1.19-8.04-0.78-10.2s-5.73-0.93-5.73-0.93 s0.06-6.96-4.32-9.67c-4.38-2.72-10.28,1.02-13.79,4.24c-4.94,4.53-10.28,3.49-14.01-1.23c-3.36-4.25-3.86-9.8-0.09-14.42 s6.37-4.49,6.37-4.49s-2.99-1.38-5.1-1.73s-9.07,2.1-13.89-1.02C37.11,56.46,36.73,51.54,33.37,50.56z"/> <radialGradient id="jf1" cx="47.5874" cy="74.7414" r="73.31" gradientTransform="matrix(0.9998 0.0223 0.0223 -0.9998 -12.688 149.9519)" gradientUnits="userSpaceOnUse"> <stop offset="0.17" style="stop-color:#C2BDFF"/> <stop offset="0.22" style="stop-color:#BEBEFF;stop-opacity:0.91"/> <stop offset="0.43" style="stop-color:#B1C6FF;stop-opacity:0.52"/> <stop offset="0.6" style="stop-color:#A7CCFF;stop-opacity:0.24"/> <stop offset="0.72" style="stop-color:#A1CFFF;stop-opacity:0.07"/> <stop offset="0.78" style="stop-color:#9FD1FF;stop-opacity:0"/> </radialGradient> <path style="fill:url(#jf1);" d="M33.37,50.56c0,1.61,0.75,5.83-1.13,10.9 c-3.17,8.55-15.4,10.93-11.18,24.85c2.3,7.58,7.29,7.83,7.56,8.84s-1.75,15.64,15.98,20.17c16.65,4.25,24.94-10,29.86-11.14 c5.07-1.17,4.71,3.92,5.68,8.86c0.81,4.15,3.18,7.12,7.06,8.83c4.09,1.81,6.57-0.56,6.57-0.56s3.84,3.05,9.34,1.82 c10.23-2.29,9.26-13,8.56-13.12s-5.06,6.51-11.98,3.66c-6.09-2.51-5.54-9.1-4.04-13.1s1.19-8.04-0.78-10.2s-5.73-0.93-5.73-0.93 s0.06-6.96-4.32-9.67c-4.38-2.72-10.28,1.02-13.79,4.24c-4.94,4.53-10.28,3.49-14.01-1.23c-3.36-4.25-3.86-9.8-0.09-14.42 s6.37-4.49,6.37-4.49s-2.99-1.38-5.1-1.73s-9.07,2.1-13.89-1.02C37.11,56.46,36.73,51.54,33.37,50.56z"/> <radialGradient id="jf0" cx="-707.0997" cy="992.2281" r="49.96" gradientTransform="matrix(-0.3587 0.9335 2.3616 0.9075 -2530.6243 -228.5121)" gradientUnits="userSpaceOnUse"> <stop offset="0.05" style="stop-color:#0EBCFF"/> <stop offset="0.27" style="stop-color:#08D1FF"/> <stop offset="0.44" style="stop-color:#06DCFF"/> <stop offset="0.54" style="stop-color:#05D0FF"/> <stop offset="0.73" style="stop-color:#03B1FF"/> <stop offset="0.82" style="stop-color:#029FFF"/> </radialGradient> <path style="fill:url(#jf0);" d="M19.82,42.52 c-0.68-1.6-1.73-8.94,3.35-19.62C28.25,12.23,46.43-4.42,73.35,8.88c25.69,12.69,17.93,41.4,12.78,49.65 c-4.81,7.71-9,9.59-13.05,9.88c-2.68,0.19-9.85-5.67-12.97-5.94s-11.72,0.95-15.8-1.36s-9.36-9.89-11.15-10.63 S22.51,48.83,19.82,42.52L19.82,42.52z"/> <path style="fill:#F5ECEB;" d="M42.46,68.27c-1.21-0.1-2.14,0.7-2.24,2.01s0.77,2.11,1.9,2.2s2.07-0.56,2.21-1.94 S43.63,68.36,42.46,68.27L42.46,68.27z"/> <path style="fill:#F5ECEB;" d="M38.34,82.57c-1.38,0.03-2.06,0.94-2.07,2.3s1.03,2.04,2.28,2.03s1.97-0.9,2-2.2 S39.63,82.53,38.34,82.57L38.34,82.57z"/> <path style="fill:#F5ECEB;" d="M27.67,72.31c-1.36,0.1-2.02,1.09-1.94,2.08s0.49,1.91,1.85,1.91c1.14,0,1.94-0.58,2.03-1.88 c0.09-1.17-0.65-2.2-1.95-2.1L27.67,72.31z"/> <path style="fill:#F5ECEB;" d="M56.09,86.93c-1.26-0.02-1.87,1.01-1.8,1.92s0.59,1.81,1.72,1.85c1.05,0.03,1.79-0.62,1.89-1.83 c0.08-1.08-0.52-1.93-1.8-1.94L56.09,86.93z"/> <path style="fill:#F5ECEB;" d="M40.27,98.79c-1.24-0.1-2.17,0.67-2.27,1.98s0.77,2.13,1.92,2.23s2.11-0.56,2.25-1.93 S41.46,98.89,40.27,98.79z"/> <path style="fill:#F5ECEB;" d="M53.52,106.76c-1.07-0.09-1.89,0.61-1.98,1.77s0.68,1.86,1.68,1.95c1,0.08,1.83-0.49,1.95-1.71 s-0.61-1.92-1.64-2.01L53.52,106.76z"/> <path style="fill:#F5ECEB;" d="M70.21,93.63c-1.14,0.28-1.5,1.67-1.17,2.6s1.09,1.72,2.3,1.46c1.09-0.23,1.62-1.18,1.36-2.46 C72.47,94.08,71.44,93.32,70.21,93.63z"/> <path style="fill:#F5ECEB;" d="M80.21,85.51c-1.22-0.02-1.81,0.93-1.74,1.78s0.57,1.68,1.67,1.71c1.02,0.03,1.74-0.57,1.83-1.69 c0.08-1-0.51-1.78-1.75-1.8L80.21,85.51z"/> <radialGradient id="jf2" cx="-752.2075" cy="1146.8077" r="44.79" gradientTransform="matrix(-0.4 0.9165 1.6589 0.7241 -2137.1021 -123.0022)" gradientUnits="userSpaceOnUse"> <stop offset="0.36" style="stop-color:#83FFFF"/> <stop offset="0.43" style="stop-color:#77F8FF"/> <stop offset="0.56" style="stop-color:#5AE7FF"/> <stop offset="0.72" style="stop-color:#2BCCFF"/> <stop offset="0.81" style="stop-color:#0EBCFF"/> </radialGradient> <path style="fill:url(#jf2);" d="M31.49,48.33 c-1.11-0.13-5.12-1.71-5.58-7.97s3.51-9.66,8.85-11.54c3.96-1.4,6.97-3.36,10.57-6c3.32-2.43,9.93-6.34,19.14-1.97 c10.54,5,9.66,13.12,10.01,16.76c0.49,5.15,1.71,7.22,3.63,11.45c1.95,4.29,0.54,10.51-2.82,13.47c-4.01,3.54-10.89,2.07-11.99,1.34 s-3.39-1.49-5.1-1.73S46.89,63,44.31,61.12s-7.99-8.04-9.08-8.87S31.49,48.33,31.49,48.33z"/> <path style="fill:#0284FF;" d="M35.22,49.29c-4.29-2.66-6.93-1.78-10.05-3.78c-4.54-2.91-3.79-5.86-5.03-5.42 c-1.12,0.4-0.65,6.62,4.72,9.56c5.37,2.93,6.62,1.18,9.63,3.93c3,2.76,3.14,6.71,10.08,9.36c6.15,2.36,10.49-0.08,14.33,0.85 c5.07,1.23,3.21,3.68,9.02,5.03c4.53,1.05,8.44-0.6,8.21-1.36s-3.56,0.29-7.3-1.54c-2.65-1.3-4.91-4.28-8.05-5.17 c-6.28-1.79-9.93,1.47-16.04-1.79c-6.12-3.26-4.69-6.68-9.5-9.66L35.22,49.29z"/> <path style="fill:#F4FCFF;" d="M50.99,9.07c0.2,1.88,2.24,1.87,3.33,1.83c1.3-0.05,3.46-0.57,3.24-2.62 c-0.16-1.5-1.45-2.05-3.38-1.95C52.39,6.42,50.8,7.35,50.99,9.07z"/> <path style="fill:#F4FCFF;" d="M34.97,13.39c6.39-5.02,9.89-5.11,11.07-4.95c1.09,0.14,2.28,0.94,1.96,2.38s-1.81,1.79-2.91,2.18 s-2.97,0.82-7.18,4c-3.22,2.44-6.21,6.68-7.62,7.75c-0.76,0.57-2.99,0.35-2.52-2.21s3.33-6.1,7.21-9.14L34.97,13.39z"/> <path style="fill:#0284FF;" d="M49.12,121.09c-5.82-0.13-16.14-1.87-22.19-12.52C19.6,95.67,24.96,87,29.94,78.76 c1.94-3.21,3.78-6.24,4.92-9.55c3.04-8.81,2.01-13.91,2-13.96c-0.17-0.79,0.33-1.58,1.13-1.75c0.79-0.18,1.78,1.16,1.86,1.97 c0.1,1.04,1.14,5.02-2.2,14.7c-1.24,3.6-3.24,6.91-5.18,10.12c-4.75,7.85-9.23,15.27-2.76,26.66c7.81,13.73,21.27,11.53,22.23,11.5 c0.81-0.03,2.72-0.15,2.87,0.65c0.15,0.8-0.92,1.46-1.72,1.62C53.03,120.73,51.8,121.15,49.12,121.09z"/> <path style="fill:#0284FF;" d="M74.54,110.16c-4.08-0.09-8.59-1.01-13.66-3.11c-12.28-5.09-17.93-18.17-17.02-27.88 c1.04-11.08,7.58-17.51,7.86-17.78c0.59-0.57,1.52-0.55,2.09,0.03c0.57,0.59,0.55,1.52-0.03,2.08c-0.1,0.1-6.04,6.03-6.97,15.94 c-0.65,6.91,3.09,19.41,15.4,24.52c16.71,6.94,26.48,0.33,35.25-5.81c3.35-2.34,6.51-4.56,9.71-5.64c8.86-3,13.15,1.44,13.36,1.63 c0.6,0.55,1.44,1.54,0.89,2.14s-1.36-0.24-2.22-0.71c-1.46-0.8-4.27-2.89-11.41-0.47c-2.8,0.95-5.47,3.25-8.65,5.47 C92.69,105.08,85.1,110.39,74.54,110.16L74.54,110.16z"/></svg> Field Life</h1>
-    <div class="tag">particle life as a <b>continuous field</b></div>
+    <div class="tag">particle life as a <b>grid of concentrations</b></div>
   </header>
 
 <div class="strip" id="strip" hidden>
-  <div class="striprow">
-    <button class="stepper" id="stripprev" type="button" aria-label="Scroll worlds left">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2.5 4.5 8l5.5 5.5"/></svg>
-    </button>
-    <div class="striprail" id="striprail" role="listbox" aria-label="Worlds found by search"></div>
-    <button class="stepper" id="stripnext" type="button" aria-label="Scroll worlds right">
-      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 11.5 8 6 13.5"/></svg>
-    </button>
+  <div class="shelf" id="wshelf" hidden>
+    <span class="shelflab">worlds</span>
+    <div class="striprow">
+      <button class="stepper" id="stripprev" type="button" aria-label="Scroll worlds left">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2.5 4.5 8l5.5 5.5"/></svg>
+      </button>
+      <div class="striprail" id="striprail" role="listbox" aria-label="Worlds found by search"></div>
+      <button class="stepper" id="stripnext" type="button" aria-label="Scroll worlds right">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 11.5 8 6 13.5"/></svg>
+      </button>
+    </div>
+  </div>
+  <div class="shelf" id="cshelf" hidden>
+    <span class="shelflab">creatures</span>
+    <div class="striprow">
+      <button class="stepper" id="critterprev" type="button" aria-label="Scroll creatures left">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 2.5 4.5 8l5.5 5.5"/></svg>
+      </button>
+      <div class="striprail" id="critterrail" role="listbox" aria-label="Creatures cut out of those worlds"></div>
+      <button class="stepper" id="critternext" type="button" aria-label="Scroll creatures right">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 2.5 11.5 8 6 13.5"/></svg>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -667,6 +709,8 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       <button id="play" class="primary" title="Pause or resume">Pause</button>
       <button id="stepone" title="Advance exactly one step. Pauses first, so you can walk through it.">Step</button>
     </div>
+    <div class="row"><label class="lab" for="steps">Speed</label><input id="steps" title="Simulation steps per frame. Higher runs faster and costs more." type="range" min="1" max="8" step="1" value="1"><span class="val" id="stepsv">1</span></div>
+    <div class="row"><label class="lab" for="fps">FPS</label><input id="fps" title="An upper limit on how often the world advances, never a push: it takes at most one step per drawn frame, so the display's own rate is the ceiling and a slow machine simply runs slower. Turn it down to watch a pattern form. To go faster than the screen draws, raise Speed." type="range" min="1" max="240" step="1" value="120"><span class="val" id="fpsv">120</span></div>
     <p class="note lead">Reseed the world</p>
     <div class="btns sm">
       <button id="reseed" title="Fill the world with random speckled mass">Noise</button>
@@ -682,7 +726,6 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="repel">Repel</label><input id="repel" title="Dislike of crowding. Pushes mass out of cells that are already full." type="range" min="0" max="30" step="0.5" value="6"><span class="val" id="repelv">6</span></div>
     <div class="row"><label class="lab" for="beta">Beta</label><input id="beta" title="How decisively mass picks its best neighbor. Low spreads, high commits." type="range" min="0" max="14" step="0.1" value="3"><span class="val" id="betav">3</span></div>
     <div class="row"><label class="lab" for="noise">Noise</label><input id="noise" title="Jitter added to the affinity. Lets shapes drift off the grid axes." type="range" min="0" max="3" step="0.05" value="0"><span class="val" id="noisev">0</span></div>
-    <div class="row"><label class="lab" for="steps">Speed</label><input id="steps" title="Simulation steps per frame. Higher runs faster and costs more." type="range" min="1" max="8" step="1" value="1"><span class="val" id="stepsv">1</span></div>
     <div class="row"><label class="lab" for="inter">Law</label><select id="inter" title="Built-in interaction shape, when no kernel is designed">
       <option value="0">Ring</option><option value="1">Blob</option><option value="2">Linear</option>
     </select></div>
@@ -693,6 +736,8 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="blend">Blend</label><select id="blend" title="How overlapping colors combine">
       <option value="0">Dominant</option><option value="1">Soft</option>
       <option value="2">Additive</option><option value="3">Winner</option>
+      <option value="4">RGB</option>
+      <option value="5">RGB first</option>
     </select></div>
     <div class="row"><label class="lab" for="expo">Expo</label><input id="expo" type="range" min="0.2" max="6" step="0.1" value="2.2" title="Display brightness only"><span class="val" id="expov">2.2</span></div>
     <div class="row"><label class="lab" for="pixels">Pixels</label>
@@ -816,6 +861,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
 </div>
 
 <section class="below">
+  <p class="source"><a href="https://github.com/ichko/field-life">Source code on GitHub</a></p>
   <h2>How it works</h2>
   <p>Each color is a scalar field over the grid: one number per cell, saying how much of that color
     sits there. Every cell of every color is updated on the GPU each frame.</p>
@@ -882,12 +928,12 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       <h3>Cite this <button id="citecopy">copy</button><span id="citestatus"></span></h3>
       <pre id="citebib">@misc{fieldlife,
 author = {Zhechev, Iliya},
-title  = {Field Life: particle life as a continuous field},
+title  = {Field Life: particle life as a grid of concentrations},
 year   = {2026},
 url    = {https://www.izhv.eu/field-life}
 }</pre>
-      <p class="citeline">Zhechev, I. (2026). <i>Field Life: particle life as a continuous
-        field.</i> <a href="https://www.izhv.eu/field-life">www.izhv.eu/field-life</a></p>
+      <p class="citeline">Zhechev, I. (2026). <i>Field Life: particle life as a grid of
+        concentrations.</i> <a href="https://www.izhv.eu/field-life">www.izhv.eu/field-life</a></p>
     </div>
   </div>
 
@@ -1334,7 +1380,15 @@ void main(){
   ivec2 i0 = ivec2(floor(g));
   int xs[4], ys[4];
   for(int i = 0; i < 4; i++){
-    xs[i] = tile*uN.x + wrapi(i0.x + i - 1, uNm.x);
+    // The tile offset must use the SOURCE's stride, not the destination's.
+    // uA is a mip, packed with tile stride uNm.x by whichever pass wrote it --
+    // FS_CONV across the full width, the separable path per layer -- while
+    // uN.x is the full-resolution width. They are equal at mip 0, which is why
+    // this held for so long; above it, every layer past the first read its
+    // neighbourhood integral out of the wrong region, so colours 4 and up got
+    // another layer's field. Any world with more than four colours and a reach
+    // past KMAX was affected.
+    xs[i] = tile*uNm.x + wrapi(i0.x + i - 1, uNm.x);
     ys[i] = wrapi(i0.y + i - 1, uNm.y);
   }
   vec4 a = cubic4(uA, xs, ys, t);
@@ -1391,25 +1445,54 @@ void main(){
   // Snapping the blend weights to 0 or 1 turns the same bilinear fetch into a
   // nearest one, so zooming in shows the lattice cells as they really are.
   if(uSmooth < 0.5) f = floor(f + 0.5);
+  // Blend 4: the first three channels ARE red, green and blue. No palette, no
+  // tone map, no lifted background -- what is on screen is the density itself,
+  // which is the only way to compare it against a picture.
+  if(uBlend == 4){
+    vec4 v0 = mix(mix(cell(0,i0.x,i0.y),   cell(0,i0.x+1,i0.y),   f.x),
+                  mix(cell(0,i0.x,i0.y+1), cell(0,i0.x+1,i0.y+1), f.x), f.y);
+    oC = vec4(clamp(v0.rgb*uExp, 0.0, 1.0), 1.0);
+    return;
+  }
   // Four ways to turn several densities into one colour. Straight addition
   // washes six channels out to grey, so the default takes hue from whichever
   // color dominates and brightness from the total mass present.
   vec3 hue = vec3(0.0), add = vec3(0.0), best = vec3(0.0);
-  float wsum = 0.0, total = 0.0, top = -1.0;
+  // ...and the same sums again over the channels PAST the first three, plus
+  // the first three kept raw, so blend 5 can put one on top of the other.
+  vec3 hid = vec3(0.0), vis = vec3(0.0);
+  float wsum = 0.0, total = 0.0, top = -1.0, hidW = 0.0, hidT = 0.0;
   for(int l = 0; l < uL; l++){
     vec4 v = mix(mix(cell(l,i0.x,i0.y),   cell(l,i0.x+1,i0.y),   f.x),
                  mix(cell(l,i0.x,i0.y+1), cell(l,i0.x+1,i0.y+1), f.x), f.y);
     for(int k = 0; k < 4; k++){
-      if(l*4 + k >= uC) break;
+      int c = l*4 + k;
+      if(c >= uC) break;
       float m = max(v[k], 0.0);
-      vec3 col = uPal[l*4 + k];
+      vec3 col = uPal[c];
       float w = uBlend == 1 ? m : m*m;
       total += m; wsum += w; hue += w*col; add += m*col;
       if(m > top){ top = m; best = col; }
+      if(c == 0) vis.r = m;
+      else if(c == 1) vis.g = m;
+      else if(c == 2) vis.b = m;
+      else { hidW += m*m; hid += m*m*col; hidT += m; }
     }
   }
   float a = 1.0 - exp(-total*uExp);
-  vec3 rgb = uBlend == 2 ? vec3(1.0) - exp(-add*uExp)
+  // Blend 5. The first three channels are the picture and are drawn as
+  // themselves; everything else is drawn as it would be under Dominant and
+  // screened in underneath at a fraction of its strength. Read as RGB alone a
+  // world looks like the whole of its state, which it is not -- the shape sits
+  // inside a much larger scaffold of hidden mass. Blended flat, that scaffold
+  // drowns it. This keeps the picture legible and what holds it up visible.
+  // Screen rather than addition: two bright layers added clip to white and
+  // lose both, where screen keeps the brighter of the two readable.
+  vec3 back = (hid/max(hidW, 1e-12))*(1.0 - exp(-hidT*uExp));
+  vec3 over = vec3(1.0) - (vec3(1.0) - clamp(vis*uExp, 0.0, 1.0))
+                        *(vec3(1.0) - back*0.42);
+  vec3 rgb = uBlend == 5 ? over
+           : uBlend == 2 ? vec3(1.0) - exp(-add*uExp)
            : uBlend == 3 ? best*a
            : (hue/max(wsum, 1e-12))*a;
   oC = vec4(rgb + vec3(0.016, 0.024, 0.040), 1.0);
@@ -1501,6 +1584,10 @@ const S = {
   radMin: R_LO, radMax: R0, force: 90, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
   seed: (Math.random()*1e6) | 0,      // a different world every time the page opens
   seedMode: "disc",                   // whichever starting field you last asked for
+  seedPattern: null,                  // a saved creature, for seedMode "pattern"
+  seedDisc: 0,                        // seed radius in cells, 0 = a tenth of the world
+  paletteKept: false,                 // you picked a colour map; presets leave it alone
+  blendKept: false,                   // and how colours combine, once you have chosen
   running: true, frame: 0, tick: 0,
   holdUntil: 0,                        // let the opening state be seen before it moves
   zoom: 1, panU: 0.5, panV: 0.5,       // view only, in world units
@@ -1671,6 +1758,9 @@ function mipFor(r, stencil){
 // more cells so a cell is square and the world covers the canvas exactly once.
 // Rounded to a multiple of 8 so the pyramid still has halvings to give.
 function sizeGrid(){
+  // A world trained on a square torus has to run on one: the lattice normally
+  // follows the canvas aspect, and a wide canvas would stretch it.
+  if(S.square){ S.NX = S.NY = S.N; return; }
   const w = cv.clientWidth || cv.width || 1, ht = cv.clientHeight || cv.height || 1;
   const asp = w/ht, Q = 8, snap = v => Math.max(Q, Math.round(v/Q)*Q);
   S.NX = asp >= 1 ? snap(S.N*asp) : S.N;
@@ -1748,7 +1838,11 @@ function allocate(keep){
 }
 
 // Resizing the world, or asking for a new one, refills it the way you last chose.
-function reseed(){ (S.seedMode === "disc" ? seedDisc : seed)(); }
+function reseed(){
+  if(S.seedMode === "masses" && S.seedMasses) return seedFromMasses(S.seedMasses);
+  if(S.seedMode === "pattern" && S.seedPattern) return seedFromPattern(S.seedPattern);
+  (S.seedMode === "disc" ? seedDisc : seed)();
+}
 
 // Fill the world on the GPU, then rescale so each colour carries the density
 // asked for. Both take a couple of passes rather than a few million JS calls.
@@ -1779,6 +1873,84 @@ function fillField(disc){
 }
 const seed = () => fillField(false);
 const seedDisc = () => fillField(true);
+
+// Seed a soft central disc holding an EXACT mass in each channel. MaCE only
+// moves mass, so a trained world has to be handed the mass its picture costs
+// -- the red the lizard's red adds up to, and so on -- and the whole task is
+// then where to put it. A disc rather than one lit cell because mass travels
+// one cell per step.
+// Put a whole field in place, one plane per colour, packed the way the texture
+// wants it. The seeds above make a field on the GPU; this one arrives ready.
+function writeRho(flat){
+  const buf = new Float32Array(S.NX*S.L*S.NY*4);
+  for(let c = 0; c < S.C; c++){
+    const l = c >> 2, k = c & 3;
+    for(let y = 0; y < S.NY; y++)
+      for(let x = 0; x < S.NX; x++)
+        buf[(y*S.NX*S.L + l*S.NX + x)*4 + k] = flat[c*S.NX*S.NY + y*S.NX + x];
+  }
+  gl.bindTexture(gl.TEXTURE_2D, T.rhoA);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S.NX*S.L, S.NY, gl.RGBA, gl.FLOAT, buf);
+  S.tick = 0; mass0 = null;
+}
+
+// A creature rather than a field. The pattern is a small box of cells, one byte
+// per colour per cell: density is scale*(b/255)^2, squared so the thin halo a
+// creature carries survives the same eight bits as its very bright core. It is
+// laid down in the middle of an empty world, so the preset opens on exactly the
+// thing that was found rather than on a soup that might grow it again.
+function seedFromPattern(p){
+  if(!T.rhoA || !p || !p.data || !p.w || !p.h) return;
+  let bin;
+  try{ bin = atob(p.data); }catch(e){ return; }
+  if(bin.length < p.w*p.h*p.C) return;
+  const C = Math.min(S.C, p.C), s = (p.scale || 1)/(255*255);
+  // `cells` is how many lattice cells one cell of the pattern covers now: a
+  // creature cut at one resolution is drawn bigger, not finer, at another, so
+  // it stays the same creature.
+  const z = Math.max(1, Math.round(p.cells || 1));
+  const w = p.w*z, h = p.h*z;
+  const flat = new Float32Array(S.NX*S.NY*S.C);
+  const x0 = (S.NX - w) >> 1, y0 = (S.NY - h) >> 1;
+  const wrap = (v, n) => ((v % n) + n) % n;
+  for(let c = 0; c < C; c++)
+    for(let y = 0; y < h; y++){
+      const row = wrap(y0 + y, S.NY)*S.NX + c*S.NX*S.NY, src = (c*p.h + ((y/z) | 0))*p.w;
+      for(let x = 0; x < w; x++){
+        const v = bin.charCodeAt(src + ((x/z) | 0));
+        if(v) flat[row + wrap(x0 + x, S.NX)] = v*v*s;
+      }
+    }
+  writeRho(flat);
+}
+
+function seedFromMasses(masses){
+  if(!T.rhoA) return;
+  // The seed is the size it was fitted at, in cells -- a tenth of the world by
+  // default, but pinned by seedDisc when a world says so, so the same creature
+  // can be grown on a bigger torus instead of a bigger creature.
+  const R = S.seedDisc || Math.min(S.NX, S.NY)*0.10, soft = 1.5;
+  const w = S.NX*S.L, px = new Float32Array(w*S.NY*4);
+  const disc = new Float64Array(S.NX*S.NY);
+  let sum = 0;
+  for(let y = 0; y < S.NY; y++){
+    for(let x = 0; x < S.NX; x++){
+      const d = Math.hypot(y - (S.NY - 1)/2, x - (S.NX - 1)/2);
+      let e = Math.min(1, Math.max(0, (R - d)/soft));
+      e = e*e*(3 - 2*e);
+      disc[y*S.NX + x] = e; sum += e;
+    }
+  }
+  for(let c = 0; c < S.C; c++){
+    const per = (masses[c] || 0)/Math.max(sum, 1e-9);
+    for(let y = 0; y < S.NY; y++)
+      for(let x = 0; x < S.NX; x++)
+        px[(y*w + (c >> 2)*S.NX + x)*4 + (c & 3)] = per*disc[y*S.NX + x];
+  }
+  gl.bindTexture(gl.TEXTURE_2D, T.rhoA);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, S.NY, gl.RGBA, gl.FLOAT, px);
+  S.tick = 0; mass0 = null;
+}
 
 /* ---------------------------------------------------------------- one simulation step */
 function common(prog){
@@ -2131,7 +2303,7 @@ function setMask(v){
 // outside the disc are left unpainted, so the kernel's real shape is visible.
 function paintKernel(cv2, c, KR, cell, gap, css){
   const K = 2*KR + 1;
-  const k = bakeKernel(kernels[c], KR);
+  const k = bakeKernel(kernels[c], KR, KR);
   let mx = 1e-9;
   for(const v of k) mx = Math.max(mx, Math.abs(v));
   const dpr = Math.min(2, window.devicePixelRatio || 1), px = K*cell;
@@ -2482,8 +2654,16 @@ function vnoise2(x, y, freq, seed){
 }
 
 // Build one colour's kernel as a KxK grid of weights.
-function bakeKernel(k, KR){
+// KR is the grid this is baked on; RR is the kernel's REACH on that grid, in
+// cells. They used to be the same number, which meant a short-reach colour was
+// baked on a smaller grid and pasted into the middle -- so its reach was a
+// resolution, quantised by a round(), and it lost detail for no reason. Baking
+// every colour on the shared grid and letting the reach be a plain radial
+// scale is both sharper and continuous, and continuity is what lets a reach be
+// fitted rather than only chosen.
+function bakeKernel(k, KR, RR){
   const K = 2*KR + 1, out = new Float32Array(K*K);
+  RR = RR || KR;
 
   // A stencil KR cells across cannot carry detail finer than about two cells.
   // Sampled kernels routinely ask for narrower than that -- widths go down to
@@ -2493,8 +2673,13 @@ function bakeKernel(k, KR){
   // built-in force law in FS_FORCE already applies:
   //   1. widen any term below what this KR can represent, and
   //   2. sample every cell on a 3x3 sub-grid rather than at its centre.
-  const wmin = 2.0/KR;
-  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin) }));
+  // A lobe of relative width w spans w*RR cells, so the width the stencil can
+  // no longer resolve is 2/RR -- set by the kernel's reach, not by the grid it
+  // is baked on. Capped, so a very short reach cannot demand a width wider
+  // than the disc itself.
+  const wmin = Math.min(2.0/RR, 0.7);
+  const terms = (k.terms || []).map(t => ({ a: t.a, r: t.r, w: Math.max(t.w, wmin),
+                                            m: t.m || 0, phase: t.phase || 0 }));
   // Same limit for noise: the finest octave's lattice must span a few cells.
   const octMax = Math.max(1, Math.floor(Math.log2(Math.max(2, 2*KR/3))));
   const oct = Math.max(1, Math.min(k.oct, octMax));
@@ -2505,7 +2690,7 @@ function bakeKernel(k, KR){
       for(let sy = -1; sy <= 1; sy++){
         for(let sx = -1; sx <= 1; sx++){
           const px = x + sx/3, py = y + sy/3;
-          const rr = Math.hypot(px, py)/KR;
+          const rr = Math.hypot(px, py)/RR;
           if(rr > 1) continue;               // dividing by 9 below, not by the
           let v = 0;                         // hit count, feathers the rim too
           if(k.type === "disc"){
@@ -2523,8 +2708,21 @@ function bakeKernel(k, KR){
               amp *= 0.5; f *= 2;
             }
           }else{
+            // A lobe may carry an angular order m and a phase. m = 0 is the
+            // radial ring this has always drawn -- Lenia's shape. m = 1 is a
+            // signed gradient along an axis, which is exactly what a Sobel
+            // filter is, so an NCA's identity/Sobel-x/Sobel-y perception is
+            // the case m in {0, 1, 1}. Higher orders add finer angular
+            // structure. Orders above zero are also the only way a kernel can
+            // tell one direction from another, and a rotationally symmetric
+            // bank therefore has only rotationally symmetric fixed points --
+            // it cannot hold anything shaped like an animal.
+            // Absent fields mean m = 0 and phase = 0, so every kernel written
+            // before this bakes to exactly what it did.
+            const th = Math.atan2(py, px);
             for(const t of terms)
-              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2));
+              v += t.a*Math.exp(-(((rr - t.r)/t.w)**2))
+                 * (t.m ? Math.cos(t.m*th + t.phase) : 1.0);
           }
           acc += v;
         }
@@ -2557,7 +2755,7 @@ function bakeKernel(k, KR){
   let sumG = 0, sumW = 0, l1 = 0;
   for(let y = -KR; y <= KR; y++){
     for(let x = -KR; x <= KR; x++){
-      const rr = Math.hypot(x, y)/KR, i = (y + KR)*K + (x + KR);
+      const rr = Math.hypot(x, y)/RR, i = (y + KR)*K + (x + KR);
       if(rr > 1){ folded[i] = 0; continue; }
       const f = Math.max(0, Math.min(1, (1 - rr)/Math.max(1e-3, k.feather)));
       const w = f*f*(3 - 2*f);
@@ -2590,6 +2788,10 @@ function separablePlan(){
   for(let c = 0; c < S.C; c++){
     const k = kernels[c];
     if(k.type !== "radial" || k.sym !== "radial") return null;
+    // The separable path rebuilds a kernel from two 1-D blurs, which can only
+    // ever produce a radial shape. An angular lobe run down it would silently
+    // come out as a plain difference of gaussians.
+    if((k.terms || []).some(t => t.m)) return null;
     if(k.terms.length !== 1 && k.terms.length !== 2) return null;
     const t = k.terms.slice().sort((a, b) => b.w - a.w);          // wide term first
     if(t.some(x => x.r !== 0)) return null;
@@ -2629,14 +2831,12 @@ function uploadKernels(){
   const data = new Float32Array(K*K*L*4);
   for(let c = 0; c < S.C; c++){
     const k = kernels[c];
-    const kr = Math.max(2, Math.round(kernelKR*Math.min(1, k.R/Rmax)));
-    const small = bakeKernel(k, kr), SK = 2*kr + 1;
+    const rr = Math.max(2, kernelKR*Math.min(1, k.R/Rmax));
+    const full = bakeKernel(k, kernelKR, rr);
     const layer = c >> 2, comp = c & 3;
-    for(let y = 0; y < SK; y++)
-      for(let x = 0; x < SK; x++){
-        const gy = y - kr + kernelKR, gx = x - kr + kernelKR;
-        data[((layer*K + gy)*K + gx)*4 + comp] = small[y*SK + x];
-      }
+    for(let y = 0; y < K; y++)
+      for(let x = 0; x < K; x++)
+        data[((layer*K + y)*K + x)*4 + comp] = full[y*K + x];
   }
   if(kernTex) gl.deleteTexture(kernTex);
   kernTex = gl.createTexture();
@@ -2651,7 +2851,7 @@ function uploadKernels(){
 
 /* ------------------------------------------------------------- saved setups */
 const PKEY = "fieldlife.setups.v1";
-const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth"];
+const SCALARS = ["N","C","density","radMin","radMax","force","repel","beta","noise","steps","expo","seedMode","palette","blend","kterms","kwidth","ksym","cfreq","cdepth","square"];
 
 // localStorage can be absent, full, or throw outright (private windows, preview
 // captures). Every access is guarded and the page works fine with nothing in it.
@@ -2671,6 +2871,7 @@ function currentConfig(){
   const cfg = { seed: S.seed, mat: [...mat],
                 kernels: JSON.parse(JSON.stringify(kernels.slice(0, S.C))) };
   for(const k of SCALARS) cfg[k] = S[k];
+  if(S.seedPattern) cfg.seedPattern = S.seedPattern;
   return cfg;
 }
 
@@ -2683,9 +2884,21 @@ function validConfig(c){
 
 function applyConfig(c){
   if(!validConfig(c)) return false;
-  const resize = (c.C !== S.C || c.N !== S.N);
-  for(const k of SCALARS) if(c[k] !== undefined) S[k] = c[k];
+  // A change of lattice shape is a resize too: a world pinned square needs new
+  // textures even when its channel count and size are unchanged.
+  const resize = (c.C !== S.C || c.N !== S.N
+                  || !!c.square !== !!S.square);
+  for(const k of SCALARS)
+    if(c[k] !== undefined
+       && !(k === "palette" && S.paletteKept)
+       && !(k === "blend" && S.blendKept)) S[k] = c[k];
   S.seed = c.seed ?? S.seed;
+  if(Array.isArray(c.seedMasses)) S.seedMasses = c.seedMasses.slice();
+  S.seedDisc = c.seedDisc || 0;
+  // How fast to run is yours, not the world's -- except that a world may ask,
+  // and one that grows a picture over a few hundred steps has reason to.
+  if(c.fps) S.fps = c.fps;
+  S.seedPattern = c.seedPattern || null;
   palette = makePalette(S.C, S.palette);
   mat = Float32Array.from(c.mat);
   uploadMatrix();
@@ -2697,7 +2910,16 @@ function applyConfig(c){
     kernels = [];
     for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
   }
-  for(const k of kernels) k.R = Math.min(k.R, radiusCap());
+  // radiusCap() bounds the blur-bank sliders, whose cost is a separable blur
+  // run over the whole field. The kernel bank is bounded by something else
+  // entirely: a KMAX stencil over a field halved once per pyramid level. So
+  // the slider's cap has no business here, and applying it silently shortened
+  // every long kernel a trained preset asked for -- five of the lizard's
+  // twelve channels, from reach 60 down to 56. Measured, that clipping cost a
+  // factor of three and a half at a thousand steps: 0.0025 as fitted against
+  // 0.0088 as loaded. Clamp to what the kernel path can actually serve.
+  const kcap = KMAX << pyramid.length;
+  for(const k of kernels) k.R = Math.min(k.R, kcap);
   uploadKernels();
   buildMatrixUI(); buildKernelUI(); buildSwatches();
   syncControls();
@@ -2810,21 +3032,40 @@ function importSetups(){
   status(`Imported ${added} new, replaced ${replaced}`);
 }
 
-// The shelf of worlds under the field. Its manifest is optional: a standalone
-// copy of this page with no worlds.json beside it simply has no shelf.
-async function loadWorlds(){
-  let data = null;
-  try{
-    const res = await fetch("worlds.json", { cache: "no-cache" });
-    if(res.ok) data = await res.json();
-  }catch(e){ data = null; }
-  const items = data && Array.isArray(data.setups) ? data.setups : null;
-  if(!items || !items.length) return;
+// The shelf under the field, in two parts. A preset that starts from a field --
+// noise, or a disc -- is a world; one that starts from a saved body is a
+// creature, and it goes on its own rail. Both manifests are optional: a
+// standalone copy of this page with neither beside it simply has no shelf.
+const isCreature = it =>
+  it.cfg && (it.cfg.seedMode === "masses" || it.cfg.seedMode === "pattern");
 
-  const dir = (data.dir || "worlds").replace(/\/$/, "");
-  const rail = $("striprail");
+async function loadWorlds(){
+  const items = [];
+  for(const src of ["worlds.json", "gliders.json"]){
+    let data = null;
+    try{
+      const res = await fetch(src, { cache: "no-cache" });
+      if(res.ok) data = await res.json();
+    }catch(e){ data = null; }
+    if(!data || !Array.isArray(data.setups)) continue;
+    // Thumbnails sit beside their own manifest, wherever that was fetched from.
+    const dir = src.slice(0, src.lastIndexOf("/") + 1)
+              + (data.dir || "worlds").replace(/\/$/, "");
+    for(const it of data.setups) items.push({ ...it, dir });
+  }
+  const worlds = items.filter(it => !isCreature(it));
+  const critters = items.filter(isCreature);
+  let any = false;
+  if(fillShelf(worlds, "wshelf", "striprail", "stripprev", "stripnext")) any = true;
+  if(fillShelf(critters, "cshelf", "critterrail", "critterprev", "critternext")) any = true;
+  if(any) $("strip").hidden = false;
+}
+
+function fillShelf(list, boxId, railId, prevId, nextId){
+  if(!list.length) return false;
+  const rail = $(railId);
   const frag = document.createDocumentFragment();
-  items.forEach((it, i) => {
+  list.forEach((it, i) => {
     const b = document.createElement("button");
     b.className = "w-item";
     b.type = "button";
@@ -2833,7 +3074,7 @@ async function loadWorlds(){
     b.dataset.i = String(i);
     b.dataset.tip = it.name + (it.tags ? " \u2014 " + it.tags.join(" ") : "");
     const img = document.createElement("img");
-    img.src = dir + "/" + it.thumb;
+    img.src = it.dir + "/" + it.thumb;
     img.alt = "";
     img.loading = "lazy";
     const n = document.createElement("b");
@@ -2842,10 +3083,10 @@ async function loadWorlds(){
     frag.appendChild(b);
   });
   rail.appendChild(frag);
-  $("strip").hidden = false;
+  $(boxId).hidden = false;
 
   // Arrows step by whole tiles, so a click never leaves one sliced in half.
-  const prev = $("stripprev"), next = $("stripnext");
+  const prev = $(prevId), next = $(nextId);
   const tileStep = () => {
     const one = rail.querySelector(".w-item");
     const w = one ? one.getBoundingClientRect().width + 5 : 51;
@@ -2853,6 +3094,8 @@ async function loadWorlds(){
   };
   const syncArrows = () => {
     const max = rail.scrollWidth - rail.clientWidth;
+    // Nothing to scroll to, nothing to press. A narrow screen puts them back.
+    prev.hidden = next.hidden = max <= 1;
     prev.disabled = rail.scrollLeft <= 1;
     next.disabled = rail.scrollLeft >= max - 1;
   };
@@ -2865,9 +3108,11 @@ async function loadWorlds(){
   rail.addEventListener("click", e => {
     const b = e.target.closest(".w-item");
     if(!b) return;
-    const it = items[+b.dataset.i];
+    const it = list[+b.dataset.i];
     if(!it) return;
-    for(const o of rail.children) o.setAttribute("aria-selected", String(o === b));
+    // One thing runs at a time, whichever shelf it came off.
+    for(const o of document.querySelectorAll(".w-item"))
+      o.setAttribute("aria-selected", String(o === b));
     if(!applyConfig(it.cfg)){ status("\u201c" + it.name + "\u201d could not be loaded", true); return; }
     // A preset carries the rule, not the field it was measured on, so start it
     // from the same opening state the search gave it.
@@ -2875,6 +3120,7 @@ async function loadWorlds(){
     mass0 = null;
     status("Loaded \u201c" + it.name + "\u201d");
   });
+  return true;
 }
 
 function rebuildColors(){
@@ -2892,6 +3138,8 @@ function rebuildColors(){
 
 /* ---------------------------------------------------------------- loop */
 let lastT = performance.now(), fpsAcc = 0, fpsN = 0, mass0 = null, painting = null;
+let lastStepT = 0;                    // when the world last advanced, for the FPS cap
+let stepsInWindow = 0;                // world advances since the readout last spoke
 let massWait = 60;   // frames since the last completed mass read
 let frameErr = 0;
 function frame(){
@@ -2922,8 +3170,28 @@ function frameBody(){
       paintAt(ax + (bx - ax)*i/n, ay + (by - ay)*i/n, dt/n);
     painting.last = painting.cur;
   }
-  if(S.running && performance.now() >= S.holdUntil)
-    for(let i = 0; i < S.steps; i++) step();
+  // Rate caps how often the world ADVANCES, not how often it is drawn. Gating
+  // the draw instead would make panning and painting judder at low rates, and
+  // the point is to watch a pattern form, not to watch the page struggle.
+  const tNow = performance.now();
+  // The animation frame sets the pace and FPS can only hold the world back,
+  // never push it: at most one advance a frame, skipped when it is too soon.
+  // Steps are not counted up as owed and paid off later -- a frame that ran
+  // long means the machine is struggling, and asking it for several steps in
+  // the next frame rather than one is how a slow phone becomes a stuttering
+  // one. Running faster than the display draws is what Speed is for.
+  if(S.running && tNow >= S.holdUntil){
+    const per = 1000/Math.max(S.fps, 0.1);
+    if(tNow - lastStepT >= per - 1){        // a 60Hz frame lands a hair under 16.67ms
+      lastStepT = tNow;
+      for(let i = 0; i < S.steps; i++) step();
+      stepsInWindow += S.steps;
+    }
+  }else{
+    // A world that is not advancing is not falling behind either, so resuming
+    // carries on from here rather than from wherever it was paused.
+    lastStepT = tNow;
+  }
   render();
   // The drawing buffer is not preserved, so a screenshot has to be taken here,
   // in the same tick as the draw that filled it.
@@ -2931,7 +3199,13 @@ function frameBody(){
 
   const now = performance.now();
   fpsAcc += now - lastT; fpsN++; lastT = now;
-  if(fpsN >= 20){ $("hfps").textContent = (1000/(fpsAcc/fpsN)).toFixed(0); fpsAcc = 0; fpsN = 0; }
+  // What the number counts is the world advancing, which is what FPS sets --
+  // not how often the page redraws, which is the display's business and was
+  // reading 120 on a 120Hz screen with the world capped at 30.
+  if(fpsN >= 20){
+    $("hfps").textContent = (stepsInWindow*1000/Math.max(fpsAcc, 1)).toFixed(0);
+    fpsAcc = 0; fpsN = 0; stepsInWindow = 0;
+  }
   $("hstep").textContent = S.tick;
 
   S.frame++;
@@ -2978,6 +3252,7 @@ function boot(){
   slider("beta", "beta");
   slider("noise", "noise");
   slider("steps", "steps");
+  slider("fps", "fps");
   slider("expo", "expo");
   slider("dens", "density");
 
@@ -2990,9 +3265,25 @@ function boot(){
   $("grid").addEventListener("input", e => { $("gridv").textContent = num(e.target.value); });
   $("chan").addEventListener("input", e => { $("chanv").textContent = e.target.value; });
   $("chan").addEventListener("change", e => { S.C = +e.target.value; rebuildColors(); });
+  // Resolution is how finely the world is drawn, not how big it is. A reach of
+  // a tenth of the world has to stay a tenth of the world when the lattice
+  // doubles, and a seed spread over four times as many cells has to carry four
+  // times the mass to keep its density -- otherwise the same numbers describe a
+  // different world and whatever was living in it is lost.
   $("grid").addEventListener("change", e => {
+    const was = S.N;
     S.N = +e.target.value; $("gridv").textContent = num(S.N);
-    allocate(); uploadKernels(); buildKernelUI(); mass0 = null;
+    const k = S.N/was;
+    if(k !== 1){
+      S.radMin *= k; S.radMax *= k;
+      for(const kern of kernels) kern.R *= k;
+      if(S.seedMasses) S.seedMasses = S.seedMasses.map(m => m*k*k);
+      if(S.seedPattern) S.seedPattern = { ...S.seedPattern, cells: (S.seedPattern.cells || 1)*k };
+    }
+    allocate();                                   // the new lattice, and a new field on it
+    for(const kern of kernels) kern.R = Math.min(kern.R, radiusCap());
+    S.radMin = Math.min(S.radMin, radiusCap()); S.radMax = Math.min(S.radMax, radiusCap());
+    uploadKernels(); buildKernelUI(); syncControls(); mass0 = null;
   });
   $("play").addEventListener("click", e => {
     S.running = !S.running; e.target.textContent = S.running ? "Pause" : "Run";
@@ -3150,10 +3441,14 @@ function boot(){
   cmap.value = S.palette;
   cmap.addEventListener("change", () => {
     S.palette = cmap.value;
+    // A colour map is a choice about looking, not about the world. Once it has
+    // been made it is yours: loading a preset changes what is in the world, not
+    // what you are seeing it in.
+    S.paletteKept = true;
     palette = makePalette(S.C, S.palette);
     buildMatrixUI(); buildKernelUI(); buildSwatches();
   });
-  $("blend").addEventListener("change", e => S.blend = +e.target.value);
+  $("blend").addEventListener("change", e => { S.blend = +e.target.value; S.blendKept = true; });
   $("inter").addEventListener("change", e => S.inter = +e.target.value);
   SYNC.push(() => {
     cmap.value = S.palette; $("blend").value = String(S.blend); $("inter").value = String(S.inter);
@@ -3365,18 +3660,7 @@ function boot(){
       }
       return out;
     },
-    writeRho(flat){
-      const buf = new Float32Array(S.NX*S.L*S.NY*4);
-      for(let c = 0; c < S.C; c++){
-        const l = c >> 2, k = c & 3;
-        for(let y = 0; y < S.NY; y++)
-          for(let x = 0; x < S.NX; x++)
-            buf[(y*S.NX*S.L + l*S.NX + x)*4 + k] = flat[c*S.NX*S.NY + y*S.NX + x];
-      }
-      gl.bindTexture(gl.TEXTURE_2D, T.rhoA);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, S.NX*S.L, S.NY, gl.RGBA, gl.FLOAT, buf);
-      S.tick = 0; mass0 = null;
-    },
+    writeRho,
   };
 
   requestAnimationFrame(frame);

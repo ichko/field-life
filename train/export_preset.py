@@ -5,8 +5,7 @@ Publish a trained run into the staging page.
 
 Writes three things:
 
-    staging/lizard.json                 the world, for the Lizard button
-    staging/worlds.json                 the same world as the shelf's first item
+    staging/worlds.json                 the world, as the shelf's first item
     staging/worlds/000-lizard.thumb.png a thumbnail, rendered from the rollout
 
 The preset carries `seedMasses` alongside the usual fields. It has to: MaCE
@@ -115,7 +114,10 @@ def main():
         print("  flipped in y to match the page's axis (phases negated)")
     cfg["seedMasses"] = [float(m) for m in masses]
     cfg["seedMode"] = "masses"
-    cfg["seedRadius"] = float(radius)
+    # seedDisc, not a name of our own: index.html already carries this field
+    # ("seed radius in cells, 0 = a tenth of the world") and reads it in
+    # applyConfig. A second field meaning the same thing would load as nothing.
+    cfg["seedDisc"] = float(radius)
     cfg["square"] = True
     # blend 5: the three visible channels as themselves, the hidden ones
     # screened in behind them. RGB alone hides that the shape sits inside a
@@ -131,8 +133,6 @@ def main():
     cfg["palette"] = "Spectrum"
 
     os.makedirs(os.path.join(STAGING, "worlds"), exist_ok=True)
-    with open(os.path.join(STAGING, "lizard.json"), "w") as f:
-        json.dump(cfg, f)
 
     # roll it out here, both for the thumbnail and to report what it scores
     kern = fl.bake_from_config(cfg["kernels"], C, kr, mip=mip)
@@ -169,8 +169,8 @@ def main():
     print(f"exported {a.run}: C {C}, grid {N}, "
           f"force {cfg['force']:.1f} beta {cfg['beta']:.3f}")
     print(f"  loss after {a.steps} steps: {loss:.5f}")
-    print(f"  staging/lizard.json, staging/worlds/{thumb}, "
-          f"and first of {len(shelf['setups'])} in staging/worlds.json")
+    print(f"  staging/worlds/{thumb}, and first of "
+          f"{len(shelf['setups'])} in staging/worlds.json")
 
 
 if __name__ == "__main__":

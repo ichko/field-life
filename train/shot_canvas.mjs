@@ -36,6 +36,19 @@ page.on("pageerror", e => errors.push(e.message));
 await page.goto(`http://127.0.0.1:${server.address().port}/staging/index.html`,
                 { waitUntil: "domcontentloaded" });
 await page.waitForFunction(() => typeof S !== "undefined" && T && T.rhoA, null, { timeout: 60000 });
+// loadLizard is gone: a world now arrives by clicking its entry on the shelf,
+// and a preset whose seedMode is "masses" lands on the creature rail. Click it
+// the way a person would, so this verifies the path the page actually uses.
+await page.waitForSelector("#cshelf .w-item, #wshelf .w-item", { timeout: 60000 });
+const picked = await page.evaluate(() => {
+  const b = document.querySelector("#cshelf .w-item") ||
+            document.querySelector("#wshelf .w-item");
+  if (!b) return null;
+  b.click();
+  return b.querySelector("b")?.textContent ?? b.dataset.tip ?? "(unnamed)";
+});
+if (!picked) { console.error("no world on the shelf to load"); process.exit(1); }
+console.log(`loaded "${picked}" off the shelf`);
 await page.waitForFunction(() => S.seedMode === "masses" && S.seedMasses, null, { timeout: 30000 });
 
 const info = await page.evaluate(async (steps) => {
