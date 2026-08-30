@@ -221,6 +221,46 @@ def divergence_rate(model, rho, steps=12):
         return (sum((p[0] - mx) * (p[1] - my) for p in gaps) / den) if den else 0.0
 
 
+
+def grow_lobes(sd, model):
+    """Widen a checkpoint's kernel bank to the model's angular orders.
+
+    Adding orders is the one capacity increase that does not throw the run
+    away. Every lobe parameter is (C, L); a longer order list only appends
+    columns, and appending them at ZERO amplitude leaves the baked kernel
+    bit-identical, because the profile is a sum over lobes and _finish
+    normalises what that sum produces. So the world at the first iteration
+    after growing is exactly the world that was saved -- but the gradient with
+    respect to a new lobe's amplitude is not zero at zero, so training can
+    reach for the new order if it pays.
+
+    Returns (old L, new L) if it grew, else None. Channels cannot be added this
+    way: MaCE only moves mass, so a new channel seeded empty stays empty, and
+    seeding it is a different world rather than a wider one.
+    """
+    key = "kern.a"
+    if key not in sd:
+        return None
+    old_L = sd[key].shape[1]
+    new_L = model.kern.a.shape[1]
+    if new_L == old_L:
+        return None
+    if new_L < old_L:
+        sys.exit(f"the checkpoint has {old_L} lobes and this run asks for "
+                 f"{new_L}; dropping lobes would change the world, not widen it")
+    cur = model.state_dict()
+    for k in ("kern.a", "kern.mu_raw", "kern.logw", "kern.phase"):
+        wide = cur[k].clone()                      # fresh init for the new columns
+        wide[:, :old_L] = sd[k]
+        if k == "kern.a":
+            wide[:, old_L:] = 0.0                  # contribute nothing, for now
+        sd[k] = wide
+    for k in ("kern.m", "kern.has_phase"):         # the new order list itself
+        if k in cur:
+            sd[k] = cur[k].clone()
+    return old_L, new_L
+
+
 def horizon_losses(model, target, seed, steps_list):
     """Loss from the seed at each rollout length.
 
@@ -437,10 +477,17 @@ def main():
     ck = os.path.join(run, "ckpt.pt")
     if a.resume and os.path.exists(ck):
         st = torch.load(ck, weights_only=False)
-        model.load_state_dict(st["model"]); opt.load_state_dict(st["opt"])
+        grew = grow_lobes(st["model"], model)
+        model.load_state_dict(st["model"])
+        # Adam's moments are shaped like the parameters they track, so a grown
+        # kernel bank cannot inherit them. Everything else is preserved.
+        if not grew:
+            opt.load_state_dict(st["opt"])
         pool = st["pool"]; start_it = st["iter"]
         ages = st.get("ages", torch.zeros(a.pool, dtype=torch.long))
-        print(f"resumed {a.name} at iteration {start_it}")
+        print(f"resumed {a.name} at iteration {start_it}"
+              + (f", kernels grown from {grew[0]} lobes to {grew[1]} "
+                 f"(the new ones at zero amplitude)" if grew else ""))
 
     logp = os.path.join(run, "log.csv")
     head = (["iter", "loss", "best", "lam", "force", "beta"]
