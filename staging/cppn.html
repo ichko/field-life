@@ -775,8 +775,11 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="nact">Act</label><select id="nact" title="The nonlinearity between layers. Sine and gaussian are the classic CPPN choices and make banded, repeating responses."></select></div>
     <div class="row"><label class="lab" for="nprime">Prime</label><input id="nprime" title="How many octaves of sine and cosine the two inputs are expanded into before the net sees them. Zero is the plain pair, which can only make smooth ramps; more gives it ridges to build detail from." type="range" min="0" max="4" step="1" value="2"><span class="val" id="nprimev">2</span></div>
     <div class="row"><label class="lab" for="ngain">Gain</label><input id="ngain" title="How large the weights are drawn. Small is nearly linear; large saturates into hard edges." type="range" min="0.2" max="4" step="0.1" value="1.6"><span class="val" id="ngainv">1.6</span></div>
-    <div class="row"><label class="lab" for="nksrc">In src</label><input id="nksrc" title="How hard the measure of its own colour is squashed before the net sees it." type="range" min="0.05" max="8" step="0.05" value="1.5"><span class="val" id="nksrcv">1.5</span></div>
-    <div class="row"><label class="lab" for="nktgt">In tgt</label><input id="nktgt" title="The same for what the kernel measured of the other colour." type="range" min="0.05" max="8" step="0.05" value="0.6"><span class="val" id="nktgtv">0.6</span></div>
+    <div class="row"><label class="lab" for="nsrc">Self</label><select id="nsrc" title="What the net is told about its own colour: what its kernel measured around this cell, or the bare value in the cell. The measure is smooth over space; the cell value is not.">
+      <option value="kernel">kernel measure</option><option value="pixel">cell value</option>
+    </select></div>
+    <div class="row"><label class="lab" for="nksrc">In src</label><input id="nksrc" title="How hard the measure of its own colour is squashed before the net sees it. A kernel measure sits inside a twentieth, a bare cell inside a half, so the two want very different scales." type="range" min="0.5" max="60" step="0.5" value="16"><span class="val" id="nksrcv">16</span></div>
+    <div class="row"><label class="lab" for="nktgt">In tgt</label><input id="nktgt" title="The same for what the kernel measured of the other colour." type="range" min="0.5" max="60" step="0.5" value="16"><span class="val" id="nktgtv">16</span></div>
     <div class="row"><label class="lab" for="nident">Pairs</label><select id="nident" title="How much one pair may differ from another. A net each gives every ordered pair its own unrelated surface, which is the freedom a matrix has. Told apart is one net handed the two colours as further inputs, so nearby pairs come out related. One net is a single surface for the whole world.">
       <option value="each">a net each</option><option value="told">told apart</option><option value="one">one net</option>
     </select></div>
@@ -1175,8 +1178,8 @@ void main(){
 // tile per ordered pair, read with a texture fetch. A matrix is the special
 // case where every tile is flat.
 const FS_AFF = HEAD + `
-uniform sampler2D uNear, uFar, uMat, uLut;
-uniform int uC, uBase, uLaw, uR; uniform float uForce, uRepel, uKsrc, uKtgt;
+uniform sampler2D uNear, uFar, uMat, uLut, uRho;
+uniform int uC, uBase, uLaw, uR, uSrcPixel; uniform float uForce, uRepel, uKsrc, uKtgt;
 
 // One tile of the table, bilinear inside it so neighbouring pairs never bleed.
 float surface(int c, int d, float u, float v){
@@ -1199,10 +1202,11 @@ void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   int tile = p.x / uN.x, lx = p.x - tile*uN.x;
   vec4 acc = vec4(0.0); float crowd = 0.0;
-  // Both of the net's inputs are kernel measures: how much of itself is around
-  // this cell, and how much of the other colour. uFar is packed like the field,
-  // so a colour's own integral sits in the tile already being read.
-  vec4 self = texelFetch(uFar, ivec2(tile*uN.x + lx, p.y), 0);
+  // What the net is told about its own colour: the kernel's measure of it
+  // around this cell, or the bare value in the cell. Both are packed the same
+  // way, so either sits in the tile already being read.
+  vec4 self = uSrcPixel == 1 ? texelFetch(uRho, ivec2(tile*uN.x + lx, p.y), 0)
+                             : texelFetch(uFar, ivec2(tile*uN.x + lx, p.y), 0);
   for(int l = 0; l < uL; l++){
     crowd += dot(texelFetch(uNear, ivec2(l*uN.x + lx, p.y), 0),
                  vec4(l*4 + 0 < uC ? 1.0 : 0.0, l*4 + 1 < uC ? 1.0 : 0.0,
@@ -1636,8 +1640,12 @@ const S = {
   seedPattern: null,                  // a saved creature, for seedMode "pattern"
   seedDisc: 0,                        // seed radius in cells, 0 = a tenth of the world
   law: 1,                             // 0 = the interaction matrix, 1 = the net
+  // ksrc and ktgt squash the two inputs into the range the surface is drawn
+  // over. Measured on a running world, 98% of kernel measures fall inside
+  // +-0.06 and the density inside 0.5, so a scale of 1 would show the net a
+  // pinhole in the middle of its own surface and nothing else.
   mlp: { seed: 1, depth: 2, width: 8, act: "tanh", pairs: "each", gain: 1.6,
-         prime: 2, ksrc: 1.5, ktgt: 0.6 },   // the net, its priming, and the input squash
+         prime: 2, src: "kernel", ksrc: 16, ktgt: 16 },
   paletteKept: false,                 // you picked a colour map; presets leave it alone
   blendKept: false,                   // and how colours combine, once you have chosen
   running: true, frame: 0, tick: 0,
@@ -2221,9 +2229,11 @@ function step(){
   gl.uniform1i(P.aff.u("uR"), LUT_R);
   gl.uniform1f(P.aff.u("uKsrc"), S.mlp.ksrc);
   gl.uniform1f(P.aff.u("uKtgt"), S.mlp.ktgt);
+  gl.uniform1i(P.aff.u("uSrcPixel"), S.mlp.src === "pixel" ? 1 : 0);
   bindTex(P.aff, "uNear", 0, T.near); bindTex(P.aff, "uFar", 1, T.far);
   bindTex(P.aff, "uMat", 2, matTex);
   bindTex(P.aff, "uLut", 3, lutTex || matTex);
+  bindTex(P.aff, "uRho", 4, T.rhoA);
   targets(T.aff, null); drawQuad();
 
   gl.useProgram(P.expa.p); common(P.expa);
@@ -3707,6 +3717,13 @@ function boot(){
   netSlider("nktgt", "ktgt", false);
   nact.addEventListener("change", () => { S.mlp.act = nact.value; reNet(); });
   $("nident").addEventListener("change", e => { S.mlp.pairs = e.target.value; reNet(); });
+  // The two inputs live on very different scales, so switching moves the slider
+  // to one that shows the net its whole surface rather than a pinhole of it.
+  $("nsrc").addEventListener("change", e => {
+    S.mlp.src = e.target.value;
+    S.mlp.ksrc = S.mlp.src === "pixel" ? 2 : 16;
+    syncControls();
+  });
   $("law").addEventListener("change", e => { S.law = +e.target.value; });
   $("nreseed").addEventListener("click", () => {
     S.mlp.seed = (Math.random()*1e6) | 0; reNet();
@@ -3714,6 +3731,7 @@ function boot(){
   SYNC.push(() => {
     nact.value = S.mlp.act;
     $("nident").value = S.mlp.pairs;
+    $("nsrc").value = S.mlp.src || "kernel";
     $("law").value = String(S.law);
   });
   SYNC.push(() => {
