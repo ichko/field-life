@@ -1427,7 +1427,12 @@ void main(){
   ivec2 i0 = ivec2(floor(g));
   int xs[4], ys[4];
   for(int i = 0; i < 4; i++){
-    xs[i] = tile*uN.x + wrapi(i0.x + i - 1, uNm.x);
+    // The tile offset must use the SOURCE's stride, not the destination's.
+    // uA is a mip, packed with tile stride uNm.x by whichever pass wrote it,
+    // while uN.x is the full-resolution width. They agree at mip 0, which is
+    // why this held so long; above it every layer past the first read its
+    // neighbourhood integral out of the wrong region.
+    xs[i] = tile*uNm.x + wrapi(i0.x + i - 1, uNm.x);
     ys[i] = wrapi(i0.y + i - 1, uNm.y);
   }
   vec4 a = cubic4(uA, xs, ys, t);
@@ -3091,7 +3096,13 @@ function applyConfig(c){
     kernels = [];
     for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
   }
-  for(const k of kernels) k.R = Math.min(k.R, radiusCap());
+  // radiusCap() bounds the blur-bank sliders, whose cost is a separable blur
+  // over the whole field. The kernel bank is bounded by something else: a KMAX
+  // stencil over a field halved once per pyramid level, so the slider's cap has
+  // no business here and was silently shortening every long kernel a trained
+  // preset asked for.
+  const kcap = KMAX << pyramid.length;
+  for(const k of kernels) k.R = Math.min(k.R, kcap);
   uploadKernels();
   bakeLut();
   buildMatrixUI(); buildKernelUI(); buildSwatches(); buildNetUI();
