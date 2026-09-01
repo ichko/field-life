@@ -3079,7 +3079,7 @@ function applyConfig(c){
   S.seed = c.seed ?? S.seed;
   if(Array.isArray(c.seedMasses)) S.seedMasses = c.seedMasses.slice();
   S.seedDisc = c.seedDisc || 0;
-  if(c.law !== undefined) S.law = c.law;
+  S.law = c.law !== undefined ? c.law : 0;   // a preset from before the net is a matrix
   if(c.mlp) S.mlp = { ...S.mlp, ...c.mlp };
   // How fast to run is yours, not the world's -- except that a world may ask,
   // and one that grows a picture over a few hundred steps has reason to.
@@ -3225,7 +3225,7 @@ const isCreature = it =>
 
 async function loadWorlds(){
   const items = [];
-  for(const src of ["worlds.json", "gliders.json"]){
+  for(const src of ["cppn.json", "worlds.json", "gliders.json"]){
     let data = null;
     try{
       const res = await fetch(src, { cache: "no-cache" });
