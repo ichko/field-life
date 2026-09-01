@@ -44,6 +44,9 @@ const picked = await page.evaluate(() => {
   const b = document.querySelector("#cshelf .w-item") ||
             document.querySelector("#wshelf .w-item");
   if (!b) return null;
+  // Choose a rate BEFORE the click, so the shot answers whether loading a
+  // world stamps its own rate over the one the viewer set.
+  S.fps = 7;
   b.click();
   return b.querySelector("b")?.textContent ?? b.dataset.tip ?? "(unnamed)";
 });
@@ -66,7 +69,7 @@ const info = await page.evaluate(async (steps) => {
   const c = document.createElement("canvas");
   c.width = cv.width; c.height = cv.height;
   c.getContext("2d").drawImage(cv, 0, 0);
-  return { tick: S.tick, blend: S.blend, expo: S.expo, C: S.C,
+  return { tick: S.tick, blend: S.blend, expo: S.expo, C: S.C, fps: S.fps,
            grid: `${S.NX}x${S.NY}`, png: c.toDataURL("image/png") };
 }, STEPS);
 const { png, ...rest } = info;
