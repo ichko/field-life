@@ -95,8 +95,26 @@ class Task:
     def scores(self, rho):
         return torch.einsum("khw,bhw->bk", self.w, rho[:, self.ptr])
 
-    def loss(self, rho, target):
-        return ((rho[:, self.ptr] - target) ** 2).mean(dim=(1, 2))
+    def loss(self, rho, target, y=None, ce=0.0):
+        """L2 on the arrangement, optionally plus cross-entropy on the vote.
+
+        The gallery showed the pointer never ends up inside one region -- it
+        splits into lobes and lights several at once, and the answer is whichever
+        lobe is heaviest. So L2 against "all of the pointer inside region k" asks
+        for a configuration the dynamics does not reach, while the metric scores
+        an argmax over region occupancy. Cross-entropy on the occupancies trains
+        the thing actually being measured: it only asks that the right region
+        hold the most, which is exactly the readout.
+
+        L2 stays as the other term because it has a gradient everywhere, and CE
+        has almost none while the pointer is still in the middle touching nothing.
+        """
+        l2 = ((rho[:, self.ptr] - target) ** 2).mean(dim=(1, 2))
+        if not ce or y is None:
+            return l2
+        s = self.scores(rho).clamp_min(1e-8)
+        p = s / s.sum(1, keepdim=True)
+        return l2 + ce * -torch.log(p[torch.arange(len(y)), y] + 1e-8)
 
     def answer(self, labs):
         """The class the pointer is supposed to reach."""
@@ -210,7 +228,14 @@ def main():
                          "and HELD there -- which is not obvious, because MaCE "
                          "has no identity and its neutral state is a blur.")
     ap.add_argument("--digit", type=int, default=dg.DIGIT)
-    ap.add_argument("--orders", default="0,0,0,1,1,2")
+    ap.add_argument("--orders", default="0,0,0,1,1,2",
+                    help="angular order per kernel lobe. More lobes is more "
+                         "expressive per channel; higher orders break rotational "
+                         "symmetry harder -- 0 is a ring, 1 a signed gradient "
+                         "(a Sobel filter), 2 a quadrupole.")
+    ap.add_argument("--ce", type=float, default=0.0,
+                    help="weight on cross-entropy over region occupancy, the "
+                         "quantity the accuracy actually argmaxes")
     ap.add_argument("--channels", type=int, default=16,
                     help="one for the digit, the rest chemicals. Measured cost "
                          "at grid 40: C=6 is 0.53 s/iter, C=16 is 0.86, C=24 is "
@@ -385,11 +410,13 @@ def main():
             if ages[k] >= lifespan[k]:
                 fresh(k)
         batch, btgt, bage = pool[idx].clone(), pool_t[idx], ages[idx]
+        by = pool_y[idx]
         if n_fresh:
             j = rng.integers(0, len(ytr), n_fresh)
-            fs, ft, _ = task.build(xtr[j], ytr[j], rng, siren)
+            fs, ft, fy = task.build(xtr[j], ytr[j], rng, siren)
             batch = torch.cat([fs, batch]) if n_pool else fs
             btgt = torch.cat([ft, btgt]) if n_pool else ft
+            by = torch.cat([fy, by]) if n_pool else fy
             bage = torch.cat([torch.zeros(n_fresh, dtype=torch.long), bage])
 
         kern = model.kern()
@@ -403,9 +430,10 @@ def main():
             ready = (bage + step_no) >= a.settle
             if not ready.any():
                 continue
-            err = task.loss(out, btgt)
+            err = task.loss(out, btgt, task.answer(by), a.ce)
             scored.append((err * ready).sum() / ready.sum())
-        loss = torch.stack(scored).mean() if scored else task.loss(out, btgt).mean()
+        loss = (torch.stack(scored).mean() if scored
+                else task.loss(out, btgt, task.answer(by), a.ce).mean())
 
         lam = 0.0
         if a.lam_penalty > 0 and it % 10 == 0:

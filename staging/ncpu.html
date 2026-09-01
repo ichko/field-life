@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>field-life &mdash; a field that classifies</title>
+<style>
+:root{
+  --bg:#0A1014; --panel:#111C21; --panel2:#16232A; --ink:#E4EEF2; --ink2:#8CA0A8;
+  --line:#1E2C34; --accent:#A78BFA; --screen:#04080B; --good:#5AE08C; --bad:#FF7B63;
+  --font:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--font);
+     font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:26px 18px 60px}
+h1{font-size:clamp(21px,3vw,28px);letter-spacing:-.03em;margin:0 0 6px}
+h1 span{color:var(--accent)}
+.sub{color:var(--ink2);margin:0 0 22px;max-width:70ch}
+.cols{display:grid;grid-template-columns:auto 1fr auto;gap:16px;align-items:start}
+@media(max-width:900px){.cols{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px}
+.card h2{font-size:11px;letter-spacing:.09em;text-transform:uppercase;
+         color:var(--ink2);margin:0 0 9px;font-weight:600}
+canvas{display:block;border-radius:6px;background:var(--screen);image-rendering:pixelated}
+#field{width:420px;height:420px;max-width:100%}
+#pad{width:168px;height:168px;cursor:crosshair;touch-action:none}
+.row{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}
+button{font-family:var(--font);font-size:12px;color:var(--ink);background:var(--panel2);
+       border:1px solid var(--line);border-radius:6px;padding:6px 11px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);color:#160E33;border-color:var(--accent);font-weight:600}
+label.rng{display:flex;align-items:center;gap:8px;color:var(--ink2);font-size:12px;margin-top:10px}
+input[type=range]{flex:1;accent-color:var(--accent)}
+.bars{display:flex;flex-direction:column;gap:4px;width:190px}
+.bar{display:grid;grid-template-columns:14px 1fr 42px;gap:7px;align-items:center;font-size:11px}
+.bar .k{color:var(--ink2);text-align:right}
+.bar .t{height:13px;background:var(--panel2);border-radius:3px;overflow:hidden}
+.bar .t i{display:block;height:100%;background:var(--ink2);border-radius:3px}
+.bar.win .k{color:var(--ink)}
+.bar.win .t i{background:var(--accent)}
+.bar.truth .k{color:var(--good)}
+.verdict{margin-top:12px;padding:9px 11px;border-radius:7px;background:var(--panel2);
+         border:1px solid var(--line);font-size:12px}
+.verdict b{font-size:26px;line-height:1;display:block;margin-bottom:2px}
+.ok b{color:var(--good)} .no b{color:var(--bad)}
+.meta{color:var(--ink2);font-size:11px;margin-top:9px}
+.legend{display:flex;gap:13px;flex-wrap:wrap;color:var(--ink2);font-size:11px;margin-top:9px}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;
+          vertical-align:-1px}
+.notes{margin-top:26px;color:var(--ink2);max-width:78ch}
+.notes b{color:var(--ink)}
+code{background:var(--panel2);padding:1px 5px;border-radius:4px;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>a field that <span>classifies</span></h1>
+<p class="sub">Every cell runs the same rule and mass is only ever moved, never made.
+The digit is a fixed landscape; the bright blob is the <b>pointer</b>, and where it
+settles is the answer. Draw a digit and watch it decide.</p>
+
+<div class="cols">
+  <div>
+    <div class="card">
+      <h2>input</h2>
+      <canvas id="pad" width="28" height="28"></canvas>
+      <div class="row">
+        <button id="clear">clear</button>
+        <button id="rand">random</button>
+      </div>
+      <div class="meta" id="truth">drawn by you</div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h2>the world</h2>
+      <div class="meta" id="worldmeta"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>the field &mdash; step <span id="step">0</span></h2>
+    <canvas id="field" width="40" height="40"></canvas>
+    <div class="row">
+      <button id="play" class="primary">run</button>
+      <button id="stepb">step</button>
+      <button id="reset">reset</button>
+    </div>
+    <label class="rng">speed <input id="speed" type="range" min="1" max="8" value="3"></label>
+    <div class="legend">
+      <span><i style="background:#6E7A85"></i>digit (static)</span>
+      <span><i style="background:#2C6B3A"></i>class regions</span>
+      <span><i style="background:#F2E23C"></i>pointer</span>
+      <span><i style="background:#3E7BA8"></i>chemicals</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>region vote</h2>
+    <div class="bars" id="bars"></div>
+    <div class="verdict" id="verdict"><b>&mdash;</b><span id="vsub">run it</span></div>
+  </div>
+</div>
+
+<div class="notes">
+  <p><b>What you are looking at.</b> Sixteen fields share the grid. Four hold the
+  digit and never move &mdash; they are read, not pushed, which is the whole reason
+  this works: a moving digit dissolves into a blur long before it could arrive
+  anywhere. Eleven are chemicals doing the work. One is the pointer, the only
+  channel anyone reads.</p>
+  <p><b>The answer is a vote, not a destination.</b> The pointer does not travel to
+  one region. It splits into lobes that light several at once, and the class is
+  whichever lobe ends up heaviest &mdash; so a near-tie and a confident answer look
+  very different in the bars on the right.</p>
+  <p><b>Nothing is created.</b> Each channel hands out everything it holds to its
+  own neighbourhood every tick, so the total in each never changes. Classifying
+  is rearranging.</p>
+  <p id="accnote" class="meta"></p>
+</div>
+</div>
+
+<script src="ncpu-data.js"></script>
+<script>
+(function(){
+const D = window.NCPU;
+if(!D){ document.body.innerHTML = "<p style='padding:30px'>ncpu-data.js is missing. "
+  + "Generate it with <code>python3 train/export_demo.py</code>.</p>"; return; }
+
+const G = D.grid, C = D.C, K = D.K, KR = D.KR, NC = D.nClass;
+const NS = D.nStatic, PTR = D.ptr, NCH = D.nChem;
+const GG = G*G, P = G + 2*KR, PP = P*P;          // padded side, for wrap-free taps
+
+const kern = Float32Array.from(D.kern);           // C * K * K
+const blur = Float32Array.from(D.blur);           // K * K
+const mat  = Float32Array.from(D.mat);            // C * C
+
+// ---- geometry: the ten class regions, built exactly as train/digits.py does
+function disc(cx, cy, r, soft){
+  const o = new Float32Array(GG);
+  for(let y=0;y<G;y++) for(let x=0;x<G;x++){
+    const d = Math.hypot(x-cx, y-cy);
+    let t = (r-d)/soft; t = t<0?0:(t>1?1:t);
+    o[y*G+x] = t*t*(3-2*t);
+  }
+  return o;
+}
+const cc = (G-1)/2;
+const regions = [], rw = [];
+for(let k=0;k<NC;k++){
+  const th = 2*Math.PI*k/NC;
+  const d = disc(cc + D.ring*Math.sin(th), cc - D.ring*Math.cos(th), D.regionR, 1.4);
+  regions.push(d);
+  let s=0; for(let i=0;i<GG;i++) s+=d[i];
+  const w = new Float32Array(GG); for(let i=0;i<GG;i++) w[i]=d[i]/s;
+  rw.push(w);
+}
+const ringMap = new Float32Array(GG);
+for(const d of regions) for(let i=0;i<GG;i++) ringMap[i] = Math.max(ringMap[i], d[i]);
+
+// ---- the seeds, stored at unit mass and scaled by whatever the digit weighs
+function unpackPatch(p, n){
+  const out = [];
+  for(let c=0;c<n;c++){
+    const f = new Float32Array(GG);
+    for(let y=0;y<p.h;y++) for(let x=0;x<p.w;x++)
+      f[(p.y+y)*G + (p.x+x)] = p.v[(c*p.h + y)*p.w + x];
+    out.push(f);
+  }
+  return out;
+}
+const chemSeed = unpackPatch(D.chemPatch, NCH);
+const ballSeed = unpackPatch(D.ballPatch, 1)[0];
+
+// ---- state
+let rho = new Float32Array(C*GG);
+let digit = new Float32Array(GG);
+let digitMass = 0, step = 0, truth = -1, playing = false;
+// the static channels never change, so their share of the convolutions is
+// computed once per digit rather than once per tick
+let Ustatic = new Float32Array(C*GG);   // only rows 0..NS-1 used
+let Nstatic = new Float32Array(GG);
+
+const pad = new Float32Array(PP);
+const tmp = new Float32Array(GG);
+
+function correlate(src, dst, k, kOff){
+  // wrap once into a padded buffer, then take straight taps
+  for(let y=0;y<P;y++){
+    const sy = ((y - KR) % G + G) % G;
+    for(let x=0;x<P;x++){
+      const sx = ((x - KR) % G + G) % G;
+      pad[y*P+x] = src[sy*G+sx];
+    }
+  }
+  for(let y=0;y<G;y++){
+    for(let x=0;x<G;x++){
+      let s = 0;
+      for(let j=0;j<K;j++){
+        const row = (y+j)*P + x, kr = kOff + j*K;
+        for(let i=0;i<K;i++) s += k[kr+i] * pad[row+i];
+      }
+      dst[y*G+x] = s;
+    }
+  }
+}
+
+function sum3x3(src, dst){
+  for(let y=0;y<G;y++){
+    const ym=((y-1)+G)%G, yp=(y+1)%G;
+    for(let x=0;x<G;x++){
+      const xm=((x-1)+G)%G, xp=(x+1)%G;
+      dst[y*G+x] = src[ym*G+xm]+src[ym*G+x]+src[ym*G+xp]
+                 + src[y*G+xm] +src[y*G+x] +src[y*G+xp]
+                 + src[yp*G+xm]+src[yp*G+x]+src[yp*G+xp];
+    }
+  }
+}
+
+const U = new Float32Array(C*GG), Nt = new Float32Array(GG);
+const E = new Float32Array(GG), Z = new Float32Array(GG), S = new Float32Array(GG);
+const SS = new Float32Array(GG), dyn = new Float32Array(GG);
+
+function tick(){
+  // convolve only what moves; the static rows were done when the digit changed
+  for(let c=NS;c<C;c++) correlate(rho.subarray(c*GG,(c+1)*GG), U.subarray(c*GG,(c+1)*GG), kern, c*K*K);
+  U.set(Ustatic.subarray(0, NS*GG), 0);
+  // crowding: one blur of the moving density, plus the digit's fixed share
+  dyn.fill(0);
+  for(let c=NS;c<C;c++){ const o=c*GG; for(let i=0;i<GG;i++) dyn[i]+=rho[o+i]; }
+  correlate(dyn, Nt, blur, 0);
+  for(let i=0;i<GG;i++) Nt[i] += Nstatic[i];
+
+  const next = new Float32Array(C*GG);
+  for(let c=NS;c<C;c++){
+    const mo = c*C;
+    for(let i=0;i<GG;i++){
+      let a = 0;
+      for(let d=0;d<C;d++) a += mat[mo+d] * U[d*GG+i];
+      let e = D.beta * (D.force*a - D.repel*Nt[i]);
+      e = e < -20 ? -20 : (e > 20 ? 20 : e);
+      E[i] = Math.exp(e);
+    }
+    sum3x3(E, Z);
+    const o = c*GG;
+    for(let i=0;i<GG;i++) S[i] = rho[o+i] / Math.max(Z[i], 1e-32);
+    sum3x3(S, SS);
+    for(let i=0;i<GG;i++) next[o+i] = E[i] * SS[i];
+  }
+  for(let c=0;c<NS;c++) next.set(rho.subarray(c*GG,(c+1)*GG), c*GG);
+  rho = next;
+  step++;
+}
+
+// ---- setting up a problem
+function setDigit(img16, label){
+  digit.fill(0);
+  const o = (G - D.digitPx) >> 1;
+  for(let y=0;y<D.digitPx;y++) for(let x=0;x<D.digitPx;x++)
+    digit[(o+y)*G + (o+x)] = img16[y*D.digitPx + x];
+  digitMass = 0; for(let i=0;i<GG;i++) digitMass += digit[i];
+  truth = (label===undefined?-1:label);
+  document.getElementById("truth").textContent =
+    truth<0 ? "drawn by you" : ("MNIST test digit — truly a " + truth);
+  reset();
+}
+
+function reset(){
+  rho = new Float32Array(C*GG);
+  for(let c=0;c<NS;c++) rho.set(digit, c*GG);
+  const pm = digitMass * D.pointer;
+  for(let i=0;i<GG;i++) rho[PTR*GG+i] = ballSeed[i]*pm;
+  const cm = digitMass * D.chem / Math.max(NCH,1);
+  for(let c=0;c<NCH;c++){
+    const o = (PTR+1+c)*GG;
+    for(let i=0;i<GG;i++) rho[o+i] = chemSeed[c][i]*cm;
+  }
+  // the static half of the convolutions, once
+  for(let c=0;c<NS;c++) correlate(digit, Ustatic.subarray(c*GG,(c+1)*GG), kern, c*K*K);
+  const sd = new Float32Array(GG);
+  for(let i=0;i<GG;i++) sd[i] = digit[i]*NS;
+  correlate(sd, Nstatic, blur, 0);
+  step = 0;
+  draw();
+}
+
+// ---- readout
+function scores(){
+  const s = new Float32Array(NC);
+  const o = PTR*GG;
+  for(let k=0;k<NC;k++){ let v=0; const w=rw[k];
+    for(let i=0;i<GG;i++) v += w[i]*rho[o+i]; s[k]=v; }
+  return s;
+}
+
+// ---- drawing
+const fc = document.getElementById("field"), fx = fc.getContext("2d");
+const fimg = fx.createImageData(G,G);
+function draw(){
+  let pmax=1e-9, cmax=1e-9, dmax=1e-9;
+  for(let i=0;i<GG;i++){
+    if(rho[PTR*GG+i]>pmax) pmax=rho[PTR*GG+i];
+    if(digit[i]>dmax) dmax=digit[i];
+  }
+  const chem = new Float32Array(GG);
+  for(let c=PTR+1;c<C;c++){ const o=c*GG; for(let i=0;i<GG;i++) chem[i]+=rho[o+i]; }
+  for(let i=0;i<GG;i++) if(chem[i]>cmax) cmax=chem[i];
+  const d = fimg.data;
+  for(let i=0;i<GG;i++){
+    const g = ringMap[i]*0.30, dg_ = digit[i]/dmax, p = rho[PTR*GG+i]/pmax,
+          ch = chem[i]/cmax;
+    let r = g*0.10 + dg_*0.43 + p*1.00 + ch*0.16;
+    let gg = g*0.62 + dg_*0.45 + p*0.93 + ch*0.30;
+    let b  = g*0.26 + dg_*0.50 + p*0.20 + ch*0.55;
+    d[i*4]   = Math.min(255, r*255);
+    d[i*4+1] = Math.min(255, gg*255);
+    d[i*4+2] = Math.min(255, b*255);
+    d[i*4+3] = 255;
+  }
+  fx.putImageData(fimg,0,0);
+  document.getElementById("step").textContent = step;
+  drawBars();
+}
+
+const barsEl = document.getElementById("bars");
+for(let k=0;k<NC;k++){
+  const el = document.createElement("div");
+  el.className = "bar"; el.id = "bar"+k;
+  el.innerHTML = '<span class="k">'+k+'</span><span class="t"><i></i></span>'
+               + '<span class="v" style="color:var(--ink2)">0</span>';
+  barsEl.appendChild(el);
+}
+function drawBars(){
+  const s = scores(); let mx=1e-9, arg=0;
+  for(let k=0;k<NC;k++){ if(s[k]>mx){mx=s[k];arg=k;} }
+  let tot=0; for(let k=0;k<NC;k++) tot+=s[k];
+  for(let k=0;k<NC;k++){
+    const el = document.getElementById("bar"+k);
+    el.className = "bar" + (k===arg?" win":"") + (k===truth?" truth":"");
+    el.querySelector("i").style.width = (100*s[k]/mx).toFixed(1)+"%";
+    el.querySelector(".v").textContent = tot>0 ? (s[k]/tot).toFixed(2) : "0";
+  }
+  const v = document.getElementById("verdict");
+  const conf = tot>0 ? s[arg]/tot : 0;
+  v.querySelector("b").textContent = step===0 ? "—" : arg;
+  document.getElementById("vsub").textContent = step===0
+    ? "run it"
+    : (truth<0 ? "confidence " + conf.toFixed(2)
+               : (arg===truth ? "correct — confidence " + conf.toFixed(2)
+                              : "wrong — it is a " + truth));
+  v.className = "verdict" + (step===0||truth<0 ? "" : (arg===truth?" ok":" no"));
+}
+
+// ---- the drawing pad
+const pc = document.getElementById("pad"), px = pc.getContext("2d");
+let pen = new Float32Array(28*28), drawing = false;
+function paintPad(){
+  const im = px.createImageData(28,28), d = im.data;
+  for(let i=0;i<28*28;i++){
+    const v = Math.min(1,pen[i])*255;
+    d[i*4]=v; d[i*4+1]=v; d[i*4+2]=v*1.02; d[i*4+3]=255;
+  }
+  px.putImageData(im,0,0);
+}
+function penTo(ev){
+  const r = pc.getBoundingClientRect();
+  const t = ev.touches ? ev.touches[0] : ev;
+  const x = (t.clientX-r.left)/r.width*28, y = (t.clientY-r.top)/r.height*28;
+  for(let j=-2;j<=2;j++) for(let i=-2;i<=2;i++){
+    const yy=Math.round(y)+j, xx=Math.round(x)+i;
+    if(yy<0||yy>=28||xx<0||xx>=28) continue;
+    const f = Math.max(0, 1 - Math.hypot(i,j)/2.3);
+    pen[yy*28+xx] = Math.min(1, pen[yy*28+xx] + f*0.85);
+  }
+  paintPad(); commitPen();
+}
+function commitPen(){
+  // 28 -> digitPx by area average, which is what the trainer's resize does
+  const n = D.digitPx, out = new Float32Array(n*n), sc = 28/n;
+  for(let y=0;y<n;y++) for(let x=0;x<n;x++){
+    let s=0,c=0;
+    for(let j=Math.floor(y*sc); j<Math.ceil((y+1)*sc); j++)
+      for(let i=Math.floor(x*sc); i<Math.ceil((x+1)*sc); i++){ s+=pen[j*28+i]; c++; }
+    out[y*n+x] = c? s/c : 0;
+  }
+  let m=0; for(let i=0;i<n*n;i++) m+=out[i];
+  if(m>0.5) setDigit(out, undefined);
+}
+pc.addEventListener("pointerdown", e=>{drawing=true; pc.setPointerCapture(e.pointerId); penTo(e);});
+pc.addEventListener("pointermove", e=>{ if(drawing) penTo(e); });
+pc.addEventListener("pointerup", ()=>{drawing=false;});
+pc.addEventListener("pointerleave", ()=>{drawing=false;});
+
+// ---- controls
+document.getElementById("clear").onclick = ()=>{
+  pen = new Float32Array(28*28); paintPad();
+  digit.fill(0); digitMass=0; truth=-1;
+  document.getElementById("truth").textContent = "drawn by you";
+  reset();
+};
+document.getElementById("rand").onclick = ()=>{
+  const i = Math.floor(Math.random()*D.digits.length);
+  const n = D.digitPx;
+  // show it on the pad too, upsampled
+  pen = new Float32Array(28*28);
+  for(let y=0;y<28;y++) for(let x=0;x<28;x++)
+    pen[y*28+x] = D.digits[i][Math.min(n-1,Math.floor(y*n/28))*n
+                            + Math.min(n-1,Math.floor(x*n/28))];
+  paintPad();
+  setDigit(D.digits[i], D.labels[i]);
+};
+document.getElementById("reset").onclick = reset;
+document.getElementById("stepb").onclick = ()=>{ if(digitMass>0){ tick(); draw(); } };
+const playBtn = document.getElementById("play");
+playBtn.onclick = ()=>{ playing = !playing; playBtn.textContent = playing?"pause":"run"; };
+
+let acc = 0;
+function loop(){
+  if(playing && digitMass>0){
+    const n = +document.getElementById("speed").value;
+    for(let i=0;i<n;i++) tick();
+    draw();
+  }
+  requestAnimationFrame(loop);
+}
+
+document.getElementById("worldmeta").innerHTML =
+  C + " channels &middot; " + NS + " static, 1 pointer, " + NCH + " chemicals<br>"
+  + G + "&times;" + G + " torus &middot; " + K + "&times;" + K + " stencil<br>"
+  + "force " + D.force.toFixed(1) + " &middot; repel " + D.repel.toFixed(2)
+  + " &middot; beta " + D.beta.toFixed(2);
+if(D.acc){
+  document.getElementById("accnote").textContent =
+    "This world scores " + Math.max.apply(null, D.acc).toFixed(2)
+    + " on held-out MNIST digits it was never trained on, against a chance of 0.10.";
+}
+paintPad();
+document.getElementById("rand").click();
+loop();
+
+// A hook for train/verify_demo.mjs, which steps this page and the PyTorch port
+// side by side. The claim that the browser runs the trained world rather than
+// something close to it is worth checking rather than asserting.
+window.__ncpu = {
+  setSample: i => setDigit(D.digits[i], D.labels[i]),
+  tick: n => { for(let i=0;i<n;i++) tick(); },
+  scores: () => Array.from(scores()),
+  pointer: () => Array.from(rho.subarray(PTR*GG,(PTR+1)*GG)),
+  mass: () => { const m=[]; for(let c=0;c<C;c++){ let s=0;
+      for(let i=0;i<GG;i++) s+=rho[c*GG+i]; m.push(s);} return m; },
+};
+})();
+</script>
+</body>
+</html>
