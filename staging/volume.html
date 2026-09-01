@@ -248,6 +248,48 @@ a sense of surface for six taps instead of six times the march. That last one is
 <b>specular at zero removes it completely</b> &mdash; highlight, rim and all &mdash; leaving key
 and ambient and nothing else.</p>
 
+<h2>Setting force, repel and beta</h2>
+<p>The flat page runs at <b>force 90, repel 6, beta 3</b>, and those are not the numbers to use
+here. A sweep of 160 runs &mdash; five forces by four repels by four betas, each on two different
+matrices, each run about 120 steps with two slices of the field read back &mdash; puts the workable
+band somewhere else: <b>force 130 to 180, repel 1.5 to 4, beta 2 to 3.2</b>. That is more force and
+much less repulsion than the sheet wants, and it is not a small effect. A run counts as workable
+here if it holds structure without spiking, settles, and does not flicker.</p>
+<table>
+<tr><th>force</th><th>workable</th><th>flicker</th><th>peak</th>
+    <th style="padding-left:18px">repel</th><th>workable</th><th>flicker</th><th>peak</th>
+    <th style="padding-left:18px">beta</th><th>workable</th><th>flicker</th><th>peak</th></tr>
+<tr><td>30</td><td>16%</td><td>2.60</td><td>69</td>
+    <td style="padding-left:18px">1.5</td><td>88%</td><td>0.18</td><td>13</td>
+    <td style="padding-left:18px">0.7</td><td>53%</td><td>1.35</td><td>44</td></tr>
+<tr><td>60</td><td>50%</td><td>2.87</td><td>58</td>
+    <td style="padding-left:18px">4</td><td>78%</td><td>0.17</td><td>26</td>
+    <td style="padding-left:18px">1.2</td><td>65%</td><td>1.37</td><td>39</td></tr>
+<tr><td>90</td><td>78%</td><td>0.21</td><td>29</td>
+    <td style="padding-left:18px">8</td><td>63%</td><td>1.40</td><td>39</td>
+    <td style="padding-left:18px">2.0</td><td>73%</td><td>1.21</td><td>34</td></tr>
+<tr><td>130</td><td>97%</td><td>0.19</td><td>12</td>
+    <td style="padding-left:18px">14</td><td>43%</td><td>3.12</td><td>67</td>
+    <td style="padding-left:18px">3.2</td><td>80%</td><td>0.93</td><td>28</td></tr>
+<tr><td>180</td><td>97%</td><td>0.22</td><td>12</td>
+    <td style="padding-left:18px"></td><td></td><td></td><td></td>
+    <td style="padding-left:18px"></td><td></td><td></td><td></td></tr>
+</table>
+<p>Both shifts point the same way, and for the same reason. A neighbourhood integral in three
+dimensions averages over <b>r&sup3;</b> cells where the sheet averages over <b>r&sup2;</b>, so the
+ring &mdash; a difference of two such averages &mdash; comes out much smaller against the local
+density. The affinity needs more force to swing as far as it did. The crowding term is a near
+average of the same field and is comparatively <i>larger</i> for exactly the same reason, so it
+needs a smaller coefficient to balance against a weaker ring. Turn either dial the wrong way and
+the failure is visible in the table: at force 30 or repel 14 the flicker number goes up by an order
+of magnitude and the peak density runs to sixty times the mean, which is a field pulling itself
+into spikes rather than into structures.</p>
+<p>That is where random matrices work, not where good ones live. <b>world</b> draws its scalars
+from that band, so most draws land on something. Several of the named worlds sit outside it &mdash;
+studded runs at repel 13.9 and beta 1.07 &mdash; because a particular matrix can be happy where the
+average one is not. <b>shuffle</b> leaves the scalars where they are and changes only the matrix,
+which is the way to explore one corner rather than the whole space.</p>
+
 <h2>Seeing into it</h2>
 <p>A cloud lit properly shows you its skin and hides everything behind it, which is exactly wrong
 for watching a simulation. Four views, and the <b>V</b> key cycles them:</p>
@@ -1179,7 +1221,7 @@ const PRESETS = [
 
 const S = {
   N: 96, C: 3, density: 0.10, radius: 16,
-  force: 90, repel: 6, beta: 3, noise: 0, rate: 3,
+  force: 130, repel: 3, beta: 2.6, noise: 0, rate: 3,
   seed: (Math.random()*1e6)|0, seedMode: 1, seedSize: 0.30,
   palette: "Aurora",
   mode: 0, gain: 1.0,
@@ -1187,7 +1229,7 @@ const S = {
   phase: 0.4, ao: 0.10, shade: 0.13, quality: "auto", scale: 0.8, stepq: 1.5,
   lyaw: 1.15, lpitch: 0.5,
   yaw: 0.7, pitch: 0.36, dist: 2.15,
-  cutAx: -1, cutA: 0.0, cutB: 0.5, preset: -1,
+  cutAx: -1, cutA: 0.0, cutB: 0.5, scan: 0, preset: -1,
   brush: 9, flow: 0.9,
   running: true, frame: 0, showBox: true
 };
@@ -1695,9 +1737,22 @@ function toggleFull(){
   if(document.fullscreenElement) document.exitFullscreen();
   else app.requestFullscreen && app.requestFullscreen();
 }
+/* A new world is a new matrix AND new scalars, drawn from the band a sweep of
+   160 runs found workable in three dimensions: force 90 to 190, repel 1 to 5,
+   beta 1.6 to 3.4. Outside it most matrices give a field that either flickers
+   on the lattice or pulls itself into spikes, so drawing uniformly over the
+   whole range mostly wastes the draw. Shuffle, in the matrix panel, leaves the
+   scalars alone and changes only the matrix. */
 function newWorld(){
+  const r = Math.random;
+  S.force = Math.round(90 + r()*100);
+  S.repel = +(1 + r()*4).toFixed(1);
+  S.beta = +(1.6 + r()*1.8).toFixed(2);
+  S.radius = Math.max(5, Math.round((0.14 + r()*0.10)*S.N));
+  S.preset = -1;
   resampleMatrix((Math.random()*1e6)|0);
   reseed((Math.random()*1e6)|0);
+  buildUI();
 }
 
 /* ====================================================================== ui */
@@ -1826,7 +1881,7 @@ function buildMatrixUI(){
 
 const SIZES = [48, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256];
 const COLOURS = [2, 3, 4, 5, 6, 8];
-let scaleUI = null, stepUI = null;
+let scaleUI = null, stepUI = null, cutAUI = null, cutBUI = null;
 
 function applyPreset(i){
   const p = PRESETS[i]; if(!p) return;
@@ -1904,8 +1959,22 @@ function buildUI(){
   // Two ends of the slab that survives. Pull one in and you have a cross
   // section; bring them together and you have a single plane of the cube,
   // which is the flat page's picture again.
-  slider("from", "cutA", 0, 1, 0.004, 3);
-  slider("to", "cutB", 0, 1, 0.004, 3);
+  cutAUI = slider("from", "cutA", 0, 1, 0.004, 3);
+  cutBUI = slider("to", "cutB", 0, 1, 0.004, 3);
+  // Walking the slab through the cube is the one way to see all of a volume
+  // rather than a chosen part of it, and it costs nothing: the marched box is
+  // smaller, so a scanning slab renders faster than the whole thing.
+  slider("scan", "scan", 0, 1, 0.01, 2);
+  const fd = row("face on");
+  const fb = document.createElement("button");
+  fb.textContent = "look down " + "xyz"[Math.max(S.cutAx, 0)];
+  fb.onclick = () => {
+    const a = Math.max(S.cutAx, 0);
+    S.yaw = a === 0 ? Math.PI/2 : a === 2 ? 0 : 0;
+    S.pitch = a === 1 ? 1.5 : 0;
+    resetAccum();
+  };
+  fd.appendChild(fb);
   chips("show", vis);
   const bd = row("box");
   const bb = document.createElement("button");
@@ -1989,6 +2058,15 @@ function tick(now){
     carry -= n;
     for(let i = 0; i < Math.min(n, 8); i++) simStep();
     if(n > 0) buildOcc();
+  }
+  if(S.scan > 0 && S.cutAx >= 0 && dt < 250){
+    const w = Math.abs(S.cutB - S.cutA), d = S.scan*dt*0.00035;
+    S.cutA = (S.cutA + d) % 1;
+    S.cutB = S.cutA + w;
+    if(S.cutB > 1){ S.cutA = 0; S.cutB = w; }
+    if(cutAUI) cutAUI.set(S.cutA);
+    if(cutBUI) cutBUI.set(S.cutB);
+    resetAccum();
   }
   render();
 
