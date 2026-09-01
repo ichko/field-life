@@ -1,0 +1,1149 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field Life — Physarum</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.92em'%20font-size='92'%3E%F0%9F%A7%AB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#E8EDEF; --panel:#FFFFFF; --panel2:#EEF3F4; --ink:#0E1A1F; --ink2:#586A70;
+  --line:#D0DBDE; --line2:#E1EAEC; --well:#C4D0D6; --accent:#6246C8; --focus:#7355E0;
+  --screen:#04080B;
+  --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%230E1A1F'%20stroke-opacity='.13'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+  --shadow:2px 2px 0 rgba(15,22,32,.055);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#060C0F; --panel:#0D161A; --panel2:#121C21; --ink:#E1EBEF; --ink2:#87999F;
+    --line:#1D2930; --line2:#161F24; --well:#151F25; --accent:#A78BFA; --focus:#A78BFA;
+    --screen:#04080B;
+    --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%23A78BFA'%20stroke-opacity='.10'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+    --shadow:2px 2px 0 rgba(0,0,0,.34);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); background-color:var(--bg);
+  background-image:var(--gridimg); background-repeat:repeat; background-attachment:fixed;
+  font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1040px; margin:0 auto; padding:22px 20px 90px;
+  display:flex; flex-direction:column; gap:16px}
+header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
+   font-size:clamp(24px,3.2vw,33px); letter-spacing:-.035em; margin:0}
+.tag{color:var(--ink2); font-size:12px; letter-spacing:.02em}
+.tag b{color:var(--ink); font-weight:500}
+.tag a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.tag a:hover{border-bottom-color:var(--accent)}
+
+/* ------------------------------------------------------------- app shell */
+.app{position:relative; width:100%; aspect-ratio:7/5; overflow:hidden;
+  background:var(--screen); border:1px solid var(--line);
+  border-radius:6px 8px 7px 7px; box-shadow:var(--shadow);
+  --panel:#0A0B0D; --panel2:#14171B; --ink:#E9E6E0; --ink2:#6B7076;
+  --line:#23272C; --line2:#181B1F; --accent:#A78BFA; --focus:#A78BFA;
+  --rowh:23px; --lab:52px;}
+@media (pointer:coarse){ .app{ --rowh:31px; --lab:64px; } }
+.app:fullscreen{aspect-ratio:auto; width:100vw; height:100vh; border:0; border-radius:0}
+#cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:none; cursor:grab}
+#cv.painting{cursor:crosshair}
+#cv.dragging{cursor:grabbing}
+
+/* --------------------------------------------------------------- panels */
+.rack{position:absolute; top:8px; right:8px; width:186px; z-index:3;
+  background:color-mix(in srgb, var(--panel) 88%, transparent);
+  border:1px solid var(--line); padding:3px 6px 5px;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+  max-height:calc(100% - 16px); overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+.rack::-webkit-scrollbar{width:6px}
+.rack::-webkit-scrollbar-thumb{background:var(--line)}
+.rack.hid{display:none}
+.grp{font-size:8px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  padding:7px 0 3px; border-bottom:1px solid var(--line2); margin-bottom:1px}
+.grp:first-child{padding-top:2px}
+.row{position:relative; display:grid; grid-template-columns:var(--lab) minmax(0,1fr);
+  align-items:center; gap:5px; min-height:var(--rowh);
+  border-bottom:1px solid var(--line2); padding:0 1px}
+label.lab{font-size:8.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.val{position:absolute; right:4px; top:0; height:100%; z-index:1;
+  display:flex; align-items:center; pointer-events:none;
+  font-variant-numeric:tabular-nums; font-size:9.5px; font-weight:500;
+  color:#fff; -webkit-text-stroke:.5px #000; paint-order:stroke fill; text-shadow:0 0 2px #000}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; min-width:0;
+  height:calc(var(--rowh) - 8px); background:transparent; cursor:ew-resize; margin:0; --p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-moz-range-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:2px;
+  height:calc(var(--rowh) - 8px); background:var(--ink); opacity:.7; border:0}
+input[type=range]::-moz-range-thumb{width:2px; height:calc(var(--rowh) - 8px);
+  background:var(--ink); opacity:.55; border:0}
+input:focus-visible, select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+select{font:inherit; font-size:10.5px; line-height:1.1; color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 13px 0 4px; width:100%; min-width:0; height:calc(var(--rowh) - 3px);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
+                   linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
+  background-position:calc(100% - 9px) center, calc(100% - 5px) center;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat}
+button{font:inherit; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--ink); background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 5px; height:calc(var(--rowh) - 5px); cursor:pointer; white-space:nowrap}
+button:hover{border-color:var(--ink2)}
+button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
+.btns{display:flex; gap:3px; padding:4px 0 1px; flex-wrap:wrap}
+.btns button{flex:1 1 0; min-width:0; padding:0 3px; letter-spacing:.01em;
+  overflow:hidden; text-overflow:ellipsis}
+.seg{display:flex; border:1px solid var(--line2); overflow:hidden}
+.seg button{border:0; border-right:1px solid var(--line2); flex:1 1 0; padding:0 3px}
+.seg button:last-child{border-right:0}
+
+/* bottom-left transport + readout */
+.hud{position:absolute; left:8px; bottom:8px; z-index:3; display:flex; align-items:center;
+  gap:6px; flex-wrap:wrap; max-width:calc(100% - 210px)}
+.hud .box{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  border:1px solid var(--line); padding:2px 6px; font-size:9.5px; color:var(--ink2);
+  letter-spacing:.04em; font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+.hud .box b{color:var(--ink); font-weight:500}
+.hud .seg{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+@media (max-width:560px){ .hud{max-width:calc(100% - 16px)} .hud .box{display:none} }
+#hint{position:absolute; left:8px; top:8px; z-index:3; font-size:9.5px; color:var(--ink2);
+  background:color-mix(in srgb, var(--panel) 84%, transparent); border:1px solid var(--line);
+  padding:3px 7px; letter-spacing:.03em; pointer-events:none; transition:opacity .5s}
+#hint.gone{opacity:0}
+#err{position:absolute; inset:0; display:none; place-items:center; padding:30px;
+  color:#FF9E80; background:#04080B; font-size:11px; line-height:1.6; text-align:center; z-index:9}
+
+/* --------------------------------------------------------------- writing */
+.below{max-width:880px; margin:0 auto; color:var(--ink2);
+  font-family:"IBM Plex Sans", system-ui, sans-serif; font-size:13.5px; line-height:1.65}
+.below h2{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-size:11px;
+  font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  margin:26px 0 10px}
+.below h2:first-child{margin-top:0}
+.below p{margin:0 0 10px}
+.below b{color:var(--ink); font-weight:500}
+.below code{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink)}
+.below a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.below a:hover{border-bottom-color:var(--accent)}
+.below table{width:100%; border-collapse:collapse; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; margin:0 0 12px}
+.below th{text-align:left; font-weight:500; color:var(--ink2); font-size:9px;
+  letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid var(--line);
+  padding:4px 8px 4px 0}
+.below td{padding:3px 8px 3px 0; border-bottom:1px solid var(--line2)}
+.below td:first-child{color:var(--ink)}
+</style>
+
+<div class="page">
+<header>
+  <h1>Field Life &mdash; Physarum</h1>
+  <span class="tag"><b>Slime mould with the agents thrown away.</b>
+  <a href="index.html">back to the flat one</a></span>
+</header>
+
+<div class="app" id="app">
+  <canvas id="cv"></canvas>
+  <div id="hint">drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; alt-drag to erase</div>
+  <div class="hud">
+    <div class="seg">
+      <button id="play" title="space">pause</button>
+      <button id="step1" title="one step">step</button>
+      <button id="reseed" title="R">reseed</button>
+      <button id="shuffle" title="N">roll</button>
+      <button id="full" title="F">full</button>
+      <button id="hidep" title="H">ui</button>
+    </div>
+    <div class="box" id="stat">&mdash;</div>
+  </div>
+  <div class="rack" id="rack"></div>
+  <div id="err"></div>
+</div>
+
+<div class="below" id="notes">
+
+<h2>What this is</h2>
+<p>Physarum &mdash; <a href="https://cargocollective.com/sagejenson/physarum">Sage Jenson's</a>
+pictures, <a href="https://uwe-repository.worktribe.com/output/980579">Jones' 2010</a> rule &mdash;
+with the particles thrown away, the way <a href="index.html">Field Life</a> throws away the dots of
+particle life. Normally it is a few million agents with a floating-point position and a heading,
+each smelling the trail at three points ahead, turning towards the strongest, stepping forward and
+leaving a little trail behind. Here there are no agents. There is a grid, and every cell holds
+<b>eight numbers</b>: how much of it is currently heading east, north-east, north, and so on round
+the compass.</p>
+<p>That count is the whole trick, and it is worth saying why. The obvious way to put a swarm on a
+grid is to keep a density and a single direction per cell &mdash; one arrow, one number. It does
+not work. Two streams that meet head-on average their two directions into nothing and annihilate;
+the field breaks into isolated blobs within a few dozen steps. Real agents pass straight through
+each other, because each one carries its own heading and nothing averages them. <b>Eight channels
+per cell is the smallest thing that can do the same.</b> Two crossing streams live in two
+different channels and never touch.</p>
+
+<h2>One step</h2>
+<p>The eight directions are the eight neighbours, so a heading is one of eight and a
+<b>&plusmn;45&deg; turn is exactly one channel across</b>. That coincidence is what makes the whole
+thing cheap and exact. A step is four full-screen draws:</p>
+<p>&mdash; <b>Smell.</b> Twenty-four bilinear taps of the trail: for each of the eight headings,
+the value <b>sense</b> cells ahead and the values <b>sense</b> cells out at &plusmn;<b>angle</b>
+either side of it. These are the three sensors of Jones' agent, computed once for every heading a
+cell might hold rather than once per agent.</p>
+<p>&mdash; <b>Turn.</b> Each channel <i>j</i> splits its contents three ways &mdash; into
+<i>j</i>&minus;1, <i>j</i>, <i>j</i>+1 &mdash; in proportion to <code>exp(sharp&middot;smell)</code>
+at the corresponding sensor. Push <b>sharp</b> up and it is Jones' hard "turn towards the biggest";
+pull it down and the population hedges. The three shares sum to one, so this step moves mass
+between channels and creates none.</p>
+<p>&mdash; <b>Move.</b> Channel <i>i</i> is shifted one cell along direction <i>i</i>. An integer
+shift &mdash; no interpolation, so no numerical diffusion, and nothing is lost or gained. This is
+the part that a warp with bilinear sampling gets wrong: resampling <i>is</i> a blur, and a field
+transported that way smears itself flat within a hundred steps.</p>
+<p>&mdash; <b>Trail.</b> Every cell adds <b>deposit</b> times what it is carrying to the trail
+field, which is then blurred by <b>diffuse</b> and multiplied by <b>decay</b>. Networks are the
+standing balance between that reinforcement and that decay, and almost every knob worth turning
+is on one side or the other of it.</p>
+<p>Mass is conserved to the bit. The readout under the field measures it on the GPU by summing the
+grid, and it does not move off its opening value however hard the picture is driven &mdash; the
+same guarantee, and for the same reason, as the transport on the
+<a href="index.html">flat page</a>: every share that leaves a cell arrives somewhere.</p>
+
+<h2>The knobs</h2>
+<table>
+<tr><th>knob</th><th>what it does</th></tr>
+<tr><td>sense</td><td>how far ahead the sensors sit. Sets the size of everything &mdash; the mesh is about this across</td></tr>
+<tr><td>angle</td><td>how wide the two side sensors splay. Narrow makes long strands, wide makes cells and chambers</td></tr>
+<tr><td>sharp</td><td>how decisively the turn is taken. Low is a fog, high is Jones' argmax and crisp filament</td></tr>
+<tr><td>crowd</td><td>how much a cell is repelled by an occupied destination. Jones' collision rule, softened. Zero lets veins collapse to points</td></tr>
+<tr><td>diag</td><td>a penalty on the four diagonal channels, which move &radic;2 per step where the others move 1. Around 0.3 hides the lattice</td></tr>
+<tr><td>jitter</td><td>noise added to each decision. A little keeps the network exploring; a lot boils it</td></tr>
+<tr><td>deposit / decay / diffuse</td><td>the trail's side of the balance. Long decay and small diffuse give thin hard veins</td></tr>
+<tr><td>fill</td><td>how much mass a reseed lays down. It never changes afterwards, so this is the one setting that is really about the whole run</td></tr>
+</table>
+
+<h2>Handling it</h2>
+<p>Drag to pan, wheel to zoom, <b>shift-drag</b> to paint mass in and <b>alt-drag</b> to take it
+out &mdash; painting is the one thing that changes the total, and the readout will show it. Space
+holds it, <b>R</b> reseeds, <b>N</b> rolls a new random set of knobs, <b>H</b> hides the panel,
+<b>F</b> is fullscreen. The <b>view</b> picker swaps the trail for the mass itself, or for the
+heading &mdash; hue by which of the eight channels is winning &mdash; which is the quickest way to
+see why the eight are needed: the veins are two-toned, opposite colours running through each other.</p>
+
+<p style="margin-top:22px;font-size:12px">This is a staging page &mdash; a test of whether the
+physarum rule survives having its agents removed, not a finished thing.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cv = $("cv");
+const gl = cv.getContext("webgl2", {antialias:false, alpha:false, depth:false,
+                                    preserveDrawingBuffer:false, powerPreference:"high-performance"});
+function fatal(msg){
+  const e = $("err");
+  e.style.display = "grid"; e.textContent = msg;
+  e.style.whiteSpace = "pre-wrap"; e.style.font = "11px/1.6 monospace";
+  throw new Error(msg);
+}
+if(!gl) fatal("This page needs WebGL2, which this browser did not provide.");
+if(!gl.getExtension("EXT_color_buffer_float"))
+  fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
+
+const NH = 6, NIN = 8;   // rule net: 8 inputs, 6 hidden units, 3 logits out
+
+/* ==================================================================== glsl
+   Eight headings per cell, carried as two RGBA16F textures: fa is channels
+   0-3 (E, NE, N, NW), fb is 4-7 (W, SW, S, SE). Everything is torus-wrapped.
+   The trail is R16F and is sampled with hardware bilinear filtering, because
+   the sensors sit at a fractional distance ahead.
+   With GENES defined, a fourth RGBA16F rides along: four numbers per cell
+   that are transported by exactly the same shares as the mass, and that feed
+   the rule which decides the turn.                                         */
+
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+uniform float uN;        // cells per side
+uniform vec2 uTexel;     // 1/N
+const float PI = 3.14159265359;
+const ivec2 D[8] = ivec2[8](ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
+                            ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
+// Integer % with a negative operand is UNDEFINED in GLSL ES 3.00, so the wrap
+// goes through float mod() the way the other pages' does.
+ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+`;
+
+const HASH = `
+uint hash(uint x){
+  x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+  return x;
+}
+float rnd(ivec2 p, int k, int f){
+  uint h = hash(uint(p.x) * 0x9e3779b9u ^ hash(uint(p.y) * 0x85ebca6bu
+              ^ hash(uint(k) * 0xc2b2ae35u ^ uint(f))));
+  return float(h) * (1.0/4294967296.0) - 0.5;
+}`;
+
+/* -------------------------------------------------------- 1: smell + turn
+   For every heading a cell might hold, the three sensors of Jones' agent are
+   read from the trail, the three shares are a softmax over them, and the mass
+   in that channel is split into the channel left, the channel it is in, and
+   the channel right. Nothing moves in space here; only between channels, and
+   the three shares sum to one, so nothing is made and nothing is lost.
+   The sensing texture is bound at whatever pitch SENSE LOD asks for: the
+   sensors sit several cells out and read a field that has just been blurred,
+   so half or quarter pitch is not visibly different and is the single
+   cheapest thing that can be done to this pass.                            */
+const FS_TURN = HEAD + HASH + `
+uniform sampler2D uT, uFa, uFb, uRho;
+uniform float uSense, uAngle, uSharp, uCrowd, uDiag, uJit, uTn, uRn;
+uniform int uFrame;
+#ifdef GENES
+uniform sampler2D uH;
+uniform float uGmix;
+uniform float uW1[NH*NIN], uB1[NH], uW2[NH*3];
+#endif
+layout(location = 0) out vec4 oA;
+layout(location = 1) out vec4 oB;
+
+float smell(vec2 uv, float ang){
+  return texture(uT, uv + vec2(cos(ang), sin(ang))*uSense*uTexel).r * uTn;
+}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 uv = (vec2(p) + 0.5)*uTexel;
+  vec4 fa = texelFetch(uFa, p, 0), fb = texelFetch(uFb, p, 0);
+  float f[8];
+  f[0]=fa.x; f[1]=fa.y; f[2]=fa.z; f[3]=fa.w;
+  f[4]=fb.x; f[5]=fb.y; f[6]=fb.z; f[7]=fb.w;
+  float rho = f[0]+f[1]+f[2]+f[3]+f[4]+f[5]+f[6]+f[7];
+
+  float cen[8], lef[8], rig[8], pen[8];
+  for(int k = 0; k < 8; k++){
+    float a = float(k)*(PI*0.25);
+    cen[k] = smell(uv, a);
+    lef[k] = smell(uv, a - uAngle);
+    rig[k] = smell(uv, a + uAngle);
+    // Cost of ARRIVING in direction k: how crowded it is over there, plus the
+    // diagonal's longer step. Both are read at the destination cell.
+    float r = texelFetch(uRho, wrap(p + D[k]), 0).r * uRn;
+    pen[k] = -uCrowd*r - (((k & 1) == 1) ? uDiag : 0.0);
+  }
+#ifdef GENES
+  // What the cell is carrying, per unit of mass. Concentration rather than
+  // amount, so a thick vein and a thin one with the same makeup behave alike.
+  vec4 gc = texelFetch(uH, p, 0)/max(rho, 1e-5);
+#endif
+
+  float col[8];
+  for(int i = 0; i < 8; i++) col[i] = 0.0;
+  for(int j = 0; j < 8; j++){
+    if(f[j] <= 0.0) continue;
+    int jl = (j + 7) & 7, jr = (j + 1) & 7;
+    vec3 arrive = vec3(pen[jl], pen[j], pen[jr]);
+    vec3 s = uSharp*vec3(lef[j], cen[j], rig[j]) + arrive;
+#ifdef GENES
+    if(uGmix > 0.0){
+      // A small Fourier network -- the CPPN idea, evaluated per cell per
+      // heading -- reading the three sensors, the four carried numbers and
+      // how full the cell is, and answering with three logits: left, on, right.
+      float x[NIN];
+      x[0] = lef[j]; x[1] = cen[j]; x[2] = rig[j];
+      x[3] = gc.x; x[4] = gc.y; x[5] = gc.z; x[6] = gc.w;
+      x[7] = rho*uRn;
+      float z[NH];
+      for(int h = 0; h < NH; h++){
+        float a = uB1[h];
+        for(int i = 0; i < NIN; i++) a += uW1[h*NIN + i]*x[i];
+        z[h] = sin(a);
+      }
+      vec3 o = vec3(0.0);
+      for(int h = 0; h < NH; h++)
+        o += vec3(uW2[h], uW2[NH + h], uW2[2*NH + h])*z[h];
+      s = mix(s, uSharp*o + arrive, uGmix);
+    }
+#endif
+    if(uJit > 0.0)
+      s += uJit*vec3(rnd(p, j*3, uFrame), rnd(p, j*3+1, uFrame), rnd(p, j*3+2, uFrame));
+    // Shifted so the largest is 0 before the exponent: a softmax is invariant
+    // to that, and it is what keeps exp() inside float16's range downstream.
+    s -= max(max(s.x, s.y), s.z);
+    vec3 w = exp(max(s, vec3(-30.0)));
+    w /= (w.x + w.y + w.z);
+    col[jl] += f[j]*w.x; col[j] += f[j]*w.y; col[jr] += f[j]*w.z;
+  }
+  oA = vec4(col[0], col[1], col[2], col[3]);
+  oB = vec4(col[4], col[5], col[6], col[7]);
+}`;
+
+/* ------------------------------------------------------------- 2: move
+   Channel i is shifted one cell along direction i. Written as a gather --
+   each cell collects what its eight neighbours are sending it -- because a
+   fragment shader can only write where it is. Integer offsets, so this is
+   exact: no interpolation, no numerical diffusion, nothing lost or gained.
+   The carried numbers ride the same shares. What left cell q heading i was
+   col_i(q) out of q's rho, so that same fraction of q's genes goes with it,
+   and the gene total is conserved for the same reason the mass total is. */
+const FS_MOVE = HEAD + `
+uniform sampler2D uCa, uCb;
+#ifdef GENES
+uniform sampler2D uH, uRhoIn;
+layout(location = 3) out vec4 oH;
+#endif
+layout(location = 0) out vec4 oA;
+layout(location = 1) out vec4 oB;
+layout(location = 2) out vec4 oRho;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float g[8];
+#ifdef GENES
+  vec4 h = vec4(0.0);
+#endif
+  for(int i = 0; i < 8; i++){
+    ivec2 q = wrap(p - D[i]);
+    vec4 v = (i < 4) ? texelFetch(uCa, q, 0) : texelFetch(uCb, q, 0);
+    g[i] = v[i & 3];
+#ifdef GENES
+    float rq = texelFetch(uRhoIn, q, 0).r;
+    if(rq > 1e-7) h += texelFetch(uH, q, 0)*(g[i]/rq);
+#endif
+  }
+  oA   = vec4(g[0], g[1], g[2], g[3]);
+  oB   = vec4(g[4], g[5], g[6], g[7]);
+  oRho = vec4(g[0]+g[1]+g[2]+g[3]+g[4]+g[5]+g[6]+g[7]);
+#ifdef GENES
+  oH = h;
+#endif
+}`;
+
+/* --------------------------------------------------------- 3: blur + decay */
+const FS_TRAIL = HEAD + `
+uniform sampler2D uT, uRho;
+uniform float uDiff, uDecay, uDep;
+out vec4 oT;
+float u(ivec2 q){ return texelFetch(uT, q, 0).r + uDep*texelFetch(uRho, q, 0).r; }
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float c = u(p), s = 0.0;
+  for(int dy = -1; dy <= 1; dy++)
+    for(int dx = -1; dx <= 1; dx++)
+      s += u(wrap(p + ivec2(dx, dy)));
+  oT = vec4(uDecay*mix(c, s*(1.0/9.0), uDiff));
+}`;
+
+/* Genes mix, but only through mass they share. Diffusing the AMOUNT is what
+   an ordinary blur would do, and it is wrong twice over: it pushes genes into
+   empty cells, where the next transport finds no mass to carry them and drops
+   them on the floor. What moves here is a flux between neighbours,
+   d*min(rho_p,rho_q)*(g_q - g_p), on the concentrations. Two things follow.
+   The weight is symmetric and the difference is exactly negated at the other
+   end, so what p gains q loses to the last bit -- the total does not move even
+   in float32. And the weight vanishes wherever either side is empty, so genes
+   cannot leave the mass that is carrying them.                              */
+const FS_GBLUR = HEAD + `
+uniform sampler2D uH, uRho;
+uniform float uGdiff;
+out vec4 oH;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float rp = texelFetch(uRho, p, 0).r;
+  vec4 hp = texelFetch(uH, p, 0);
+  vec4 gp = hp/max(rp, 1e-6);
+  vec4 acc = vec4(0.0);
+  for(int k = 0; k < 8; k++){
+    ivec2 q = wrap(p + D[k]);
+    float rq = texelFetch(uRho, q, 0).r;
+    vec4 gq = texelFetch(uH, q, 0)/max(rq, 1e-6);
+    acc += min(rp, rq)*(gq - gp);
+  }
+  // At uGdiff = 1 a cell can give away everything it holds and no more, which
+  // is what keeps the amounts non-negative without a clamp.
+  oH = hp + (uGdiff*0.125)*acc;
+}`;
+
+/* Half-pitch copy of the trail for the sensors to read. */
+const FS_DOWN = HEAD + `
+uniform sampler2D uSrc;
+uniform int uSrcN;
+out vec4 oD;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy)*2;
+  float s = 0.0;
+  for(int dy = 0; dy < 2; dy++)
+    for(int dx = 0; dx < 2; dx++)
+      s += texelFetch(uSrc, ivec2(mod(vec2(p + ivec2(dx, dy)), vec2(uSrcN))), 0).r;
+  oD = vec4(s*0.25);
+}`;
+
+/* ------------------------------------------------------------- 4: seed/paint
+   Reseed lays each cell's whole share in ONE random channel, which is what an
+   agent is: a lump of mass with a single heading. Splitting it eight ways
+   would start every cell perfectly unpolarised and take a while to break.
+   The genes start as a random field at a chosen coarseness -- patches, not
+   per-cell noise, because a stock that starts uncorrelated is grey by the
+   time it has been advected anywhere.                                      */
+const FS_SEED = HEAD + HASH + `
+uniform float uFill, uGscale;
+uniform int uSeed;
+layout(location = 0) out vec4 oA;
+layout(location = 1) out vec4 oB;
+layout(location = 2) out vec4 oH;
+layout(location = 3) out vec4 oRho;
+vec4 blotch(ivec2 p, float sc, int seed){
+  vec2 q = vec2(p)/max(sc, 1.0);
+  ivec2 i = ivec2(floor(q)); vec2 fr = fract(q);
+  fr = fr*fr*(3.0 - 2.0*fr);
+  vec4 r = vec4(0.0);
+  for(int dy = 0; dy < 2; dy++)
+    for(int dx = 0; dx < 2; dx++){
+      ivec2 c = i + ivec2(dx, dy);
+      vec4 v = vec4(rnd(c, seed, 0), rnd(c, seed+1, 0), rnd(c, seed+2, 0), rnd(c, seed+3, 0)) + 0.5;
+      r += v*(dx == 0 ? 1.0 - fr.x : fr.x)*(dy == 0 ? 1.0 - fr.y : fr.y);
+    }
+  return r;
+}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float on = (rnd(p, 0, uSeed) + 0.5) < uFill ? 1.0 : 0.0;
+  int k = int(floor((rnd(p, 1, uSeed) + 0.5)*8.0)) & 7;
+  float v[8];
+  for(int i = 0; i < 8; i++) v[i] = (i == k) ? on : 0.0;
+  oA = vec4(v[0], v[1], v[2], v[3]);
+  oB = vec4(v[4], v[5], v[6], v[7]);
+  oH = blotch(p, uGscale, uSeed)*on;      // gene AMOUNT, so it rides with the mass
+  // rho has to be right from the first step: the gene transport divides by it,
+  // and a cell that starts believing it is empty throws its genes away.
+  oRho = vec4(on);
+}`;
+
+const FS_PAINT = HEAD + HASH + `
+uniform sampler2D uFa, uFb, uH;
+uniform vec2 uAt;
+uniform vec4 uGene;
+uniform float uRad, uAmt;
+uniform int uSeed;
+layout(location = 0) out vec4 oA;
+layout(location = 1) out vec4 oB;
+layout(location = 2) out vec4 oH;
+layout(location = 3) out vec4 oRho;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 a = texelFetch(uFa, p, 0), b = texelFetch(uFb, p, 0), h = texelFetch(uH, p, 0);
+  vec2 d = vec2(p) + 0.5 - uAt;
+  d -= uN*floor(d/uN + 0.5);                       // shortest way round the torus
+  float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
+  if(t > 0.0){
+    if(uAmt < 0.0){ a *= (1.0 - t); b *= (1.0 - t); h *= (1.0 - t); }
+    else {
+      int k = int(floor((rnd(p, 2, uSeed) + 0.5)*8.0)) & 7;
+      float add = uAmt*t;
+      if(k < 4) a[k] += add; else b[k - 4] += add;
+      h += uGene*add;
+    }
+  }
+  oA = a; oB = b; oH = h;
+  oRho = vec4(a.x+a.y+a.z+a.w + b.x+b.y+b.z+b.w);
+}`;
+
+/* ----------------------------------------------------------- 5: the picture */
+const FS_DRAW = HEAD + `
+uniform sampler2D uT, uRho, uFa, uFb, uH;
+uniform vec2 uRes, uPan;
+uniform float uZoom, uExp, uTn, uRn;
+uniform int uView, uPal;
+out vec4 oCol;
+
+vec3 ramp(float t){
+  t = clamp(t, 0.0, 1.0);
+  if(uPal == 0) return vec3(t);
+  if(uPal == 1)  // ember
+    return clamp(vec3(1.35*t + 0.10*t*t, 1.30*t*t - 0.05, 2.4*t*t*t*t - 0.02), 0.0, 1.0);
+  if(uPal == 2)  // ice
+    return clamp(vec3(1.5*t*t*t, 0.85*t*t + 0.22*t, 0.55*t + 0.55*t*t), 0.0, 1.0);
+  return clamp(vec3(0.5 + 0.5*cos(6.2831*(t*0.85 + 0.00)),
+                    0.5 + 0.5*cos(6.2831*(t*0.85 + 0.28)),
+                    0.5 + 0.5*cos(6.2831*(t*0.85 + 0.58))), 0.0, 1.0)*smoothstep(0.0, 0.12, t);
+}
+vec3 hue(float h){
+  return clamp(abs(mod(h*6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+void main(){
+  // The field is a torus and the texture repeats, so the canvas can be any
+  // shape: it just shows more of the tiling sideways. Pan and zoom are in
+  // grid cells, which is what makes the brush land where the cursor is.
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/(uZoom*uRes.y) + uPan/uN + 0.5;
+  if(uView >= 2){
+    vec4 a = texture(uFa, uv), b = texture(uFb, uv);
+    float f[8];
+    f[0]=a.x; f[1]=a.y; f[2]=a.z; f[3]=a.w; f[4]=b.x; f[5]=b.y; f[6]=b.z; f[7]=b.w;
+    float best = 0.0, tot = 0.0; int k = 0;
+    for(int i = 0; i < 8; i++){ tot += f[i]; if(f[i] > best){ best = f[i]; k = i; } }
+    float v = 1.0 - exp(-max(tot, 0.0)*uRn*uExp);
+    if(uView == 3){
+      vec3 g = texture(uH, uv).rgb/max(tot, 1e-5);
+      oCol = vec4(clamp(g, 0.0, 1.0)*v, 1.0);
+      return;
+    }
+    // Saturation says how committed the cell is: an even mix goes white.
+    float sat = tot > 0.0 ? clamp((best/tot)*8.0/7.0 - 1.0/7.0, 0.0, 1.0) : 0.0;
+    oCol = vec4(mix(vec3(v), hue(float(k)/8.0)*v, sat), 1.0);
+    return;
+  }
+  float s = uView == 1 ? texture(uRho, uv).r*uRn : texture(uT, uv).r*uTn;
+  oCol = vec4(ramp(1.0 - exp(-max(s, 0.0)*uExp)), 1.0);
+}`;
+
+/* ---------------------------------------------------------- 6: the total
+   Mass is summed on the GPU, 4x4 at a time down to one texel, so the claim
+   that nothing is created can be checked rather than asserted.             */
+const FS_SUM = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform int uSrcN;
+out vec4 oS;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy)*4;
+  float s = 0.0;
+  for(int dy = 0; dy < 4; dy++)
+    for(int dx = 0; dx < 4; dx++){
+      ivec2 q = p + ivec2(dx, dy);
+      if(q.x < uSrcN && q.y < uSrcN) s += texelFetch(uSrc, q, 0).r;
+    }
+  oS = vec4(s);
+}`;
+
+/* ================================================================== plumbing */
+function compile(src, type){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    const n = /ERROR: \d+:(\d+)/.exec(log);
+    const ctx = n ? src.split("\n").slice(Math.max(0, n[1] - 3), +n[1] + 2).join("\n") : "";
+    fatal("Shader would not compile:\n\n" + log + "\n" + ctx);
+  }
+  return sh;
+}
+function program(fs, genes){
+  const defs = `#define NH ${NH}\n#define NIN ${NIN}\n` + (genes ? "#define GENES 1\n" : "");
+  const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(put(fs), gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, "a");
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal("Link failed:\n" + gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < n; i++){
+    const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, "");
+    u[nm] = gl.getUniformLocation(p, nm);
+  }
+  p.u = u;
+  return p;
+}
+let curP = null;
+function use(p){ if(curP !== p){ gl.useProgram(p); curP = p; } return p.u; }
+function tex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); return unit; }
+
+const quadVAO = gl.createVertexArray();
+{
+  gl.bindVertexArray(quadVAO);
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+}
+const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+
+const fbo = gl.createFramebuffer();
+const BUFS = [];
+for(let i = 1; i <= 4; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
+
+function targets(list, w, h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  const a = Array.isArray(list) ? list : [list];
+  for(let i = 0; i < 4; i++)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D,
+                            i < a.length ? a[i] : null, 0);
+  gl.drawBuffers(BUFS[a.length - 1]);
+  gl.viewport(0, 0, w, h);
+}
+function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, ifmt, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+  t.w = w; t.h = h;
+  return t;
+}
+
+// Two builds of the two hot shaders. The gene path costs sixteen more fetches
+// in the move and a small matrix in the turn, and neither is paid when the
+// genes are off, which is what a #define is for.
+const P = {
+  turn:  [program(FS_TURN, false), program(FS_TURN, true)],
+  move:  [program(FS_MOVE, false), program(FS_MOVE, true)],
+  trail: program(FS_TRAIL), gblur: program(FS_GBLUR), down: program(FS_DOWN),
+  seed:  program(FS_SEED), paint: program(FS_PAINT),
+  draw:  program(FS_DRAW), sum: program(FS_SUM),
+};
+
+/* ===================================================================== state */
+const S = {
+  N: 512, steps: 1, running: true, frame: 0, lod: 1, prec: 16,
+  sense: 9, angle: 32, sharp: 14, crowd: 1.4, diag: 0.3, jit: 0.15,
+  dep: 1, decay: 0.93, diff: 1, fill: 0.16,
+  genes: 1, gmix: 0, gdiff: 0.15, gscale: 40,
+  exp: 1.2, view: 0, pal: 0, zoom: 1, panx: 0, pany: 0,
+  brush: 26, seed: 1,
+  w1: null, b1: null, w2: null,
+};
+const PRESETS = {
+  "mesh":    {sense:5,  angle:26, sharp:18, crowd:1.2, diag:0.30, jit:0.10, decay:0.92, diff:1,   exp:1.3, gmix:0},
+  "veins":   {sense:14, angle:38, sharp:12, crowd:1.8, diag:0.35, jit:0.20, decay:0.95, diff:1,   exp:1.1, gmix:0},
+  "strands": {sense:11, angle:16, sharp:22, crowd:0.8, diag:0.25, jit:0.06, decay:0.96, diff:0.7, exp:1.6, gmix:0},
+  "cells":   {sense:8,  angle:58, sharp:16, crowd:2.4, diag:0.30, jit:0.18, decay:0.90, diff:1,   exp:1.2, gmix:0},
+  "boil":    {sense:6,  angle:45, sharp:7,  crowd:2.8, diag:0.20, jit:0.55, decay:0.86, diff:1,   exp:1.4, gmix:0},
+  "genes":   {sense:9,  angle:34, sharp:14, crowd:1.5, diag:0.30, jit:0.12, decay:0.94, diff:1,   exp:1.2, gmix:0.55},
+};
+
+// Box-Muller, so the rule net starts from an honest normal rather than a
+// sum of uniforms that never reaches its own tails.
+function gauss(rand){
+  const u = Math.max(1e-9, rand()), v = rand();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+function rollNet(){
+  const r = Math.random;
+  S.w1 = new Float32Array(NH*NIN); S.b1 = new Float32Array(NH); S.w2 = new Float32Array(NH*3);
+  for(let i = 0; i < S.w1.length; i++) S.w1[i] = gauss(r)*1.3;
+  for(let i = 0; i < S.b1.length; i++) S.b1[i] = gauss(r)*1.5;
+  for(let i = 0; i < S.w2.length; i++) S.w2[i] = gauss(r)*1.0;
+}
+rollNet();
+
+let G = {};
+// Sampling a 32-bit texture smoothly is an extension, and not every machine
+// has it. The trail is never one of the conserved textures, so it stays 16-bit
+// and stays filterable whatever else happens; only the picture's reads of the
+// channels lose their smoothing, and only where the extension is missing.
+const linOK = !!gl.getExtension("OES_texture_float_linear");
+function alloc(){
+  for(const t of (G.all || [])) gl.deleteTexture(t);
+  const N = S.N, R16 = gl.R16F, L = gl.LINEAR;
+  const wide = S.prec === 32;
+  const F16 = wide ? gl.RGBA32F : gl.RGBA16F;
+  const RC  = wide ? gl.R32F : gl.R16F;
+  const LF  = (!wide || linOK) ? gl.LINEAR : gl.NEAREST;
+  const g = {N};
+  // Both halves of every ping-pong get LINEAR, because either half may be the
+  // one the picture is sampling when the frame lands.
+  g.fa = make2D(N, N, F16, LF); g.fb = make2D(N, N, F16, LF);
+  g.fa2 = make2D(N, N, F16, LF); g.fb2 = make2D(N, N, F16, LF);
+  g.ca = make2D(N, N, F16); g.cb = make2D(N, N, F16);
+  g.h = make2D(N, N, F16, LF); g.h2 = make2D(N, N, F16, LF);
+  g.rho = make2D(N, N, RC, LF); g.rho2 = make2D(N, N, RC, LF);
+  g.T = make2D(N, N, R16, L); g.T2 = make2D(N, N, R16, L);
+  g.half = make2D(N >> 1, N >> 1, R16, L);
+  g.quar = make2D(N >> 2, N >> 2, R16, L);
+  g.pyr = [];
+  for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
+    g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
+    if(n === 1) break;
+  }
+  g.all = [g.fa, g.fb, g.fa2, g.fb2, g.ca, g.cb, g.h, g.h2, g.rho, g.rho2,
+           g.T, g.T2, g.half, g.quar, ...g.pyr];
+  G = g;
+}
+function memMB(){
+  const N = G.N, w = S.prec === 32 ? 2 : 1;
+  return (8*N*N*8*w + 2*N*N*2*w + 2*N*N*2 + (N*N/4 + N*N/16)*2 + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
+}
+
+/* The sensors want a trail of order one whatever the deposit and decay are
+   set to. The steady mean of the trail is deposit*meanRho/(1-decay), and
+   meanRho is exactly conserved, so the normaliser is known rather than
+   measured -- no reduction in the hot path, and no jump when a knob moves. */
+let meanRho = S.fill;
+const trailScale = () => (1 - S.decay)/Math.max(1e-6, S.dep*meanRho);
+const senseTex = () => S.lod === 0 ? G.T : S.lod === 1 ? G.half : G.quar;
+
+function clearTo(t, n){ targets(t, n, n); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]); }
+function downsample(){
+  const u = use(P.down);
+  gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N);
+  gl.uniform1i(u.uSrc, tex(0, G.T)); gl.uniform1i(u.uSrcN, G.N);
+  targets(G.half, G.half.w, G.half.h); drawQuad();
+  if(S.lod === 2){
+    gl.uniform1i(u.uSrc, tex(0, G.half)); gl.uniform1i(u.uSrcN, G.half.w);
+    targets(G.quar, G.quar.w, G.quar.h); drawQuad();
+  }
+}
+function reseed(){
+  S.seed = (Math.random()*1e9) | 0;
+  const u = use(P.seed);
+  gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N);
+  gl.uniform1f(u.uFill, S.fill); gl.uniform1f(u.uGscale, S.gscale);
+  gl.uniform1i(u.uSeed, S.seed);
+  targets([G.fa, G.fb, G.h, G.rho], G.N, G.N); drawQuad();
+  clearTo(G.T, G.N);
+  clearTo(G.half, G.half.w); clearTo(G.quar, G.quar.w);
+  meanRho = S.fill; S.frame = 0; mass = null; massDue = true;
+}
+
+function step(){
+  const N = G.N, tl = 1/N, gOn = S.genes && S.gmix > 0 ? 1 : 0;
+  {
+    const u = use(P.turn[gOn]);
+    gl.uniform1f(u.uN, N); gl.uniform2f(u.uTexel, tl, tl);
+    gl.uniform1i(u.uT, tex(0, senseTex()));
+    gl.uniform1i(u.uFa, tex(1, G.fa)); gl.uniform1i(u.uFb, tex(2, G.fb));
+    gl.uniform1i(u.uRho, tex(3, G.rho));
+    gl.uniform1f(u.uSense, S.sense);
+    gl.uniform1f(u.uAngle, S.angle*Math.PI/180);
+    gl.uniform1f(u.uSharp, S.sharp);
+    gl.uniform1f(u.uCrowd, S.crowd);
+    gl.uniform1f(u.uDiag, S.diag);
+    gl.uniform1f(u.uJit, S.jit);
+    gl.uniform1f(u.uTn, trailScale());
+    gl.uniform1f(u.uRn, 1/Math.max(1e-6, meanRho));
+    gl.uniform1i(u.uFrame, S.frame);
+    if(gOn){
+      gl.uniform1i(u.uH, tex(4, G.h));
+      gl.uniform1f(u.uGmix, S.gmix);
+      gl.uniform1fv(u.uW1, S.w1); gl.uniform1fv(u.uB1, S.b1); gl.uniform1fv(u.uW2, S.w2);
+    }
+    targets([G.ca, G.cb], N, N); drawQuad();
+  }
+  {
+    const u = use(P.move[S.genes]);
+    gl.uniform1f(u.uN, N); gl.uniform2f(u.uTexel, tl, tl);
+    gl.uniform1i(u.uCa, tex(0, G.ca)); gl.uniform1i(u.uCb, tex(1, G.cb));
+    if(S.genes){
+      gl.uniform1i(u.uH, tex(2, G.h)); gl.uniform1i(u.uRhoIn, tex(3, G.rho));
+      targets([G.fa2, G.fb2, G.rho2, G.h2], N, N);
+    } else {
+      targets([G.fa2, G.fb2, G.rho2], N, N);
+    }
+    drawQuad();
+    [G.fa, G.fa2] = [G.fa2, G.fa]; [G.fb, G.fb2] = [G.fb2, G.fb];
+    [G.rho, G.rho2] = [G.rho2, G.rho];
+    if(S.genes) [G.h, G.h2] = [G.h2, G.h];
+  }
+  {
+    const u = use(P.trail);
+    gl.uniform1f(u.uN, N); gl.uniform2f(u.uTexel, tl, tl);
+    gl.uniform1i(u.uT, tex(0, G.T)); gl.uniform1i(u.uRho, tex(1, G.rho));
+    gl.uniform1f(u.uDiff, S.diff); gl.uniform1f(u.uDecay, S.decay);
+    gl.uniform1f(u.uDep, S.dep);
+    targets(G.T2, N, N); drawQuad();
+    [G.T, G.T2] = [G.T2, G.T];
+  }
+  if(S.genes && S.gdiff > 0){
+    const u = use(P.gblur);
+    gl.uniform1f(u.uN, N); gl.uniform2f(u.uTexel, tl, tl);
+    gl.uniform1i(u.uH, tex(0, G.h)); gl.uniform1i(u.uRho, tex(1, G.rho));
+    gl.uniform1f(u.uGdiff, S.gdiff);
+    targets(G.h2, N, N); drawQuad();
+    [G.h, G.h2] = [G.h2, G.h];
+  }
+  if(S.lod > 0) downsample();
+  S.frame++;
+}
+
+let paintGene = [0.9, 0.2, 0.2, 0.5];
+function paintAt(gx, gy, amount){
+  const u = use(P.paint);
+  gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N);
+  gl.uniform1i(u.uFa, tex(0, G.fa)); gl.uniform1i(u.uFb, tex(1, G.fb));
+  gl.uniform1i(u.uH, tex(2, G.h));
+  gl.uniform2f(u.uAt, gx, gy);
+  gl.uniform4f(u.uGene, paintGene[0], paintGene[1], paintGene[2], paintGene[3]);
+  gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
+  gl.uniform1i(u.uSeed, (Math.random()*1e9) | 0);
+  targets([G.fa2, G.fb2, G.h2, G.rho2], G.N, G.N); drawQuad();
+  [G.fa, G.fa2] = [G.fa2, G.fa]; [G.fb, G.fb2] = [G.fb2, G.fb];
+  [G.h, G.h2] = [G.h2, G.h]; [G.rho, G.rho2] = [G.rho2, G.rho];
+  massDue = true;
+}
+
+const readback = new Float32Array(4);
+function totalMass(){
+  const u = use(P.sum);
+  let src = G.rho, srcN = G.N;
+  for(const dst of G.pyr){
+    gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform1i(u.uSrcN, srcN);
+    targets(dst, dst.w, dst.h); drawQuad();
+    src = dst; srcN = dst.w;
+  }
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, readback);
+  return readback[0];
+}
+
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height);
+  const u = use(P.draw);
+  gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N);
+  gl.uniform1i(u.uT, tex(0, G.T)); gl.uniform1i(u.uRho, tex(1, G.rho));
+  gl.uniform1i(u.uFa, tex(2, G.fa)); gl.uniform1i(u.uFb, tex(3, G.fb));
+  gl.uniform1i(u.uH, tex(4, G.h));
+  gl.uniform2f(u.uRes, cv.width, cv.height);
+  gl.uniform2f(u.uPan, S.panx, S.pany);
+  gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
+  gl.uniform1f(u.uTn, trailScale()); gl.uniform1f(u.uRn, 1/Math.max(1e-6, meanRho));
+  gl.uniform1i(u.uView, S.view); gl.uniform1i(u.uPal, S.pal);
+  drawQuad();
+}
+
+/* ================================================================== pointer */
+function gridAt(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left)/r.width*cv.width;
+  const py = (1 - (e.clientY - r.top)/r.height)*cv.height;   // GL has y up
+  const ux = (px - 0.5*cv.width)/(S.zoom*cv.height) + S.panx/G.N + 0.5;
+  const uy = (py - 0.5*cv.height)/(S.zoom*cv.height) + S.pany/G.N + 0.5;
+  return [ux*G.N, uy*G.N];
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  $("hint").classList.add("gone");
+  if(e.shiftKey || e.altKey){
+    drag = {mode:"paint", erase:e.altKey};
+    cv.classList.add("painting");
+    if(!e.altKey) paintGene = [Math.random(), Math.random(), Math.random(), Math.random()];
+    const [x, y] = gridAt(e); paintAt(x, y, e.altKey ? -1 : 1);
+  } else {
+    drag = {mode:"pan", x:e.clientX, y:e.clientY};
+    cv.classList.add("dragging");
+  }
+});
+cv.addEventListener("pointermove", e => {
+  if(!drag) return;
+  if(drag.mode === "paint"){
+    const [x, y] = gridAt(e); paintAt(x, y, drag.erase ? -1 : 1);
+  } else {
+    const r = cv.getBoundingClientRect();
+    const k = G.N/(S.zoom*cv.height)*(cv.width/r.width);
+    S.panx -= (e.clientX - drag.x)*k;
+    S.pany += (e.clientY - drag.y)*k;
+    drag.x = e.clientX; drag.y = e.clientY;
+  }
+});
+function endDrag(){ drag = null; cv.classList.remove("painting", "dragging"); }
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  S.zoom = Math.min(16, Math.max(0.25, S.zoom*Math.exp(-e.deltaY*0.0015)));
+}, {passive:false});
+
+addEventListener("keydown", e => {
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k === " "){ e.preventDefault(); toggleRun(); }
+  else if(k === "r") reseed();
+  else if(k === "n") roll();
+  else if(k === "g"){ rollNet(); }
+  else if(k === "h") $("rack").classList.toggle("hid");
+  else if(k === "f") toggleFull();
+});
+function toggleRun(){ S.running = !S.running; $("play").textContent = S.running ? "pause" : "play"; }
+function toggleFull(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else $("app").requestFullscreen && $("app").requestFullscreen();
+}
+
+/* ======================================================================= ui */
+const rack = $("rack");
+const UI = {};
+function group(name){
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = name; rack.appendChild(d);
+}
+function row(label){
+  const d = document.createElement("div");
+  d.className = "row";
+  const l = document.createElement("label");
+  l.className = "lab"; l.textContent = label;
+  d.appendChild(l); rack.appendChild(d);
+  return d;
+}
+const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
+function slider(label, key, min, max, stp, dp, after){
+  const d = row(label);
+  const wrap = document.createElement("div");
+  wrap.style.position = "relative"; wrap.style.minWidth = "0";
+  const r = document.createElement("input");
+  r.type = "range"; r.min = min; r.max = max; r.step = stp; r.value = S[key];
+  const v = document.createElement("span");
+  v.className = "val"; v.textContent = fmt(S[key], dp);
+  const paint = () => r.style.setProperty("--p", ((S[key] - min)/(max - min)*100) + "%");
+  r.addEventListener("input", () => {
+    S[key] = parseFloat(r.value); v.textContent = fmt(S[key], dp); paint(); if(after) after();
+  });
+  paint();
+  wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
+  return UI[key] = {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
+}
+function picker(label, key, opts, after){
+  const d = row(label);
+  const s = document.createElement("select");
+  for(const o of opts){
+    const e = document.createElement("option");
+    e.value = String(o.v); e.textContent = o.t; s.appendChild(e);
+  }
+  s.value = String(S[key]);
+  s.addEventListener("change", () => {
+    const n = parseFloat(s.value);
+    S[key] = isNaN(n) ? s.value : n;
+    if(after) after();
+  });
+  d.appendChild(s);
+  return s;
+}
+function buttons(defs){
+  const d = document.createElement("div");
+  d.className = "btns"; rack.appendChild(d);
+  for(const [t, fn] of defs){
+    const b = document.createElement("button");
+    b.textContent = t; b.onclick = fn; d.appendChild(b);
+  }
+  return d;
+}
+function applyPreset(name){
+  const p = PRESETS[name]; if(!p) return;
+  for(const k in p) UI[k] ? UI[k].set(p[k]) : (S[k] = p[k]);
+  if(name === "genes") rollNet();
+  reseed();
+}
+function roll(){
+  const r = (a, b) => a + Math.random()*(b - a);
+  UI.sense.set(Math.round(r(4, 16)));
+  UI.angle.set(Math.round(r(12, 62)));
+  UI.sharp.set(+r(6, 24).toFixed(1));
+  UI.crowd.set(+r(0.6, 2.8).toFixed(2));
+  UI.jit.set(+r(0, 0.45).toFixed(2));
+  UI.decay.set(+r(0.86, 0.97).toFixed(3));
+  UI.diff.set(+r(0.5, 1).toFixed(2));
+  if(S.gmix > 0) rollNet();
+  reseed();
+}
+function buildUI(){
+  group("sense");
+  slider("dist", "sense", 1, 32, 0.5, 1);
+  slider("angle", "angle", 4, 90, 1, 0);
+  slider("sharp", "sharp", 0.5, 40, 0.5, 1);
+  slider("crowd", "crowd", 0, 8, 0.05, 2);
+  slider("diag", "diag", 0, 1.5, 0.01, 2);
+  slider("jitter", "jit", 0, 1.2, 0.01, 2);
+
+  group("trail");
+  slider("deposit", "dep", 0.05, 4, 0.05, 2);
+  slider("decay", "decay", 0.70, 0.995, 0.001, 3);
+  slider("diffuse", "diff", 0, 1, 0.01, 2);
+  slider("fill", "fill", 0.02, 0.6, 0.01, 2);
+
+  group("genes");
+  slider("rule mix", "gmix", 0, 1, 0.01, 2);
+  slider("mixing", "gdiff", 0, 1, 0.01, 2);
+  slider("patch", "gscale", 1, 128, 1, 0);
+  buttons([["new rule", () => rollNet()], ["reseed genes", reseed]]);
+
+  group("view");
+  picker("show", "view", [{v:0,t:"trail"}, {v:1,t:"mass"},
+                          {v:2,t:"heading"}, {v:3,t:"genes"}]);
+  picker("palette", "pal", [{v:0,t:"mono"}, {v:1,t:"ember"}, {v:2,t:"ice"}, {v:3,t:"spectral"}]);
+  slider("exposure", "exp", 0.1, 8, 0.05, 2);
+  slider("brush", "brush", 4, 90, 1, 0);
+
+  group("run");
+  picker("grid", "N", [{v:256,t:"256"}, {v:384,t:"384"}, {v:512,t:"512"},
+                       {v:768,t:"768"}, {v:1024,t:"1024"}, {v:1536,t:"1536"}],
+         () => { alloc(); reseed(); });
+  picker("precision", "prec", [{v:16,t:"16-bit"}, {v:32,t:"32-bit exact"}],
+         () => { alloc(); reseed(); });
+  picker("sense lod", "lod", [{v:0,t:"full"}, {v:1,t:"half"}, {v:2,t:"quarter"}],
+         () => { if(S.lod > 0) downsample(); });
+  slider("steps/f", "steps", 1, 8, 1, 0);
+
+  group("presets");
+  buttons(Object.keys(PRESETS).map(k => [k, () => applyPreset(k)]));
+  buttons([["roll", roll], ["reseed", reseed]]);
+}
+
+$("play").onclick = toggleRun;
+$("step1").onclick = () => { step(); massDue = true; };
+$("reseed").onclick = reseed;
+$("shuffle").onclick = roll;
+$("full").onclick = toggleFull;
+$("hidep").onclick = () => rack.classList.toggle("hid");
+
+/* ===================================================================== loop */
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(cv.clientWidth*dpr));
+  const h = Math.max(1, Math.round(cv.clientHeight*dpr));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+new ResizeObserver(resize).observe(cv);
+
+let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0;
+let mass = null, massAt = -1e9, massDue = false;
+function tick(now){
+  requestAnimationFrame(tick);
+  const dt = now - tPrev; tPrev = now;
+  resize();
+  if(S.running) for(let i = 0; i < S.steps; i++) step();
+  render();
+  if(dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
+
+  // Reading pixels back stalls the pipeline, so the total is measured rarely
+  // and the clock restarted afterwards rather than charging the stall to the
+  // frame. meanRho comes from the same measurement, which is why painting
+  // does not throw the sensor normalisation off.
+  if(S.frame - massAt >= 200 || massDue){
+    massAt = S.frame; massDue = false;
+    const t = totalMass();
+    if(isFinite(t) && t > 0){ meanRho = t/(G.N*G.N); mass = meanRho; }
+    tPrev = performance.now();
+  }
+  if(now - shown > 420){
+    shown = now;
+    const fps = fpsN ? 1000/(fpsAcc/fpsN) : 0;
+    fpsAcc = 0; fpsN = 0;
+    const cells = G.N*G.N;
+    $("stat").innerHTML =
+      `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
+      `<b>${G.N}&sup2;</b> &middot; ` +
+      `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema, 1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
+      `${memMB().toFixed(0)} MB` +
+      (mass !== null ? ` &middot; mass <b>${mass.toFixed(5)}</b>` : "");
+  }
+}
+
+/* =================================================================== start */
+alloc();
+buildUI();
+reseed();
+resize();
+requestAnimationFrame(tick);
+</script>
