@@ -773,6 +773,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="ndepth">Depth</label><input id="ndepth" title="Hidden layers in the net." type="range" min="1" max="4" step="1" value="2"><span class="val" id="ndepthv">2</span></div>
     <div class="row"><label class="lab" for="nwidth">Width</label><input id="nwidth" title="Units in each hidden layer." type="range" min="2" max="16" step="1" value="8"><span class="val" id="nwidthv">8</span></div>
     <div class="row"><label class="lab" for="nact">Act</label><select id="nact" title="The nonlinearity between layers. Sine and gaussian are the classic CPPN choices and make banded, repeating responses."></select></div>
+    <div class="row"><label class="lab" for="nprime">Prime</label><input id="nprime" title="How many octaves of sine and cosine the two inputs are expanded into before the net sees them. Zero is the plain pair, which can only make smooth ramps; more gives it ridges to build detail from." type="range" min="0" max="4" step="1" value="2"><span class="val" id="nprimev">2</span></div>
     <div class="row"><label class="lab" for="ngain">Gain</label><input id="ngain" title="How large the weights are drawn. Small is nearly linear; large saturates into hard edges." type="range" min="0.2" max="4" step="0.1" value="1.6"><span class="val" id="ngainv">1.6</span></div>
     <div class="row"><label class="lab" for="nksrc">In src</label><input id="nksrc" title="How hard the measure of its own colour is squashed before the net sees it." type="range" min="0.05" max="8" step="0.05" value="1.5"><span class="val" id="nksrcv">1.5</span></div>
     <div class="row"><label class="lab" for="nktgt">In tgt</label><input id="nktgt" title="The same for what the kernel measured of the other colour." type="range" min="0.05" max="8" step="0.05" value="0.6"><span class="val" id="nktgtv">0.6</span></div>
@@ -1636,7 +1637,7 @@ const S = {
   seedDisc: 0,                        // seed radius in cells, 0 = a tenth of the world
   law: 1,                             // 0 = the interaction matrix, 1 = the net
   mlp: { seed: 1, depth: 2, width: 8, act: "tanh", pairs: "each", gain: 1.6,
-         ksrc: 1.5, ktgt: 0.6 },      // the net, and how the two inputs are squashed
+         prime: 2, ksrc: 1.5, ktgt: 0.6 },   // the net, its priming, and the input squash
   paletteKept: false,                 // you picked a colour map; presets leave it alone
   blendKept: false,                   // and how colours combine, once you have chosen
   running: true, frame: 0, tick: 0,
@@ -1787,12 +1788,29 @@ const LUT_R = 48;                       // samples per side of one pair's tile
 const ACTS = ["tanh", "sin", "gauss", "relu", "abs"];
 let lutTex = null, lutData = null;
 
+// What the net is actually handed. Two numbers through a few layers can only
+// draw smooth ramps and saddles; the same two put through a bank of sines and
+// cosines at doubling frequencies give it ridges to build from, which is the
+// whole trick behind CPPN pictures. The raw pair stays at the front, so priming
+// nothing is the plain net.
+function features(m, u, v, ci, di){
+  const f = [u, v];
+  if(m.pairs === "told") f.push(ci, di);
+  for(let k = 1; k <= (m.prime || 0); k++){
+    const w = Math.PI*(1 << (k - 1));
+    f.push(Math.sin(w*u), Math.cos(w*u), Math.sin(w*v), Math.cos(w*v));
+  }
+  if(m.prime) f.push(u*v, Math.sqrt(u*u + v*v) - 0.7);
+  return f;
+}
+const inputCount = m => 2 + (m.pairs === "told" ? 2 : 0) + (m.prime ? 4*m.prime + 2 : 0);
+
 function mlpWeights(m, seed){
   // Fan-in scaled Gaussian-ish weights from the seed, so depth does not blow up
   // the output.
   const rnd = mulberry32((seed|0) || 1);
   const g = () => { let s = 0; for(let i = 0; i < 4; i++) s += rnd(); return (s - 2)*1.2; };
-  const nin = m.pairs === "told" ? 4 : 2;
+  const nin = inputCount(m);
   const sizes = [nin];
   for(let i = 0; i < m.depth; i++) sizes.push(m.width);
   sizes.push(1);
@@ -1839,7 +1857,6 @@ function bakeLut(){
   const C = S.C, R = LUT_R, W = C*R;
   const m = S.mlp, act = actFn(m.act);
   const data = new Float32Array(W*W);
-  const inp = new Float32Array(m.pairs === "told" ? 4 : 2);
   // Three ways for one pair to answer unlike another. A net each is the freest,
   // and the closest to what a matrix has: every ordered pair an unrelated
   // number, here an unrelated surface. Told apart is one net given the two
@@ -1850,12 +1867,12 @@ function bakeLut(){
   for(let c = 0; c < C; c++){
     for(let d = 0; d < C; d++){
       const L = shared || mlpWeights(m, (m.seed|0) + 7919*c + 104729*d + 1);
-      if(m.pairs === "told"){ inp[2] = c/Math.max(1, C - 1)*2 - 1; inp[3] = d/Math.max(1, C - 1)*2 - 1; }
+      const ci = c/Math.max(1, C - 1)*2 - 1, di = d/Math.max(1, C - 1)*2 - 1;
       for(let j = 0; j < R; j++){
-        inp[1] = (j/(R - 1))*2 - 1;                      // of the other colour
+        const v = (j/(R - 1))*2 - 1;                     // of the other colour
         for(let i = 0; i < R; i++){
-          inp[0] = (i/(R - 1))*2 - 1;                    // of its own colour
-          data[(d*R + j)*W + (c*R + i)] = mlpEval(L, act, inp);
+          const u = (i/(R - 1))*2 - 1;                   // of its own colour
+          data[(d*R + j)*W + (c*R + i)] = mlpEval(L, act, features(m, u, v, ci, di));
         }
       }
     }
@@ -3684,6 +3701,7 @@ function boot(){
   };
   netSlider("ndepth", "depth", true);
   netSlider("nwidth", "width", true);
+  netSlider("nprime", "prime", true);
   netSlider("ngain", "gain", false);
   netSlider("nksrc", "ksrc", false);
   netSlider("nktgt", "ktgt", false);
