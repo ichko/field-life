@@ -1853,7 +1853,24 @@ function bakeLut(){
       }
     }
   }
+  // An interaction is a difference from indifference. A net whose answers all
+  // sit near +0.58 is a matrix with every entry equal -- everything attracts
+  // everything, uniformly, and the world just pools. Only the variation across
+  // the surface does any work, so the constant part is taken out and what is
+  // left is scaled to fill the range a matrix entry lives in. A net that says
+  // the same thing everywhere then says nothing, which is the honest reading.
+  let mean = 0;
+  for(let i = 0; i < data.length; i++) mean += data[i];
+  mean /= data.length;
+  let spread = 0;
+  for(let i = 0; i < data.length; i++){
+    data[i] -= mean;
+    const a = Math.abs(data[i]);
+    if(a > spread) spread = a;
+  }
+  if(spread > 1e-6) for(let i = 0; i < data.length; i++) data[i] /= spread;
   lutData = data;
+  window.__lut = data;                   // for reading the surface from outside
   if(lutTex && lutTex._w !== W){ gl.deleteTexture(lutTex); lutTex = null; }
   if(!lutTex){
     lutTex = gl.createTexture(); lutTex._w = W;
