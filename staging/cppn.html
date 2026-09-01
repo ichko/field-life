@@ -767,8 +767,8 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
   <!-- right: the rules -- who chases whom, and through what shape -->
   <aside class="panel pR" id="panelR">
     <details class="sec" open><summary class="ph">Net <span id="netlab"></span></summary>
-    <div class="row"><label class="lab" for="law">Law</label><select id="law" title="Where the response to another colour comes from: one number per pair, or a net asked per cell.">
-      <option value="1">Net</option><option value="0">Matrix</option>
+    <div class="row"><label class="lab" for="law">Law</label><select id="law" title="Where a colour's response comes from. Net per pair asks a small net about two numbers, one pair at a time, and bakes the answer into a table. One net takes every colour's measure at the cell together and answers for all of them at once, which cannot be tabulated and so runs per pixel. Matrix is the original: one number per pair.">
+      <option value="1">Net per pair</option><option value="2">One net, all colours</option><option value="0">Matrix</option>
     </select></div>
     <div class="row"><label class="lab" for="ndepth">Depth</label><input id="ndepth" title="Hidden layers in the net." type="range" min="1" max="4" step="1" value="2"><span class="val" id="ndepthv">2</span></div>
     <div class="row"><label class="lab" for="nwidth">Width</label><input id="nwidth" title="Units in each hidden layer." type="range" min="2" max="16" step="1" value="8"><span class="val" id="nwidthv">8</span></div>
@@ -1180,6 +1180,21 @@ void main(){
 const FS_AFF = HEAD + `
 uniform sampler2D uNear, uFar, uMat, uLut, uRho;
 uniform int uC, uBase, uLaw, uR, uSrcPixel; uniform float uForce, uRepel, uKsrc, uKtgt;
+// The joint net: every colour's measure in, every colour's answer out, run per
+// cell because its input has as many dimensions as there are colours and no
+// table can hold that. Weights ride in a uniform array rather than a texture --
+// a fetch per multiply would cost more than the arithmetic.
+#define JMAX 384
+#define JW 12
+uniform float uJ[JMAX];
+uniform int uJdepth, uJwidth, uJact;
+float jact(float x){
+  if(uJact == 1) return sin(3.0*x);
+  if(uJact == 2) return exp(-2.0*x*x);
+  if(uJact == 3) return max(x, 0.0);
+  if(uJact == 4) return abs(x);
+  return tanh(x);
+}
 
 // One tile of the table, bilinear inside it so neighbouring pairs never bleed.
 float surface(int c, int d, float u, float v){
@@ -1202,6 +1217,46 @@ void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   int tile = p.x / uN.x, lx = p.x - tile*uN.x;
   vec4 acc = vec4(0.0); float crowd = 0.0;
+
+  if(uLaw == 2){
+    float h[JW], g[JW], inp[32];
+    for(int l = 0; l < uL; l++){
+      vec4 v = texelFetch(uFar, ivec2(l*uN.x + lx, p.y), 0);
+      for(int k = 0; k < 4; k++) if(l*4 + k < uC) inp[l*4 + k] = tanh(uKtgt*v[k]);
+      crowd += dot(texelFetch(uNear, ivec2(l*uN.x + lx, p.y), 0),
+                   vec4(l*4 + 0 < uC ? 1.0 : 0.0, l*4 + 1 < uC ? 1.0 : 0.0,
+                        l*4 + 2 < uC ? 1.0 : 0.0, l*4 + 3 < uC ? 1.0 : 0.0));
+    }
+    int at = 0, fan = uC;
+    for(int L = 0; L < 5; L++){
+      if(L > uJdepth) break;
+      int outn = L == uJdepth ? uC : uJwidth;
+      for(int o = 0; o < JW; o++){
+        if(o >= outn) break;
+        float sum = uJ[at + o*(fan + 1) + fan];
+        for(int k = 0; k < 32; k++){
+          if(k >= fan) break;
+          sum += uJ[at + o*(fan + 1) + k]*(L == 0 ? inp[k] : g[k]);
+        }
+        h[o] = L == uJdepth ? tanh(sum) : jact(sum);
+      }
+      at += outn*(fan + 1);
+      fan = outn;
+      // the last layer's answers are read straight out below
+      if(L == uJdepth){
+        for(int c = 0; c < 4; c++){
+          int cc = tile*4 + c;
+          if(cc >= uC) break;
+          for(int o = 0; o < JW; o++) if(o == cc) acc[c] = h[o];
+        }
+      } else {
+        for(int o = 0; o < JW; o++) g[o] = h[o];
+      }
+    }
+    oA = acc*uForce - vec4(uRepel*crowd);
+    return;
+  }
+
   // What the net is told about its own colour: the kernel's measure of it
   // around this cell, or the bare value in the cell. Both are packed the same
   // way, so either sits in the tile already being read.
@@ -1861,6 +1916,80 @@ function mlpEval(L, act, inp){
 // tanh, so a response already lands in the same range a matrix entry does and
 // Force means what it always meant. Scaling the table by its own peak instead
 // would let one extreme corner squash every other pair flat.
+// The joint net: all colours in, all colours out, one forward pass per cell.
+// It cannot be baked -- its input has as many dimensions as there are colours --
+// so its weights are packed flat and handed to the shader, and the shape is
+// kept small enough to fit in the uniform array there.
+const JMAX = 384, JW = 12;
+let jointW = new Float32Array(JMAX), jointShape = { depth: 1, width: 4 };
+
+function buildJoint(){
+  const C = Math.min(S.C, JW), m = S.mlp;
+  let width = Math.min(m.width, JW), depth = Math.min(m.depth, 4);
+  const size = (w, d) => {
+    let n = 0, fan = C;
+    for(let l = 0; l <= d; l++){ const out = l === d ? C : w; n += out*(fan + 1); fan = out; }
+    return n;
+  };
+  // Shrink to fit rather than overflow: a wide deep net over many colours does
+  // not go into the uniform array, and a silently truncated one is worse than a
+  // smaller honest one.
+  while(size(width, depth) > JMAX && width > 2) width--;
+  while(size(width, depth) > JMAX && depth > 1) depth--;
+
+  // Its own layers, from the same seed: mlpWeights sizes a first layer for the
+  // surface net's inputs, and this one is fed the colours instead.
+  const rnd = mulberry32((m.seed|0) || 1);
+  const g = () => { let x = 0; for(let i = 0; i < 4; i++) x += rnd(); return (x - 2)*1.2; };
+  const layers = [];
+  let fan = C;
+  for(let l = 0; l <= depth; l++){
+    const out = l === depth ? C : width, w = new Float32Array(fan*out), b = new Float32Array(out);
+    const sc = m.gain/Math.sqrt(fan);
+    for(let i = 0; i < w.length; i++) w[i] = g()*sc;
+    for(let i = 0; i < out; i++) b[i] = g()*0.5;
+    layers.push({ fan, out, w, b });
+    fan = out;
+  }
+
+  // What it answers over the inputs it will actually meet, so the last layer can
+  // be centred and spread: without this a net can sit at one corner of its own
+  // range and every colour then wants the same thing everywhere.
+  const act = actFn(m.act), N = 400;
+  const sums = new Float64Array(C), sqs = new Float64Array(C);
+  for(let t = 0; t < N; t++){
+    let v = new Float32Array(C);
+    for(let i = 0; i < C; i++) v[i] = Math.tanh((rnd()*2 - 1)*1.5);
+    for(let l = 0; l < layers.length; l++){
+      const ly = layers[l], o = new Float32Array(ly.out);
+      for(let j = 0; j < ly.out; j++){
+        let x = ly.b[j];
+        for(let k = 0; k < ly.fan; k++) x += ly.w[j*ly.fan + k]*v[k];
+        o[j] = l === layers.length - 1 ? x : act(x);        // pre-tanh at the end
+      }
+      v = o;
+    }
+    for(let i = 0; i < C; i++){ sums[i] += v[i]; sqs[i] += v[i]*v[i]; }
+  }
+  const last = layers[layers.length - 1];
+  for(let i = 0; i < C; i++){
+    const mean = sums[i]/N, sd = Math.sqrt(Math.max(1e-9, sqs[i]/N - mean*mean));
+    const k = 1.1/sd;
+    for(let j = 0; j < last.fan; j++) last.w[i*last.fan + j] *= k;
+    last.b[i] = (last.b[i] - mean)*k;
+  }
+
+  const flat = new Float32Array(JMAX);
+  let at = 0;
+  for(const ly of layers)
+    for(let o = 0; o < ly.out; o++){
+      for(let k = 0; k < ly.fan; k++) flat[at++] = ly.w[o*ly.fan + k];
+      flat[at++] = ly.b[o];
+    }
+  jointW = flat;
+  jointShape = { depth, width, act: ACTS.indexOf(m.act) };
+}
+
 function bakeLut(){
   const C = S.C, R = LUT_R, W = C*R;
   const m = S.mlp, act = actFn(m.act);
@@ -2230,6 +2359,12 @@ function step(){
   gl.uniform1f(P.aff.u("uKsrc"), S.mlp.ksrc);
   gl.uniform1f(P.aff.u("uKtgt"), S.mlp.ktgt);
   gl.uniform1i(P.aff.u("uSrcPixel"), S.mlp.src === "pixel" ? 1 : 0);
+  if(S.law === 2){
+    gl.uniform1fv(P.aff.u("uJ"), jointW);
+    gl.uniform1i(P.aff.u("uJdepth"), jointShape.depth);
+    gl.uniform1i(P.aff.u("uJwidth"), jointShape.width);
+    gl.uniform1i(P.aff.u("uJact"), Math.max(0, jointShape.act));
+  }
   bindTex(P.aff, "uNear", 0, T.near); bindTex(P.aff, "uFar", 1, T.far);
   bindTex(P.aff, "uMat", 2, matTex);
   bindTex(P.aff, "uLut", 3, lutTex || matTex);
@@ -3160,7 +3295,7 @@ function applyConfig(c){
   const kcap = KMAX << pyramid.length;
   for(const k of kernels) k.R = Math.min(k.R, kcap);
   uploadKernels();
-  bakeLut();
+  bakeLut(); buildJoint();
   buildMatrixUI(); buildKernelUI(); buildSwatches(); buildNetUI();
   syncControls();
   $("seedlab").textContent = "#" + S.seed;
@@ -3371,7 +3506,7 @@ function rebuildColors(){
   resampleMatrix(S.seed);
   allocate();
   uploadKernels();
-  bakeLut();
+  bakeLut(); buildJoint();
   buildKernelUI();
   buildSwatches();
   buildNetUI();
@@ -3700,7 +3835,7 @@ function boot(){
   }
   // Every one of these changes the surface, not the world: rebake and redraw,
   // and whatever is living out there carries on living.
-  const reNet = () => { bakeLut(); buildNetUI(); };
+  const reNet = () => { bakeLut(); buildJoint(); buildNetUI(); };
   const netSlider = (id, key, int) => {
     const el = $(id), v = $(id + "v");
     el.addEventListener("input", () => {
