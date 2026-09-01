@@ -689,10 +689,17 @@ void main(){
       return;
     }
   }
-  // The field is a torus and the texture repeats, so the canvas can be any
-  // shape: it just shows more of the tiling sideways. Pan and zoom are in
-  // grid cells, which is what makes the brush land where the cursor is.
+  // The SIMULATION wraps -- mass leaving one edge arrives at the other -- but
+  // the PICTURE does not. Showing the torus tiled says something false about
+  // what is being looked at: the same structure repeating is one structure,
+  // not many. Outside the single copy is background.
   vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/(uZoom*uRes.y) + uPan/uN + 0.5;
+  if(uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0){
+    vec2 e = max(abs(uv - 0.5) - 0.5, 0.0)*uZoom*uRes.y;   // pixels outside
+    float edge = 1.0 - smoothstep(0.0, 1.5, max(e.x, e.y));
+    oCol = vec4(mix(vec3(0.016, 0.031, 0.043), vec3(0.16, 0.18, 0.21), edge), 1.0);
+    return;
+  }
   if(uView == 2){
     // The atlas cannot be filtered across a tile edge, so the heading view
     // reads it by index and goes blocky when it is zoomed past 1:1.
@@ -809,7 +816,7 @@ const S = {
   N: 512, K: 24, steps: 1, running: true, frame: 0, lod: 1, prec: 16,
   sense: 9, angle: 34, width: 20, sharp: 14, turn: 9, speed: 1, crowd: 1.6, jit: 0.15,
   dep: 1, decay: 0.94, diff: 1, fill: 0.16,
-  gmix: 0.35, gdiff: 0.15, gscale: 40, cscale: 1.2, ker: 1,
+  gmix: 0.35, gdiff: 0, gscale: 40, cscale: 1.2, ker: 1,
   exp: 1.6, floor: 0.55, view: 0, pal: 3, zoom: 1, panx: 0, pany: 0,
   brush: 26, seed: 1,
   w1: null, b1: null, w2: null, ca: null, cv: null,
@@ -1102,8 +1109,9 @@ cv.addEventListener("pointermove", e => {
   } else {
     const r = cv.getBoundingClientRect();
     const k = G.N/(S.zoom*cv.height)*(cv.width/r.width);
-    S.panx -= (e.clientX - drag.x)*k;
-    S.pany += (e.clientY - drag.y)*k;
+    const lim = G.N*0.75;
+    S.panx = Math.max(-lim, Math.min(lim, S.panx - (e.clientX - drag.x)*k));
+    S.pany = Math.max(-lim, Math.min(lim, S.pany + (e.clientY - drag.y)*k));
     drag.x = e.clientX; drag.y = e.clientY;
   }
 });
@@ -1205,6 +1213,12 @@ function clampTurn(){
     if(S.turn > cap) UI.turn.set(+cap.toFixed(1));
   }
 }
+function setKernel(angle, width){
+  UI.angle.set(angle); UI.width.set(width);
+  S.ker = 1;                       // show what was just changed
+  const b = rack.querySelector("button.kerbtn");
+  if(b) b.classList.add("on");
+}
 function applyPreset(name){
   const p = PRESETS[name]; if(!p) return;
   for(const k in p) UI[k] ? UI[k].set(p[k]) : (S[k] = p[k]);
@@ -1232,6 +1246,11 @@ function buildUI(){
   slider("dist", "sense", 1, 32, 0.5, 1);
   slider("angle", "angle", 0, 180, 1, 0);
   slider("width", "width", 2, 120, 1, 0);
+  // The kernel is a shape, not a mode, but the three that matter are worth
+  // one click each -- Jones' three points, a broad arc, and the whole ring.
+  buttons([["3-point", () => setKernel(34, 18)],
+           ["arc",     () => setKernel(55, 45)],
+           ["radial",  () => setKernel(90, 110)]]);
   slider("sharp", "sharp", 0.5, 40, 0.5, 1);
   slider("crowd", "crowd", 0, 8, 0.05, 2);
   slider("jitter", "jit", 0, 1.2, 0.01, 2);
@@ -1262,8 +1281,10 @@ function buildUI(){
   slider("exposure", "exp", 0.1, 8, 0.05, 2);
   slider("floor", "floor", 0, 3, 0.01, 2);
   slider("brush", "brush", 4, 90, 1, 0);
-  buttons([["kernel", function(){ S.ker = S.ker ? 0 : 1; this.classList.toggle("on", !!S.ker); }]])
-    .firstChild.classList.toggle("on", !!S.ker);
+  const kb = buttons([["show kernel", function(){
+    S.ker = S.ker ? 0 : 1; this.classList.toggle("on", !!S.ker);
+  }]]).firstChild;
+  kb.classList.add("kerbtn"); kb.classList.toggle("on", !!S.ker);
 
   group("run");
   picker("grid", "N", [{v:256,t:"256"}, {v:384,t:"384"}, {v:512,t:"512"},
