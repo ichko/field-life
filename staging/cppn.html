@@ -3927,6 +3927,25 @@ function boot(){
       return out;
     },
     writeRho,
+    // What the kernels are actually measuring, which is what the net is asked
+    // about. Same packing as the field.
+    readFar(){
+      const out = new Float32Array(S.NX*S.NY*S.C);
+      const buf = new Float32Array(S.NX*S.L*S.NY*4);
+      const fb = gl.createFramebuffer();
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, T.far, 0);
+      gl.readPixels(0, 0, S.NX*S.L, S.NY, gl.RGBA, gl.FLOAT, buf);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fb);
+      for(let c = 0; c < S.C; c++){
+        const l = c >> 2, k = c & 3;
+        for(let y = 0; y < S.NY; y++)
+          for(let x = 0; x < S.NX; x++)
+            out[c*S.NX*S.NY + y*S.NX + x] = buf[(y*S.NX*S.L + l*S.NX + x)*4 + k];
+      }
+      return out;
+    },
   };
 
   requestAnimationFrame(frame);
