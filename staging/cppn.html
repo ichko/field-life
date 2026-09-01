@@ -774,7 +774,7 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
     <div class="row"><label class="lab" for="nwidth">Width</label><input id="nwidth" title="Units in each hidden layer." type="range" min="2" max="16" step="1" value="8"><span class="val" id="nwidthv">8</span></div>
     <div class="row"><label class="lab" for="nact">Act</label><select id="nact" title="The nonlinearity between layers. Sine and gaussian are the classic CPPN choices and make banded, repeating responses."></select></div>
     <div class="row"><label class="lab" for="ngain">Gain</label><input id="ngain" title="How large the weights are drawn. Small is nearly linear; large saturates into hard edges." type="range" min="0.2" max="4" step="0.1" value="1.6"><span class="val" id="ngainv">1.6</span></div>
-    <div class="row"><label class="lab" for="nksrc">In src</label><input id="nksrc" title="How hard the cell's own concentration is squashed before the net sees it." type="range" min="0.05" max="8" step="0.05" value="1.5"><span class="val" id="nksrcv">1.5</span></div>
+    <div class="row"><label class="lab" for="nksrc">In src</label><input id="nksrc" title="How hard the measure of its own colour is squashed before the net sees it." type="range" min="0.05" max="8" step="0.05" value="1.5"><span class="val" id="nksrcv">1.5</span></div>
     <div class="row"><label class="lab" for="nktgt">In tgt</label><input id="nktgt" title="The same for what the kernel measured of the other colour." type="range" min="0.05" max="8" step="0.05" value="0.6"><span class="val" id="nktgtv">0.6</span></div>
     <div class="row"><label class="lab" for="nident">Pairs</label><select id="nident" title="Whether the net is told which two colours it is answering for. Off, the same surface answers for every pair and the colours differ only by their kernels.">
       <option value="1">told apart</option><option value="0">colour-blind</option>
@@ -783,8 +783,9 @@ input[type=text]::placeholder{color:var(--ink2); opacity:.7}
       <button id="nreseed">New net</button>
     </div>
     <canvas id="netmap" class="netmap"></canvas>
-    <p class="note">Each tile is one ordered pair: across is how much of itself is
-      in the cell, up is what its kernel measured of the other. Blue pulls, red pushes.</p>
+    <p class="note">Each tile is one ordered pair: across is what the kernel
+      measured of its own colour, up is what it measured of the other. Blue pulls,
+      red pushes.</p>
     </details>
     <details class="sec"><summary class="ph">Matrix <span id="seedlab">#0</span></summary>
     <div id="mx" class="mx"></div>
@@ -1168,18 +1169,18 @@ void main(){
 
 // The matrix says how much colour c cares about colour d with one number per
 // pair. Here that number is a surface instead: a small net is asked what c
-// should do given how much of itself is in this cell and how much of d its
-// kernel just measured, and its answer is baked into a table -- one tile per
-// ordered pair, read with a texture fetch. A matrix is the special case where
-// every tile is flat.
+// should do given two kernel measures at this cell -- how much of itself is
+// around it, and how much of d -- and its answer is baked into a table, one
+// tile per ordered pair, read with a texture fetch. A matrix is the special
+// case where every tile is flat.
 const FS_AFF = HEAD + `
-uniform sampler2D uNear, uFar, uMat, uRho, uLut;
+uniform sampler2D uNear, uFar, uMat, uLut;
 uniform int uC, uBase, uLaw, uR; uniform float uForce, uRepel, uKsrc, uKtgt;
 
 // One tile of the table, bilinear inside it so neighbouring pairs never bleed.
 float surface(int c, int d, float u, float v){
   float R = float(uR);
-  float x = clamp(u, 0.0, 1.0)*(R - 1.0);
+  float x = clamp(u*0.5 + 0.5, 0.0, 1.0)*(R - 1.0);
   float y = clamp(v*0.5 + 0.5, 0.0, 1.0)*(R - 1.0);
   int x0 = int(floor(x)), y0 = int(floor(y));
   int x1 = min(x0 + 1, uR - 1), y1 = min(y0 + 1, uR - 1);
@@ -1197,7 +1198,10 @@ void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   int tile = p.x / uN.x, lx = p.x - tile*uN.x;
   vec4 acc = vec4(0.0); float crowd = 0.0;
-  vec4 self = texelFetch(uRho, ivec2(tile*uN.x + lx, p.y), 0);
+  // Both of the net's inputs are kernel measures: how much of itself is around
+  // this cell, and how much of the other colour. uFar is packed like the field,
+  // so a colour's own integral sits in the tile already being read.
+  vec4 self = texelFetch(uFar, ivec2(tile*uN.x + lx, p.y), 0);
   for(int l = 0; l < uL; l++){
     crowd += dot(texelFetch(uNear, ivec2(l*uN.x + lx, p.y), 0),
                  vec4(l*4 + 0 < uC ? 1.0 : 0.0, l*4 + 1 < uC ? 1.0 : 0.0,
@@ -1821,37 +1825,34 @@ function mlpEval(L, act, inp){
     for(let o = 0; o < l.out; o++){
       let s = l.b[o];
       for(let k = 0; k < l.fan; k++) s += l.w[o*l.fan + k]*v[k];
-      out[o] = i === L.length - 1 ? s : act(s);          // last layer stays linear
+      out[o] = i === L.length - 1 ? Math.tanh(s) : act(s);   // the answer is bounded
     }
     v = out;
   }
   return v[0];
 }
 
-// Bake every ordered pair's surface into one texture, then scale the whole
-// table so its strongest response is 1 -- Force then means what it always meant.
+// Bake every ordered pair's surface into one texture. The net's last layer is a
+// tanh, so a response already lands in the same range a matrix entry does and
+// Force means what it always meant. Scaling the table by its own peak instead
+// would let one extreme corner squash every other pair flat.
 function bakeLut(){
   const C = S.C, R = LUT_R, W = C*R;
   const m = S.mlp, L = mlpWeights(m, C), act = actFn(m.act);
   const data = new Float32Array(W*W);
   const inp = new Float32Array(m.ident ? 4 : 2);
-  let peak = 1e-9;
   for(let c = 0; c < C; c++){
     for(let d = 0; d < C; d++){
       if(m.ident){ inp[2] = c/Math.max(1, C - 1)*2 - 1; inp[3] = d/Math.max(1, C - 1)*2 - 1; }
       for(let j = 0; j < R; j++){
-        inp[1] = (j/(R - 1))*2 - 1;                      // what the kernel measured
+        inp[1] = (j/(R - 1))*2 - 1;                      // of the other colour
         for(let i = 0; i < R; i++){
-          inp[0] = i/(R - 1);                            // how much of itself is here
-          const y = mlpEval(L, act, inp);
-          data[(d*R + j)*W + (c*R + i)] = y;
-          const a = Math.abs(y); if(a > peak) peak = a;
+          inp[0] = (i/(R - 1))*2 - 1;                    // of its own colour
+          data[(d*R + j)*W + (c*R + i)] = mlpEval(L, act, inp);
         }
       }
     }
   }
-  const k = 1/peak;
-  for(let i = 0; i < data.length; i++) data[i] *= k;
   lutData = data;
   if(lutTex && lutTex._w !== W){ gl.deleteTexture(lutTex); lutTex = null; }
   if(!lutTex){
@@ -2181,8 +2182,7 @@ function step(){
   gl.uniform1f(P.aff.u("uKtgt"), S.mlp.ktgt);
   bindTex(P.aff, "uNear", 0, T.near); bindTex(P.aff, "uFar", 1, T.far);
   bindTex(P.aff, "uMat", 2, matTex);
-  bindTex(P.aff, "uRho", 3, T.rhoA);
-  bindTex(P.aff, "uLut", 4, lutTex || matTex);
+  bindTex(P.aff, "uLut", 3, lutTex || matTex);
   targets(T.aff, null); drawQuad();
 
   gl.useProgram(P.expa.p); common(P.expa);
