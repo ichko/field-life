@@ -3272,9 +3272,10 @@ function applyConfig(c){
     if(c.mlp.pairs === undefined && c.mlp.ident !== undefined)
       S.mlp.pairs = c.mlp.ident ? "told" : "one";      // what it meant before
   }
-  // How fast to run is yours, not the world's -- except that a world may ask,
-  // and one that grows a picture over a few hundred steps has reason to.
-  if(c.fps) S.fps = c.fps;
+  // How fast to run is yours, full stop. A world used to be able to ask, which
+  // meant every click on the shelf snapped the rate back to whatever that
+  // preset wanted and undid the setting you had just made. A viewing rate is
+  // not part of a world.
   S.seedPattern = c.seedPattern || null;
   palette = makePalette(S.C, S.palette);
   mat = Float32Array.from(c.mat);
