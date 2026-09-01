@@ -76,6 +76,7 @@ seed has to arrive already holding what the picture costs.
 | `*-presets.json` | the same worlds and creatures as importable preset files |
 | `particle_life.py` | the dots version this started from, and the gif it makes |
 | `staging/` | a copy of the page for trying things that are not ready |
+| `staging/volume.html` | the same rule on a cube instead of a sheet: a WebGL2 volumetric test, self-contained |
 
 ## Running it
 
