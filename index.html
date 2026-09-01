@@ -1380,7 +1380,15 @@ void main(){
   ivec2 i0 = ivec2(floor(g));
   int xs[4], ys[4];
   for(int i = 0; i < 4; i++){
-    xs[i] = tile*uN.x + wrapi(i0.x + i - 1, uNm.x);
+    // The tile offset must use the SOURCE's stride, not the destination's.
+    // uA is a mip, packed with tile stride uNm.x by whichever pass wrote it --
+    // FS_CONV across the full width, the separable path per layer -- while
+    // uN.x is the full-resolution width. They are equal at mip 0, which is why
+    // this held for so long; above it, every layer past the first read its
+    // neighbourhood integral out of the wrong region, so colours 4 and up got
+    // another layer's field. Any world with more than four colours and a reach
+    // past KMAX was affected.
+    xs[i] = tile*uNm.x + wrapi(i0.x + i - 1, uNm.x);
     ys[i] = wrapi(i0.y + i - 1, uNm.y);
   }
   vec4 a = cubic4(uA, xs, ys, t);
@@ -2902,7 +2910,16 @@ function applyConfig(c){
     kernels = [];
     for(let i = 0; i < S.C; i++) kernels.push(defaultKernel(S.radMax));
   }
-  for(const k of kernels) k.R = Math.min(k.R, radiusCap());
+  // radiusCap() bounds the blur-bank sliders, whose cost is a separable blur
+  // run over the whole field. The kernel bank is bounded by something else
+  // entirely: a KMAX stencil over a field halved once per pyramid level. So
+  // the slider's cap has no business here, and applying it silently shortened
+  // every long kernel a trained preset asked for -- five of the lizard's
+  // twelve channels, from reach 60 down to 56. Measured, that clipping cost a
+  // factor of three and a half at a thousand steps: 0.0025 as fitted against
+  // 0.0088 as loaded. Clamp to what the kernel path can actually serve.
+  const kcap = KMAX << pyramid.length;
+  for(const k of kernels) k.R = Math.min(k.R, kcap);
   uploadKernels();
   buildMatrixUI(); buildKernelUI(); buildSwatches();
   syncControls();
