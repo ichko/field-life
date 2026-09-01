@@ -161,7 +161,7 @@ button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
 
 <div class="app" id="app">
   <canvas id="cv"></canvas>
-  <div id="hint">drag to orbit &middot; wheel to zoom &middot; shift-drag to paint</div>
+  <div id="hint">drag to orbit &middot; wheel to zoom &middot; shift-drag to paint &middot; V cycles the view &middot; C cuts through</div>
   <div class="hud">
     <div class="seg">
       <button id="play" title="space">pause</button>
@@ -185,13 +185,15 @@ sheet of them. Each colour is a scalar field over an <b>N&times;N&times;N</b> gr
 convolves each colour's field with a spherical kernel, mixes the colours through the interaction
 matrix into one number per cell &mdash; how much that colour wants to be there &mdash; and then
 hands every cell's contents to its <b>27</b> neighbours in proportion to <code>exp(beta&middot;A)</code>.
-Nothing is created and nothing is destroyed: the mass readout is measured on the GPU each time it
-is shown, and it does not move off its opening value.</p>
+Nothing is created and nothing is destroyed: the mass readout under the field is measured on the
+GPU each time it is shown, and it does not move off its opening value.</p>
 
 <h2>How big the grid can be</h2>
-<p>Short answer: <b>96&sup3;</b> holds sixty frames on ordinary hardware, <b>128&sup3;</b> on a
-discrete card, and <b>160&sup3;</b> if you have something serious. The counter under the field
-says what your machine is actually doing rather than what this paragraph guesses.</p>
+<p><b>96&sup3;</b> holds sixty frames on ordinary hardware and is the default. It goes to
+<b>256&sup3;</b> if the card has the memory, and past about 128&sup3; the thing to reach for is the
+<b>rate</b> control rather than a smaller grid: at a step every second or fourth frame a very large
+field still turns over at a watchable speed while the picture stays at the frame rate. The grid menu
+prints what each size costs before you pick it, and sizes the card cannot hold are not offered.</p>
 <p>The reason it goes that far is that the expensive half of the step does not run at the grid's
 own pitch. A neighbourhood integral out to a dozen cells does not change measurably if it is taken
 on a grid with half the spacing, and in three dimensions halving the pitch is <b>eight times</b>
@@ -200,19 +202,22 @@ computed there, and only the exponent and the transport &mdash; the parts that h
 &mdash; run at full pitch. The kernels are separable, which matters far more here than it does in
 two dimensions: a spherical stencil of half-width 8 is 4913 taps, three 1-D passes are 51.</p>
 <table>
-<tr><th>grid</th><th>cells</th><th>texture memory</th><th>draw calls / step</th><th>what to expect</th></tr>
+<tr><th>grid</th><th>cells</th><th>memory</th><th>draws / step</th><th>what to expect</th></tr>
 <tr><td>64&sup3;</td><td>0.26 M</td><td>12 MB</td><td>22</td><td>anything, including phones</td></tr>
 <tr><td>96&sup3;</td><td>0.88 M</td><td>40 MB</td><td>30</td><td>the default; integrated graphics hold 60</td></tr>
 <tr><td>128&sup3;</td><td>2.1 M</td><td>96 MB</td><td>38</td><td>a discrete card holds 60</td></tr>
-<tr><td>160&sup3;</td><td>4.1 M</td><td>180 MB</td><td>46</td><td>a good one; otherwise drop the steps</td></tr>
+<tr><td>192&sup3;</td><td>7.1 M</td><td>326 MB</td><td>54</td><td>a good one, or a step every other frame</td></tr>
+<tr><td>256&sup3;</td><td>16.8 M</td><td>772 MB</td><td>70</td><td>a step every few frames, and worth it</td></tr>
 </table>
-<p>A step costs about <b>60 texture reads per cell</b> all told, and it is six full-screen draws
-plus one pass that has to go slice by slice. That last one is the only place the 3D texture is
-written, because a 3D texture takes one draw call per slice where a 2D atlas of the same slices
-takes one for all of them. Everything the step reads back by index &mdash; the blurs, the affinity,
-the exponent, the shares &mdash; lives in an atlas for exactly that reason. The slice pass writes
-four at a time, and since neighbouring slices share 18 of their 27 taps it sums nine columns once
-and slides a window of three down them: half the reads for four cells at once.</p>
+<p>Those are for up to four colours. Past four it takes a second layer of everything, so five to
+eight colours cost twice the memory and twice the step &mdash; the trade is stated in the menu.
+A step is about <b>60 texture reads per cell</b> all told, six full-screen draws plus one pass that
+has to go slice by slice. That last one is the only place a 3D texture is written, because a 3D
+texture takes one draw call per slice where a 2D atlas of the same slices takes one for all of
+them. Everything the step reads back by index &mdash; the blurs, the affinity, the exponent, the
+shares &mdash; lives in an atlas for exactly that reason. The slice pass writes four at a time,
+and since neighbouring slices share 18 of their 27 taps it sums nine columns once and slides a
+window of three down them: half the reads for four cells at once.</p>
 
 <h2>How it is shaded</h2>
 <p>March and integrate, not trace. There is no surface to intersect &mdash; the field is a
@@ -223,35 +228,71 @@ says how much of what is still ahead can possibly reach the eye, so the moment i
 few thousandths the rest of the ray is worth nothing and the loop stops. Back to front cannot do
 that &mdash; it has to visit everything before it knows what was hidden.</p>
 <p>Two more things come out of the same idea, that effort should follow how much a sample can
-still change the pixel:</p>
-<p>&mdash; <b>the step grows as transmittance falls.</b> A sample that will be attenuated to a
-tenth gets roughly a tenth of the care. Deep cloud is where the sample count would otherwise go.</p>
-<p>&mdash; <b>shadow rays are rationed.</b> Each lit sample is shadowed by a short march towards
-the light, but only if it can contribute more than a thousandth of the pixel; below that the last
-shadow value stands, which is fine because shadow varies slowly along a ray.</p>
+still change the pixel: the step <b>grows as transmittance falls</b>, so a sample that will be
+attenuated to a tenth gets a tenth of the care; and <b>shadow rays are rationed</b> &mdash; each
+lit sample gets a short march towards the light, but only if it can contribute more than a
+thousandth of the pixel, and below that the last shadow value stands, which is fine because
+shadow varies slowly along a ray.</p>
 <p>Empty space is handled separately, by a second volume of one cell per <b>8&sup3;</b> block
 holding that block's peak density and its mean. The peak lets a ray in empty space jump straight
 to the far wall of its block instead of stepping through it, which is most of the cube most of the
-time. The mean is what the shadow march reads: it is a 12&sup3; texture that never leaves cache,
-so self-shadowing &mdash; the thing that actually makes the cloud read as solid &mdash; costs less
+time. The mean is what the shadow march reads: a 12&sup3; texture that never leaves cache, so
+self-shadowing &mdash; the thing that actually makes the cloud read as solid &mdash; costs less
 than one more sample of the real field would.</p>
-<p>The rest is one key light with a Henyey-Greenstein lobe so a cloud lit from behind glows at its
-rim, a sky ambient dimmed by how buried the sample is, and a single density gradient taken once
-per ray at the depth the cloud first turned solid, which buys the whole image a sense of surface
-for six taps instead of six times the march. The <b>threshold</b> slider subtracts a constant from
-the density before any of that: haze is what makes a volume look like fog rather than like a
-thing, and cutting it also hands more of the cube back to the empty-space skip.</p>
-<p>The picture is marched at a fraction of the canvas when it has to be &mdash; the counter says
-which &mdash; and the frame time drives that fraction, so the field keeps its resolution and the
-picture of it goes soft instead. Hold still with the simulation paused and the frames average
-together, which is what turns a preview into a rendering.</p>
+<p>The light is a key held at a fixed angle <i>from the view</i> rather than from the world, since
+a world-fixed light spends half of every orbit directly behind the camera and a volume lit from
+behind the camera has no shading at all. On top of it: a sky ambient dimmed by how buried the
+sample is, a Henyey-Greenstein lobe so a cloud lit from behind glows at its rim, and one density
+gradient taken once per ray at the depth the cloud first turned solid, which buys the whole image
+a sense of surface for six taps instead of six times the march. That last one is the specular, and
+<b>specular at zero removes it completely</b> &mdash; highlight, rim and all &mdash; leaving key
+and ambient and nothing else.</p>
+
+<h2>Seeing into it</h2>
+<p>A cloud lit properly shows you its skin and hides everything behind it, which is exactly wrong
+for watching a simulation. Four views, and the <b>V</b> key cycles them:</p>
+<table>
+<tr><th>view</th><th>what it shows</th></tr>
+<tr><td>solid</td><td>the full shading. What it looks like, not what it is doing</td></tr>
+<tr><td>flat</td><td>the same depth order with the lighting taken away: colour and shape, no relief</td></tr>
+<tr><td>x-ray</td><td>nothing occludes anything, every sample adds. The inside is as visible as the skin</td></tr>
+<tr><td>peak</td><td>the densest sample along each ray wins. One structure per pixel, cleanly</td></tr>
+</table>
+<p>The last two cannot stop early &mdash; that is what seeing through means &mdash; so they lean on
+the empty-space skip instead and cost rather more. The <b>gain</b> slider is their exposure.</p>
+<p>The <b>cut</b> is the other half of it: pick an axis and the picture is clipped to a slab of the
+cube, with <b>from</b> and <b>to</b> as its two ends. Pull one in and you have a cross-section
+through the middle of the thing; bring the two together and you have a single plane of the cube,
+which is the flat page's picture again, one slice at a time. It is not a shader trick painted over
+the volume: the marched box really is that slab, so a cut is also the cheapest the renderer ever
+gets. The wireframe follows the cut, with the whole domain left faint behind it.</p>
+
+<h2>Where did that colour go</h2>
+<p>It did not go anywhere &mdash; the readout says so. What usually happens is that a colour
+<b>concentrates</b>: its mean over the cube is fixed for the life of the run, so if the peak
+climbs, the field it came from must have emptied out. That is why the readout carries both.
+<b>mass</b> is the mean per colour and never moves; <b>peak</b> is the densest 8&sup3; block per
+colour, and when it walks up into the tens, that colour has pulled itself into knots small enough
+to vanish between the ray's samples, and usually knots buried inside something else, which the
+front-to-back march quite correctly refuses to show you.</p>
+<p>Three things to reach for, in order. The <b>show</b> chips turn colours off one at a time
+&mdash; double-click one to solo it &mdash; which settles the question in a second. The
+<b>threshold</b> is the density below which the picture treats the field as haze and cuts it; a
+colour spread thin lives entirely under it, so lowering it brings the thin colour back. And if the
+peak really is climbing, the world is over-concentrating: more <b>repel</b>, or less <b>force</b>
+or <b>beta</b>, is the fix, and it is a change to the rule rather than to the picture.</p>
 
 <h2>Handling it</h2>
 <p>Drag to orbit, wheel to zoom, <b>shift-drag</b> to paint and <b>alt-drag</b> to erase. Painting
 in a volume needs a depth, and the one it uses is the depth you are looking at: a single ray is
 marched at the cursor, the same way the picture is, and the brush lands where transmittance first
-drops through a half. Space holds it, <b>R</b> reseeds, <b>N</b> draws a new world, <b>H</b> hides
-the panel, <b>F</b> is fullscreen.</p>
+drops through a half. Space holds it, <b>R</b> reseeds, <b>N</b> draws a new world, <b>V</b>
+cycles the view, <b>C</b> cuts through, <b>H</b> hides the panel, <b>F</b> is fullscreen.</p>
+<p>The opening field has five shapes &mdash; a ball, a cloud filling the cube, a hollow shell, a
+handful of spots, and dust &mdash; and how much mass there is does not depend on which. The
+density asked for is a mean over the whole cube and is divided out after the shape is drawn, so a
+small ball is a dense one and a large one is thin. That is the dial to reach for when the opening
+blob is too solid to see into: make it bigger, or give it less mass.</p>
 <p>The matrix under <b>MATRIX</b> is the world. Row <i>c</i>, column <i>d</i> is how hard colour
 <i>c</i> is pulled towards what its kernel sees of colour <i>d</i>; drag a cell up or down to
 change it, live. It need not be symmetric, and the asymmetry is where the chasing comes from.</p>
@@ -299,19 +340,34 @@ precision highp float; precision highp int;
 precision highp sampler3D; precision highp sampler2D;
 uniform int uN;    // cells per side of the volume
 uniform int uTW;   // tiles across the atlas
+uniform int uL;    // how many layers of four colours there are
 // Toroidal wrap. Integer % with a negative operand is UNDEFINED in GLSL ES
 // 3.00, so this goes through float mod() the way the 2D page's does.
 int wrapi(int v, int n){ return int(mod(float(v), float(n))); }
 ivec3 wrap3(ivec3 v, int n){ return ivec3(wrapi(v.x,n), wrapi(v.y,n), wrapi(v.z,n)); }
-// atlas <-> volume. Tiles are laid out row-major, uTW of them across.
-ivec2 axy(ivec3 c, int n, int tw){ return ivec2((c.z % tw)*n + c.x, (c.z/tw)*n + c.y); }
-ivec3 vol(ivec2 p, int n, int tw){
-  int tx = p.x/n, ty = p.y/n;
-  return ivec3(p.x - tx*n, p.y - ty*n, ty*tw + tx);
+// The atlas holds every z slice of every layer, laid out row-major:
+// slice index s = layer*n + z, sitting in tile (s % tw, s / tw).
+ivec2 axy(int x, int y, int s, int n, int tw){ return ivec2((s % tw)*n + x, (s/tw)*n + y); }
+// Where a fragment sits in the volume: cell x, y, z and which layer of four.
+ivec4 volL(ivec2 p, int n, int tw){
+  int tx = p.x/n, ty = p.y/n, s = ty*tw + tx;
+  return ivec4(p.x - tx*n, p.y - ty*n, s - (s/n)*n, s/n);
 }
-vec4 fetchA(sampler2D t, ivec3 c, int n, int tw){
-  return texelFetch(t, axy(wrap3(c, n), n, tw), 0);
+// Neighbour fetch out of an atlas. The wrap is per layer: z comes back round
+// inside its own layer rather than walking into the next group of colours.
+vec4 fetchA(sampler2D t, ivec3 c, int l, int n, int tw){
+  ivec3 w = wrap3(c, n);
+  return texelFetch(t, axy(w.x, w.y, l*n + w.z, n, tw), 0);
 }
+`;
+
+/* The field itself is one 3D texture per layer of four colours -- 3D because
+   only a 3D texture gives the raymarcher hardware trilinear filtering. Two of
+   them is the most anything here asks for, so the pair is named rather than
+   indexed. */
+const RHO3 = `
+uniform sampler3D uRho0, uRho1;
+vec4 rhoF(ivec3 c, int l){ return l == 0 ? texelFetch(uRho0, c, 0) : texelFetch(uRho1, c, 0); }
 `;
 
 const HASH = `
@@ -330,16 +386,16 @@ float rnd(ivec3 p, int k, int f){
    with half the pitch -- and they cost an eighth as much there. This is the
    single biggest saving in the step: in 3D a blur is eight times cheaper per
    halving, not four. */
-const FS_DOWN = HEAD + `
-uniform sampler3D uRho; uniform int uM;
+const FS_DOWN = HEAD + RHO3 + `
+uniform int uM;
 out vec4 o;
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uM, uTW);
-  if(c.z >= uM){ o = vec4(0.0); return; }
-  ivec3 b = c*2;
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uM, uTW);
+  if(c.z >= uM || c.w >= uL){ o = vec4(0.0); return; }
+  ivec3 b = c.xyz*2;
   vec4 s = vec4(0.0);
   for(int k = 0; k < 8; k++)
-    s += texelFetch(uRho, b + ivec3(k & 1, (k >> 1) & 1, (k >> 2) & 1), 0);
+    s += rhoF(b + ivec3(k & 1, (k >> 1) & 1, (k >> 2) & 1), c.w);
   o = s*0.125;
 }`;
 
@@ -358,17 +414,17 @@ float kw(float d, float sig, float rad){
   return max(exp(-0.5*d*d/(sig*sig)) - exp(-0.5*rad*rad/(sig*sig)), 0.0);
 }
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uM, uTW);
-  if(c.z >= uM){ oN = vec4(0.0); oF = vec4(0.0); return; }
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uM, uTW);
+  if(c.z >= uM || c.w >= uL){ oN = vec4(0.0); oF = vec4(0.0); return; }
   ivec3 dir = uAxis == 0 ? ivec3(1,0,0) : uAxis == 1 ? ivec3(0,1,0) : ivec3(0,0,1);
   float rad = float(uK);
   vec4 sn = vec4(0.0), sf = vec4(0.0); float wn = 0.0, wf = 0.0;
   for(int i = -uK; i <= uK; i++){
-    ivec3 q = c + dir*i;
+    ivec3 q = c.xyz + dir*i;
     float kn = kw(float(i), uSigN, rad), kf = kw(float(i), uSigF, rad);
     if(kn <= 0.0 && kf <= 0.0) continue;
-    vec4 a = fetchA(uA, q, uM, uTW);
-    vec4 b = uFirst == 1 ? a : fetchA(uB, q, uM, uTW);
+    vec4 a = fetchA(uA, q, c.w, uM, uTW);
+    vec4 b = uFirst == 1 ? a : fetchA(uB, q, c.w, uM, uTW);
     sn += a*kn; sf += b*kf; wn += kn; wf += kf;
   }
   oN = sn/max(wn, 1e-6); oF = sf/max(wf, 1e-6);
@@ -377,71 +433,82 @@ void main(){
 /* Affinity, on the half grid where the blurs already live. A is smooth by
    construction -- it is built only from things that have been blurred over a
    dozen cells -- so computing it at half pitch and interpolating it back up
-   is free of any visible cost, and it is eight times less work. */
+   is free of any visible cost, and it is eight times less work. This is the
+   one pass that has to look at every layer at once: a colour is pulled by
+   what every other colour is doing, whichever group of four it sits in. */
 const FS_AFF = HEAD + `
 uniform sampler2D uNear, uFar;
-uniform float uMat[16], uForce, uRepel;
+uniform float uMat[64], uForce, uRepel;
 uniform int uM, uC;
 out vec4 o;
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uM, uTW);
-  if(c.z >= uM){ o = vec4(0.0); return; }
-  ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 nr = texelFetch(uNear, p, 0);
-  vec4 fr = texelFetch(uFar, p, 0);
-  vec4 ring = fr - nr;                        // difference of Gaussians: a shell
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uM, uTW);
+  if(c.z >= uM || c.w >= uL){ o = vec4(0.0); return; }
   float crowd = 0.0;
-  for(int d = 0; d < 4; d++) if(d < uC) crowd += nr[d];
   vec4 a = vec4(0.0);
-  for(int cc = 0; cc < 4; cc++){
-    if(cc >= uC) break;
-    float s = 0.0;
-    for(int d = 0; d < 4; d++){ if(d >= uC) break; s += uMat[cc*4 + d]*ring[d]; }
-    a[cc] = s;
+  for(int l = 0; l < uL; l++){
+    vec4 nr = fetchA(uNear, c.xyz, l, uM, uTW);
+    vec4 ring = fetchA(uFar, c.xyz, l, uM, uTW) - nr;   // difference of Gaussians
+    for(int k = 0; k < 4; k++){
+      int d = l*4 + k;
+      if(d >= uC) break;
+      crowd += nr[k];
+      for(int q = 0; q < 4; q++){
+        int cc = c.w*4 + q;
+        if(cc >= uC) break;
+        a[q] += uMat[cc*8 + d]*ring[k];
+      }
+    }
   }
   o = a*uForce - vec4(uRepel*crowd);
 }`;
 
 /* MaCE part 1, on the full grid: E = exp(beta*A), A read back up from the half
-   grid with a trilinear tap. The clamp is the flat page's, for the same
-   reason: in float32 a span much past +-20 in the exponent starts flushing a
-   cold cell's share to zero, and mass that flushes to zero is gone. */
+   grid with a trilinear tap. E is stored half float -- it is read 27 times by
+   the next pass, so it is the one texture whose bandwidth is worth halving --
+   and +-11 is what fits: exp(11) is 6e4 against the format's 6.6e4 ceiling. A
+   span of 22 in the exponent is a ratio of 4e9, already winner-take-all, so
+   nothing is lost by not going wider. */
 const FS_EXP = HEAD + HASH + `
 uniform sampler2D uA; uniform int uM, uTWm, uFrame;   // uTWm: the half grid's atlas
 uniform float uBeta, uNoise;
 out vec4 o;
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uN, uTW);
-  if(c.z >= uN){ o = vec4(1.0); return; }
-  vec3 g = (vec3(c) + 0.5)*0.5 - 0.5;         // full cell centre, in half-grid texels
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uN, uTW);
+  if(c.z >= uN || c.w >= uL){ o = vec4(1.0); return; }
+  vec3 g = (vec3(c.xyz) + 0.5)*0.5 - 0.5;     // full cell centre, in half-grid texels
   ivec3 i0 = ivec3(floor(g)); vec3 f = g - floor(g);
   vec4 a = vec4(0.0);
   for(int k = 0; k < 8; k++){
     ivec3 d = ivec3(k & 1, (k >> 1) & 1, (k >> 2) & 1);
     vec3 w = mix(1.0 - f, f, vec3(d));
-    a += fetchA(uA, i0 + d, uM, uTWm)*(w.x*w.y*w.z);
+    a += fetchA(uA, i0 + d, c.w, uM, uTWm)*(w.x*w.y*w.z);
   }
   a *= uBeta;
   if(uNoise > 0.0)
-    a += uNoise*vec4(rnd(c,0,uFrame), rnd(c,1,uFrame), rnd(c,2,uFrame), rnd(c,3,uFrame));
+    a += uNoise*vec4(rnd(c.xyz, c.w*4+0, uFrame), rnd(c.xyz, c.w*4+1, uFrame),
+                     rnd(c.xyz, c.w*4+2, uFrame), rnd(c.xyz, c.w*4+3, uFrame));
   o = exp(clamp(a, -11.0, 11.0));
 }`;
 
 /* MaCE part 2: Z is the 27-neighbour sum of E, and S = rho/Z is the share
    every cell hands to each of its neighbours. Guard against 0/0 only -- a
-   higher floor here silently deletes mass. */
-const FS_SHARE = HEAD + `
-uniform sampler2D uE; uniform sampler3D uRho;
+   higher floor here silently deletes mass. S stays 32-bit for the same
+   reason: a cold cell next to a hot one has a share of about 1e-6 of what it
+   holds, and in half float that lands among the subnormals, which many GPUs
+   flush to zero. Mass that flushes to zero is mass gone. */
+const FS_SHARE = HEAD + RHO3 + `
+uniform sampler2D uE;
 out vec4 o;
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uN, uTW);
-  if(c.z >= uN){ o = vec4(0.0); return; }
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uN, uTW);
+  if(c.z >= uN || c.w >= uL){ o = vec4(0.0); return; }
   vec4 Z = vec4(0.0);
   for(int dz = -1; dz <= 1; dz++)
     for(int dy = -1; dy <= 1; dy++)
       for(int dx = -1; dx <= 1; dx++)
-        Z += fetchA(uE, c + ivec3(dx,dy,dz), uN, uTW);
-  o = texelFetch(uRho, c, 0) / max(Z, vec4(1e-32));
+        Z += fetchA(uE, c.xyz + ivec3(dx,dy,dz), c.w, uN, uTW);
+  o = rhoF(c.xyz, c.w) / max(Z, vec4(1e-32));
 }`;
 
 /* MaCE part 3: collect what the 27 neighbours handed over, and write the new
@@ -451,7 +518,7 @@ void main(){
    columns once and sliding a window of three down them costs 9*(KZ+2) fetches
    for KZ cells instead of 27*KZ -- half the work at KZ=4. */
 const FS_MOVE = HEAD + `
-uniform sampler2D uE, uS; uniform int uZ0;
+uniform sampler2D uE, uS; uniform int uZ0, uLay;
 layout(location=0) out vec4 o0;
 layout(location=1) out vec4 o1;
 layout(location=2) out vec4 o2;
@@ -464,13 +531,13 @@ void main(){
     int z = uZ0 - 1 + j;
     for(int dy = -1; dy <= 1; dy++)
       for(int dx = -1; dx <= 1; dx++)
-        s += fetchA(uS, ivec3(xy.x + dx, xy.y + dy, z), uN, uTW);
+        s += fetchA(uS, ivec3(xy.x + dx, xy.y + dy, z), uLay, uN, uTW);
     col[j] = s;
   }
   vec4 out4[KZ];
   for(int k = 0; k < KZ; k++){
     ivec3 c = ivec3(xy, uZ0 + k);
-    out4[k] = max(fetchA(uE, c, uN, uTW)*(col[k] + col[k+1] + col[k+2]), vec4(0.0));
+    out4[k] = max(fetchA(uE, c, uLay, uN, uTW)*(col[k] + col[k+1] + col[k+2]), vec4(0.0));
   }
   o0 = out4[0]; o1 = out4[1]; o2 = out4[2]; o3 = out4[3];
 }`;
@@ -479,23 +546,23 @@ void main(){
    place mass is deliberately made or unmade. It is its own pass rather than a
    term inside the transport, so that it works the same whether the simulation
    is running or held. */
-const FS_PAINT = HEAD + `
-uniform sampler3D uRho;
-uniform vec3 uBrush; uniform float uBrushR, uBrushAmt, uBrushMask[4];
-uniform int uC, uZ0;
+const FS_PAINT = HEAD + RHO3 + `
+uniform vec3 uBrush; uniform float uBrushR, uBrushAmt, uBrushMask[8];
+uniform int uC, uZ0, uLay;
 layout(location=0) out vec4 o0;
 layout(location=1) out vec4 o1;
 layout(location=2) out vec4 o2;
 layout(location=3) out vec4 o3;
 vec4 cell(ivec3 c){
-  vec4 v = texelFetch(uRho, c, 0);
+  vec4 v = rhoF(c, uLay);
   vec3 d = vec3(c) + 0.5 - uBrush;
   d -= float(uN)*round(d/float(uN));                 // the short way round the torus
   float f = 1.0 - smoothstep(uBrushR*0.35, uBrushR, length(d));
   if(f <= 0.0) return v;
   for(int q = 0; q < 4; q++){
-    if(q >= uC) break;
-    float g = f*uBrushAmt*uBrushMask[q];
+    int cc = uLay*4 + q;
+    if(cc >= uC) break;
+    float g = f*uBrushAmt*uBrushMask[cc];
     v[q] = uBrushAmt < 0.0 ? v[q]*max(0.0, 1.0 + g) : v[q] + g;
   }
   return max(v, vec4(0.0));
@@ -506,11 +573,15 @@ void main(){
   o2 = cell(ivec3(xy, uZ0 + 2)); o3 = cell(ivec3(xy, uZ0 + 3));
 }`;
 
-/* The opening field, drawn on the GPU: a few octaves of tileable 3D value
-   noise, either filling the cube or cut to a ball in the middle of it. */
+/* The opening field, drawn on the GPU. Five ways to start: a cloud that fills
+   the cube, a ball, a hollow shell, a handful of separated spots, and dust.
+   How much mass there is does not depend on which -- the density asked for is
+   a mean over the whole cube and is divided out afterwards -- so a small ball
+   is a dense one and a large one is thin. That is the dial to reach for when
+   the opening blob is too solid to see into. */
 const FS_SEED = HEAD + HASH + `
-uniform int uC, uSeed, uMode, uZ0;
-uniform float uAmp;
+uniform int uC, uSeed, uMode, uZ0, uLay;
+uniform float uAmp, uSize;
 layout(location=0) out vec4 o0;
 layout(location=1) out vec4 o1;
 layout(location=2) out vec4 o2;
@@ -527,25 +598,45 @@ float vnoise(vec3 p, int freq, int chan){
   }
   return a;
 }
+// Distance to the nearest of a few seed points, scattered but not clumped.
+float spots(vec3 uv, int n){
+  float best = 9.0;
+  for(int i = 0; i < 12; i++){
+    if(i >= n) break;
+    vec3 c = vec3(rnd(ivec3(i,0,0), 31, uSeed), rnd(ivec3(i,1,0), 37, uSeed),
+                  rnd(ivec3(i,2,0), 41, uSeed))*0.36 + 0.5;
+    vec3 d = uv - c;
+    d -= round(d);                                    // shortest way round
+    best = min(best, length(d));
+  }
+  return best;
+}
 vec4 cell(ivec3 c){
   vec3 uv = (vec3(c) + 0.5)/float(uN);
-  float mask = 1.0;
-  if(uMode == 1){                                    // a ball in the middle
-    float d = length(uv - 0.5)*float(uN);
-    float e = clamp((float(uN)*0.27 - d)/max(1.5, float(uN)*0.07), 0.0, 1.0);
-    mask = e*e*(3.0 - 2.0*e);
+  float mask = 1.0, soft = max(0.03, uSize*0.35);
+  if(uMode == 1){                                     // ball
+    mask = smoothstep(uSize, uSize - soft, length(uv - 0.5));
+  }else if(uMode == 2){                               // shell
+    float d = abs(length(uv - 0.5) - uSize*0.85);
+    mask = smoothstep(uSize*0.28, 0.0, d);
+  }else if(uMode == 3){                               // a handful of spots
+    mask = smoothstep(uSize*0.55, uSize*0.55 - soft*0.6, spots(uv, 7));
   }
   vec4 o = vec4(0.0);
   if(mask <= 0.0) return o;
   for(int k = 0; k < 4; k++){
-    if(k >= uC) break;
-    if(uMode == 1){
-      o[k] = uAmp*mask*(0.6 + 0.8*(0.6*vnoise(uv, 5, k) + 0.4*vnoise(uv, 11, k)));
-    }else{
-      float v = 0.55*vnoise(uv, 3, k) + 0.3*vnoise(uv, 7, k) + 0.15*vnoise(uv, 13, k);
-      float thr = 0.44 + 0.12*(rnd(ivec3(k,0,0), 77, uSeed)*0.5 + 0.5);
+    int cc = uLay*4 + k;
+    if(cc >= uC) break;
+    if(uMode == 4){                                   // dust: sparse specks
+      float v = vnoise(uv, 26, cc);
+      o[k] = uAmp*mask*max(0.0, v - 0.62)*8.0;
+    }else if(uMode == 0){                             // cloud filling the cube
+      float v = 0.55*vnoise(uv, 3, cc) + 0.3*vnoise(uv, 7, cc) + 0.15*vnoise(uv, 13, cc);
+      float thr = 0.44 + 0.12*(rnd(ivec3(cc,0,0), 77, uSeed)*0.5 + 0.5);
       v = max(0.0, v - thr)/(1.0 - thr);
       o[k] = uAmp*v*v*mask;
+    }else{
+      o[k] = uAmp*mask*(0.6 + 0.8*(0.6*vnoise(uv, 5, cc) + 0.4*vnoise(uv, 11, cc)));
     }
   }
   return o;
@@ -558,15 +649,15 @@ void main(){
 
 /* Set each colour's mean to the density that was asked for. One reduction to
    the totals, then one multiply -- the seed shader cannot know its own sum. */
-const FS_SCALE = HEAD + `
-uniform sampler3D uRho; uniform float uMul[4]; uniform int uC, uZ0;
+const FS_SCALE = HEAD + RHO3 + `
+uniform float uMul[8]; uniform int uC, uZ0, uLay;
 layout(location=0) out vec4 o0;
 layout(location=1) out vec4 o1;
 layout(location=2) out vec4 o2;
 layout(location=3) out vec4 o3;
 vec4 cell(ivec3 c){
-  vec4 v = texelFetch(uRho, c, 0);
-  for(int k = 0; k < 4; k++) v[k] = k < uC ? v[k]*uMul[k] : 0.0;
+  vec4 v = rhoF(c, uLay);
+  for(int k = 0; k < 4; k++){ int cc = uLay*4 + k; v[k] = cc < uC ? v[k]*uMul[cc] : 0.0; }
   return v;
 }
 void main(){
@@ -575,19 +666,23 @@ void main(){
   o2 = cell(ivec3(xy, uZ0 + 2)); o3 = cell(ivec3(xy, uZ0 + 3));
 }`;
 
-/* Sum the field, one 4x4x4 block per output cell, into a small atlas the CPU
-   can read back cheaply. Only used for the totals readout and the rescale. */
-const FS_SUM = HEAD + `
-uniform sampler3D uRho; uniform int uQ, uB;
+/* Reduce the field 8^3 at a time into an atlas small enough to read back
+   cheaply: uOp 0 sums, for the mass readout and the opening rescale, and
+   uOp 1 takes the peak, which is what says whether a colour has gone thin
+   rather than gone away. */
+const FS_SUM = HEAD + RHO3 + `
+uniform int uQ, uB, uLay, uOp;
 out vec4 o;
 void main(){
-  ivec3 c = vol(ivec2(gl_FragCoord.xy), uQ, uTW);
-  if(c.z >= uQ){ o = vec4(0.0); return; }
+  ivec4 c = volL(ivec2(gl_FragCoord.xy), uQ, uTW);
+  if(c.z >= uQ || c.w >= uL){ o = vec4(0.0); return; }
   vec4 s = vec4(0.0);
   for(int z = 0; z < uB; z++)
     for(int y = 0; y < uB; y++)
-      for(int x = 0; x < uB; x++)
-        s += texelFetch(uRho, c*uB + ivec3(x,y,z), 0);
+      for(int x = 0; x < uB; x++){
+        vec4 v = rhoF(c.xyz*uB + ivec3(x,y,z), c.w);
+        s = uOp == 1 ? max(s, v) : s + v;
+      }
   o = s;
 }`;
 
@@ -595,9 +690,10 @@ void main(){
    block, holding the block's peak total density and its mean. The peak is
    what lets a ray jump a whole block when there is nothing in it; the mean is
    a cheap stand-in for the field when marching towards the light, which is
-   what makes self-shadowing affordable at all. */
-const FS_OCC = HEAD + `
-uniform sampler3D uRho; uniform int uQ, uC, uZ0;
+   what makes self-shadowing affordable at all. A one-cell halo on the peak
+   keeps the skip conservative at the block seams. */
+const FS_OCC = HEAD + RHO3 + `
+uniform int uQ, uC, uZ0;
 layout(location=0) out vec4 o0;
 layout(location=1) out vec4 o1;
 layout(location=2) out vec4 o2;
@@ -609,9 +705,12 @@ vec4 cell(ivec3 c){
   for(int z = -1; z < 9; z++)
     for(int y = -1; y < 9; y++)
       for(int x = -1; x < 9; x++){
-        vec4 v = texelFetch(uRho, wrap3(b + ivec3(x,y,z), uN), 0);
+        ivec3 q = wrap3(b + ivec3(x,y,z), uN);
         float t = 0.0;
-        for(int k = 0; k < 4; k++) if(k < uC) t += max(v[k], 0.0);
+        for(int l = 0; l < uL; l++){
+          vec4 v = rhoF(q, l);
+          for(int k = 0; k < 4; k++) if(l*4 + k < uC) t += max(v[k], 0.0);
+        }
         mx = max(mx, t);
         if(x >= 0 && y >= 0 && z >= 0 && x < 8 && y < 8 && z < 8) mean += t;
       }
@@ -639,27 +738,36 @@ void main(){
    transmittance falls, because a sample that will be attenuated to a tenth
    deserves a tenth of the care.
 
-   There is no second bounce. Light is a key with a short shadow march down the
-   occupancy volume, a sky ambient dimmed by how buried the sample is, and a
-   Henyey-Greenstein lobe so a cloud lit from behind glows at its rim. Single
-   scattering, but with the shadow term it reads as depth, which is all it
-   has to do. */
+   Four ways to put the volume on the screen, because one of them can only ever
+   show you the outside of it:
+     0 SOLID  the full thing -- key light with a shadow march, sky ambient
+              dimmed by how buried the sample is, a forward-scattering lobe.
+     1 FLAT   the same absorption with the lighting taken away, so what you
+              read is the colour and the depth order and nothing else.
+     2 X-RAY  nothing occludes anything: every sample adds. The inside of the
+              cloud is as visible as its skin, at the price of the early-out.
+     3 PEAK   maximum intensity along the ray. One structure per pixel, the
+              densest, which is the cleanest way to see what shape things are.
+   The last two cannot stop early -- that is what seeing through means -- so
+   they lean on the empty-space skip instead.                                */
 const FS_MARCH = `#version 300 es
 precision highp float; precision highp sampler3D;
-uniform sampler3D uRho, uOcc;
+uniform sampler3D uRho0, uRho1, uOcc;
 uniform vec2 uRes;
 uniform vec3 uEye, uRight, uUp, uFwd;
-uniform vec3 uPal[4], uKeyCol, uSkyCol, uLdir;
+uniform vec3 uPal[8], uKeyCol, uSkyCol, uLdir;
+uniform vec3 uLo, uHi;             // the box actually drawn -- the cross-section
+uniform float uVis[8];             // per colour, 0 hides it from the picture
 uniform float uTanHalf, uSigma, uStep, uEmit, uKey, uAmb, uSpec, uPhase, uAO, uJit;
-uniform float uFloor, uShade;
-uniform int uC, uMax, uN, uQ;
+uniform float uFloor, uShade, uGain;
+uniform int uC, uL, uMax, uN, uQ, uMode;
 layout(location=0) out vec4 oC;    // premultiplied colour, alpha = transmittance
 
 const float TMIN = 0.004;          // below this a ray can change nothing
 
-vec2 boxT(vec3 ro, vec3 rd){       // slab test against [-0.5, 0.5]^3
+vec2 boxT(vec3 ro, vec3 rd){       // slab test against the clipped box
   vec3 ir = 1.0/rd;
-  vec3 t0 = (-0.5 - ro)*ir, t1 = (0.5 - ro)*ir;
+  vec3 t0 = (uLo - ro)*ir, t1 = (uHi - ro)*ir;
   vec3 a = min(t0, t1), b = max(t0, t1);
   return vec2(max(max(a.x, a.y), a.z), min(min(b.x, b.y), b.z));
 }
@@ -674,7 +782,7 @@ float shadow(vec3 w, float dt){
   vec3 p = w;
   for(int i = 0; i < 6; i++){
     p += uLdir*s;
-    tau += max(texture(uOcc, fract(p)).g - uFloor, 0.0)*s;
+    tau += max(textureLod(uOcc, fract(p), 0.0).g - uFloor, 0.0)*s;
     s *= 1.7;
   }
   return exp(-tau*uSigma*uShade);
@@ -682,6 +790,28 @@ float shadow(vec3 w, float dt){
 float hg(float c, float g){
   float d = 1.0 + g*g - 2.0*g*c;
   return (1.0 - g*g)/(12.566*d*sqrt(max(d, 1e-4)));
+}
+// One sample of the field: the visible total, and the colour it should wear.
+// Hue comes from whichever colour dominates rather than from the plain sum,
+// because adding saturated channels together only ever walks towards grey.
+float sampleAt(vec3 w, out vec3 alb){
+  vec4 v0 = max(textureLod(uRho0, w, 0.0), vec4(0.0));
+  vec4 v1 = uL > 1 ? max(textureLod(uRho1, w, 0.0), vec4(0.0)) : vec4(0.0);
+  float tot = 0.0, ws = 0.0;
+  alb = vec3(0.0);
+  for(int k = 0; k < 4; k++){
+    if(k >= uC) break;
+    float m = v0[k]*uVis[k];
+    tot += m; float wq = m*m*m; alb += uPal[k]*wq; ws += wq;
+  }
+  for(int k = 0; k < 4; k++){
+    int cc = k + 4;
+    if(cc >= uC) break;
+    float m = v1[k]*uVis[cc];
+    tot += m; float wq = m*m*m; alb += uPal[cc]*wq; ws += wq;
+  }
+  alb /= max(ws, 1e-9);
+  return tot;
 }
 void main(){
   vec2 uv = (gl_FragCoord.xy/uRes)*2.0 - 1.0;
@@ -698,10 +828,10 @@ void main(){
   float ig = fract(52.9829189*fract(0.06711056*gl_FragCoord.x + 0.00583715*gl_FragCoord.y) + uJit);
   t += dt*ig;
 
-  vec3 acc = vec3(0.0); float trans = 1.0, lastSh = 1.0;
+  vec3 acc = vec3(0.0), bestC = vec3(0.0);
+  float trans = 1.0, lastSh = 1.0, best = 0.0;
   vec3 firstHit = vec3(0.0); float haveHit = 0.0;
-  float cosLV = dot(rd, uLdir);
-  float ph = mix(1.0, hg(cosLV, uPhase)*6.0, 0.6);
+  float ph = mix(1.0, hg(dot(rd, uLdir), uPhase)*6.0, 0.6);
 
   for(int i = 0; i < uMax; i++){
     if(t >= tEnd || trans < TMIN) break;
@@ -714,57 +844,53 @@ void main(){
       t += max(min(min(tv.x, tv.y), tv.z), 1e-5) + 1e-5;
       continue;
     }
-    vec4 v = max(texture(uRho, w), vec4(0.0));
-    float tot = 0.0;
-    for(int k = 0; k < 4; k++) if(k < uC) tot += v[k];
+    vec3 alb;
+    float tot = sampleAt(w, alb);
     // Everything below the floor is haze, and haze is what makes a volume look
     // like fog instead of like a thing. Subtracting it -- rather than scaling
     // the whole field down -- keeps the structures at full strength and lets
     // the empty-space skip claim the space between them as well.
     tot = max(tot - uFloor, 0.0);
     if(tot > 1e-4){
-      float sig = tot*uSigma;
-      float al = 1.0 - exp(-sig*dt);
-      // Hue from whichever colour dominates, not from the plain sum: adding
-      // three saturated channels together only ever walks towards grey.
-      vec3 alb = vec3(0.0); float ws = 0.0;
-      for(int k = 0; k < 4; k++){
-        if(k >= uC) break;
-        float wq = v[k]*v[k]*v[k];
-        alb += uPal[k]*wq; ws += wq;
+      if(uMode >= 2){
+        if(uMode == 2) acc += alb*(tot*dt*uGain*1.8);           // x-ray
+        else if(tot > best){ best = tot; bestC = alb; }         // peak
+      }else{
+        float al = 1.0 - exp(-tot*uSigma*dt);
+        float contrib = trans*al;
+        vec3 lit;
+        if(uMode == 0){
+          float bur = max(textureLod(uOcc, w, 0.0).g - uFloor*0.6, 0.0);   // how buried
+          float ao = mix(1.0, uAO, clamp(bur*uSigma*1.6, 0.0, 1.0));
+          // The same argument as the early-out, one level down: a sample that
+          // can only ever add a thousandth of the pixel does not get its own
+          // shadow ray. Shadow varies slowly along a ray, so the last stands.
+          if(contrib > 0.003) lastSh = shadow(w, dt);
+          lit = uKeyCol*(uKey*lastSh*ph) + uSkyCol*(uAmb*ao);
+        }else lit = vec3(uGain);
+        acc += contrib*(alb*lit + alb*uEmit*tot);
+        trans *= 1.0 - al;
+        if(haveHit < 0.5 && trans < 0.55){ firstHit = w; haveHit = 1.0; }
       }
-      alb /= max(ws, 1e-6);
-      float bur = max(texture(uOcc, w).g - uFloor*0.6, 0.0);   // how buried this is
-      float ao = mix(1.0, uAO, clamp(bur*uSigma*1.6, 0.0, 1.0));
-      // The same argument as the early-out, one level down: a sample that can
-      // only ever add a thousandth of the pixel does not get its own shadow
-      // ray. Shadow varies slowly along a ray, so the last one still stands.
-      float contrib = trans*al;
-      if(contrib > 0.003) lastSh = shadow(w, dt);
-      vec3 lit = uKeyCol*(uKey*lastSh*ph) + uSkyCol*(uAmb*ao);
-      acc += contrib*(alb*lit + alb*uEmit*tot);
-      trans *= 1.0 - al;
-      if(haveHit < 0.5 && trans < 0.55){ firstHit = w; haveHit = 1.0; }
     }
     t += dt;
     // A sample the ray can barely see does not deserve the same care as the
     // first one it meets. Growing the stride as transmittance falls is where
-    // most of the deep-cloud cost goes away.
+    // most of the deep-cloud cost goes away. Nothing hides anything in the
+    // see-through modes, so there the stride stays put.
     dt = uStep*(1.0 + 2.6*(1.0 - trans));
   }
+  if(uMode == 3) acc = bestC*(best*uGain*0.5);
 
-  if(haveHit > 0.5 && uSpec > 0.0){
+  if(uMode == 0 && haveHit > 0.5 && uSpec > 0.0){
     // One gradient, once per ray, at the depth the cloud first became solid.
     // Six taps buys the whole image a sense of surface; per sample it would
     // have cost six times the march.
     float e = 1.6/float(uN);
-    vec3 n = vec3(0.0);
+    vec3 n = vec3(0.0), junk;
     for(int k = 0; k < 3; k++){
       vec3 d = vec3(k == 0 ? e : 0.0, k == 1 ? e : 0.0, k == 2 ? e : 0.0);
-      float a = 0.0, b = 0.0;
-      vec4 va = texture(uRho, fract(firstHit + d)), vb = texture(uRho, fract(firstHit - d));
-      for(int q = 0; q < 4; q++) if(q < uC){ a += va[q]; b += vb[q]; }
-      n[k] = b - a;
+      n[k] = sampleAt(fract(firstHit - d), junk) - sampleAt(fract(firstHit + d), junk);
     }
     if(dot(n, n) > 1e-9){
       n = normalize(n);
@@ -774,7 +900,7 @@ void main(){
       acc += uKeyCol*(s + fres*uSpec*0.35)*(1.0 - trans);
     }
   }
-  oC = vec4(acc, trans);
+  oC = vec4(acc, uMode >= 2 ? 1.0 : trans);
 }`;
 
 /* The world behind the cube: a cold vertical gradient with a soft pool of
@@ -793,10 +919,12 @@ void main(){
 
 /* The twelve edges of the domain, drawn before the volume so the cloud hides
    the ones behind it. A wireframe is doing real work here: without it a
-   wrapping field has no visible boundary and the eye cannot find the box. */
+   wrapping field has no visible boundary and the eye cannot find the box --
+   and once there is a cross-section, the second, brighter cage is the only
+   thing that says where the cut was made. */
 const VS_LINE = `#version 300 es
-in vec3 a; uniform mat4 uMVP; uniform float uScl;
-void main(){ gl_Position = uMVP*vec4(a*uScl, 1.0); }`;
+in vec3 a; uniform mat4 uMVP; uniform vec3 uLo, uHi;
+void main(){ gl_Position = uMVP*vec4(mix(uLo, uHi, a + 0.5), 1.0); }`;
 const FS_LINE = `#version 300 es
 precision highp float; uniform vec3 uCol; out vec4 oC;
 void main(){ oC = vec4(uCol, 1.0); }`;
@@ -839,18 +967,20 @@ void main(){
   oC = vec4(max(c + (d - 0.5)/255.0, 0.0), 1.0);
 }`;
 
-/* One ray, at the cursor, marched exactly the way the picture is, to find the
-   depth the user is pointing at: the first place transmittance drops through a
-   half. That is "what you are looking at", so painting lands where the eye
-   says it should. Empty ray: the point nearest the middle of the cube. */
+/* One ray, at the cursor, marched the way the picture is, to find the depth
+   the user is pointing at: the first place transmittance drops through a half.
+   That is "what you are looking at", so painting lands where the eye says it
+   should. Empty ray: the point nearest the middle of the cube. */
 const FS_PICK = `#version 300 es
 precision highp float; precision highp sampler3D;
-uniform sampler3D uRho, uOcc;
-uniform vec3 uEye, uRay; uniform float uSigma, uStep, uFloor; uniform int uC, uMax, uQ;
+uniform sampler3D uRho0, uRho1, uOcc;
+uniform vec3 uEye, uRay, uLo, uHi;
+uniform float uSigma, uStep, uFloor, uVis[8];
+uniform int uC, uL, uMax, uQ;
 out vec4 oC;
 vec2 boxT(vec3 ro, vec3 rd){
   vec3 ir = 1.0/rd;
-  vec3 t0 = (-0.5 - ro)*ir, t1 = (0.5 - ro)*ir;
+  vec3 t0 = (uLo - ro)*ir, t1 = (uHi - ro)*ir;
   vec3 a = min(t0, t1), b = max(t0, t1);
   return vec2(max(max(a.x, a.y), a.z), min(min(b.x, b.y), b.z));
 }
@@ -864,16 +994,18 @@ void main(){
   for(int i = 0; i < uMax; i++){
     if(t >= tt.y) break;
     vec3 w = uEye + rd*t + 0.5;
-    if(max(texelFetch(uOcc, clamp(ivec3(floor(w*float(uQ))), ivec3(0), ivec3(uQ - 1)), 0).r - uFloor, 0.0)*uSigma*uStep < 0.0015){
+    if(max(texelFetch(uOcc, clamp(ivec3(floor(w*float(uQ))), ivec3(0), ivec3(uQ - 1)), 0).r
+           - uFloor, 0.0)*uSigma*uStep < 0.0015){
       vec3 g = floor(w*float(uQ));
       vec3 nb = (g + step(0.0, rd))/float(uQ);
       vec3 tv = (nb - w)/rd;
       t += max(min(min(tv.x, tv.y), tv.z), 1e-5) + 1e-5;
       continue;
     }
-    vec4 v = max(texture(uRho, w), vec4(0.0));
+    vec4 v0 = max(textureLod(uRho0, w, 0.0), vec4(0.0));
+    vec4 v1 = uL > 1 ? max(textureLod(uRho1, w, 0.0), vec4(0.0)) : vec4(0.0);
     float tot = 0.0;
-    for(int k = 0; k < 4; k++) if(k < uC) tot += v[k];
+    for(int k = 0; k < 4; k++){ if(k < uC) tot += v0[k]*uVis[k]; if(k + 4 < uC) tot += v1[k]*uVis[k+4]; }
     trans *= exp(-max(tot - uFloor, 0.0)*uSigma*uStep);
     if(trans < 0.5){ oC = vec4(w, 1.0); return; }
     t += uStep;
@@ -995,23 +1127,74 @@ function make3D(n, ifmt, filt = gl.LINEAR){
   t.n = n;
   return t;
 }
-const tiles = n => { const tw = Math.ceil(Math.sqrt(n)); return [tw, Math.ceil(n/tw)]; };
 
 /* =================================================================== state */
+// Steps of the simulation per frame. Below one it is a step every few frames,
+// which is what keeps a very large grid interactive: the picture stays at the
+// frame rate and only the field slows down.
+const RATES = [1/8, 1/4, 1/2, 1, 2, 3, 4];
+const RATELAB = ["1/8", "1/4", "1/2", "1", "2", "3", "4"];
+const MODES = ["solid", "flat", "x-ray", "peak"];
+/* Worlds worth keeping. A hundred matrices were sampled in a headless browser
+   and each was run for a hundred and forty steps while three slices of the
+   field were read back, which gives four numbers: how much structure it holds,
+   how fast it moves, whether it has settled, and -- the one that matters most
+   -- whether the motion is coherent or the lattice is merely shimmering. That
+   last is measured across three CONSECUTIVE steps: smooth motion is nearly a
+   straight line in time, flicker is not. A third of the hundred survived; these
+   are the ones worth a name. The radius is stored as a fraction of the grid so
+   a world found on 64 cubed is the same world on 192. */
+const PRESETS = [
+  {name:"studded",  C:3, radiusF:0.2188, force:90, repel:13.88, beta:1.07, noise:0,
+   density:0.142, seedMode:1, seedSize:0.32, seed:4242,
+   mat:[-0.847, 0.784, 0.562, 0.908, -0.522, -0.821, -0.269, 0.303, -0.702]},   // a green body under a crust of violet spheres
+  {name:"puffer",   C:3, radiusF:0.2188, force:54, repel:2.2, beta:1.48, noise:0.2,
+   density:0.095, seedMode:1, seedSize:0.32, seed:4242,
+   mat:[-0.835, 0.566, -0.894, -0.531, 0.729, -0.539, 0.931, 0.780, -0.693]},   // lobed, and it does not sit still
+  {name:"roe",      C:3, radiusF:0.1406, force:21, repel:15.48, beta:0.75, noise:0,
+   density:0.083, seedMode:1, seedSize:0.34, seed:4242,
+   mat:[-0.851, 0.999, 0.514, -0.267, -0.655, 0.715, -0.359, 0.834, -0.779]},   // the smoothest of them: no flicker at all
+  {name:"cells",    C:3, radiusF:0.2188, force:90, repel:13.88, beta:1.07, noise:0,
+   density:0.142, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.847, 0.784, 0.562, 0.908, -0.522, -0.821, -0.269, 0.303, -0.702]},   // the same rule filling the cube
+  {name:"froth",    C:3, radiusF:0.1562, force:53, repel:2.57, beta:2.99, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.994, 0.542, 0.002, -0.533, -0.209, -0.999, 0.946, -0.484, -0.136]},   // fine cells, coherent
+  {name:"gas",      C:3, radiusF:0.1406, force:21, repel:15.48, beta:0.75, noise:0,
+   density:0.083, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.851, 0.999, 0.514, -0.267, -0.655, 0.715, -0.359, 0.834, -0.779]},   // low contrast, always moving
+  {name:"grain",    C:3, radiusF:0.1094, force:54, repel:7.85, beta:2.99, noise:0,
+   density:0.063, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.834, 0.969, -0.450, 0.066, -0.492, 0.316, -0.275, -0.547, -0.641]},   // slow and heavily structured
+  {name:"fizz",     C:3, radiusF:0.1094, force:127, repel:4.66, beta:3.63, noise:0,
+   density:0.097, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.505, 0.790, -0.946, 0.100, -0.400, -0.132, 0.052, 0.140, -0.169]},   // fine and lively
+  {name:"surge",    C:3, radiusF:0.2188, force:54, repel:2.2, beta:1.48, noise:0.2,
+   density:0.095, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.835, 0.566, -0.894, -0.531, 0.729, -0.539, 0.931, 0.780, -0.693]},   // fast
+  {name:"storm",    C:3, radiusF:0.0938, force:127, repel:2.17, beta:3.1, noise:0,
+   density:0.084, seedMode:0, seedSize:0.3, seed:4242,
+   mat:[-0.156, 0.034, -0.963, 0.107, -0.501, -0.802, 0.679, 0.267, -0.037]},   // faster, and it shimmers a little
+];
+
 const S = {
-  N: 96, C: 3, density: 0.11, radius: 16,
-  force: 90, repel: 6, beta: 3, noise: 0, steps: 1,
-  seed: (Math.random()*1e6)|0, seedMode: 1,        // 1 = ball, 0 = cloud
+  N: 96, C: 3, density: 0.10, radius: 16,
+  force: 90, repel: 6, beta: 3, noise: 0, rate: 3,
+  seed: (Math.random()*1e6)|0, seedMode: 1, seedSize: 0.30,
   palette: "Aurora",
-  sigma: 46, floor: 0.30, expo: 1.0, key: 2.9, amb: 0.22, emit: 0.05, spec: 0.55,
-  phase: 0.45, ao: 0.10, shade: 0.13, quality: "auto", scale: 0.8, stepq: 1.0,
+  mode: 0, gain: 1.0,
+  sigma: 46, floor: 0.30, expo: 1.0, key: 2.9, amb: 0.22, emit: 0.05, spec: 0.22,
+  phase: 0.4, ao: 0.10, shade: 0.13, quality: "auto", scale: 0.8, stepq: 1.5,
   lyaw: 1.15, lpitch: 0.5,
   yaw: 0.7, pitch: 0.36, dist: 2.15,
+  cutAx: -1, cutA: 0.0, cutB: 0.5, preset: -1,
   brush: 9, flow: 0.9,
   running: true, frame: 0, showBox: true
 };
-let paintMask = new Float32Array([1, 1, 1, 1]);   // which colours the brush lays down
-const PALETTES = ["Spectrum", "Aurora", "Ember", "Ice", "Candy", "Mono"];
+let paintMask = new Float32Array(8).fill(1);      // which colours the brush lays down
+let vis = new Float32Array(8).fill(1);            // which colours the picture shows
+
+const PALETTES = ["Aurora", "Spectrum", "Ember", "Ice", "Candy", "Mono"];
 function hueRing(t){
   const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
   return [[1,x,0],[x,1,0],[0,1,x],[0,x,1],[x,0,1],[1,0,x]][Math.floor(h) % 6];
@@ -1041,13 +1224,13 @@ function mulberry32(a){
   };
 }
 let palette = makePalette(S.C, S.palette);
-let mat = new Float32Array(16);
+let mat = new Float32Array(64);                   // row-major, stride 8
 function resampleMatrix(seed){
   S.seed = seed >>> 0;
   const r = mulberry32(S.seed);
-  mat = new Float32Array(16);
+  mat = new Float32Array(64);
   for(let c = 0; c < S.C; c++)
-    for(let d = 0; d < S.C; d++) mat[c*4 + d] = r()*2 - 1;
+    for(let d = 0; d < S.C; d++) mat[c*8 + d] = r()*2 - 1;
   buildMatrixUI();
 }
 
@@ -1061,52 +1244,78 @@ const P = {
   acc: program(FS_ACC), pick: program(FS_PICK), line: program(FS_LINE, VS_LINE)
 };
 
-let T = {}, G = {};                    // simulation textures, and their geometry
+const MAXTEX = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+const MAX3D = gl.getParameter(gl.MAX_3D_TEXTURE_SIZE);
+const tiles = n => { const tw = Math.ceil(Math.sqrt(n)); return [tw, Math.ceil(n/tw)]; };
+const layersFor = C => Math.ceil(C/4);
+/* What a grid would cost in texture memory, before allocating it. rho is two
+   banks of half floats, the shares are full floats and the biggest single
+   thing here, and the half-pitch bank is six more half-float volumes at an
+   eighth the cells each. */
+function memFor(N, C){
+  const L = layersFor(C), cells = N*N*N*L, half = cells/8;
+  return (2*cells*8 + cells*8 + cells*16 + 6*half*8 + (N/8)**3*8)/1048576;
+}
+function fitsGrid(N, C){
+  const L = layersFor(C);
+  const [tw] = tiles(N*L), [mw] = tiles((N >> 1)*L);
+  return N <= MAX3D && tw*N <= MAXTEX && mw*(N >> 1) <= MAXTEX;
+}
+
+let T = {}, G = {};
 function allocSim(){
   for(const k in T){
     const v = T[k];
-    for(const t of (Array.isArray(v) ? v : [v])) if(t) gl.deleteTexture(t);
+    for(const t of (Array.isArray(v) ? v.flat() : [v])) if(t) gl.deleteTexture(t);
   }
   T = {};
-  const N = S.N, M = N >> 1, Q = N >> 3, B = 8, QS = Math.max(1, N/B) | 0;
-  const [tw, th] = tiles(N), [mw, mh] = tiles(M), [qw, qh] = tiles(QS);
-  G = {N, M, Q, B, QS, tw, th, mw, mh, qw, qh};
-  T.rho = [make3D(N, gl.RGBA16F), make3D(N, gl.RGBA16F)];
+  const N = S.N, M = N >> 1, Q = N >> 3, B = 8, QS = N/B, L = layersFor(S.C);
+  const [tw, th] = tiles(N*L), [mw, mh] = tiles(M*L), [qw, qh] = tiles(QS*L);
+  G = {N, M, Q, B, QS, L, tw, th, mw, mh, qw, qh,
+       AW: tw*N, AH: th*N, MW: mw*M, MH: mh*M, SW: qw*QS, SH: qh*QS};
+  T.rhoA = []; T.rhoB = [];
+  for(let l = 0; l < L; l++){
+    T.rhoA.push(make3D(N, gl.RGBA16F));
+    T.rhoB.push(make3D(N, gl.RGBA16F));
+  }
   T.occ = make3D(Q, gl.RGBA16F);
-  T.dn  = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.b0  = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.b1  = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.c0  = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.c1  = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.aff = make2D(mw*M, mh*M, gl.RGBA16F);
-  T.E   = make2D(tw*N, th*N, gl.RGBA16F);
-  T.S   = make2D(tw*N, th*N, gl.RGBA32F);
-  T.sum = make2D(qw*QS, qh*QS, gl.RGBA32F);
+  for(const k of ["dn", "b0", "b1", "c0", "c1", "aff"]) T[k] = make2D(G.MW, G.MH, gl.RGBA16F);
+  T.E   = make2D(G.AW, G.AH, gl.RGBA16F);
+  T.S   = make2D(G.AW, G.AH, gl.RGBA32F);
+  T.sum = make2D(G.SW, G.SH, gl.RGBA32F);
   S.frame = 0;
 }
-/* Every layered pass walks the volume KZ slices at a time. */
+/* Every layered pass walks one layer's slices KZ at a time. */
 function eachSlab(n, fn){
   for(let z = 0; z < n; z += KZ) fn(z, Math.min(KZ, n - z));
 }
-function memMB(){
-  const N = G.N, M = G.M, tw = G.tw*N*G.th*N, mm = G.mw*M*G.mh*M;
-  return (2*N*N*N*8 + G.Q*G.Q*G.Q*8 + 6*mm*8 + tw*8 + tw*16)/1048576;
+function eachLayerSlab(t3d, n, bind, draw){
+  for(let l = 0; l < G.L; l++){
+    bind(l);
+    eachSlab(n, (z, c) => { draw(l, z); targetLayers(t3d[l], z, c, n); drawQuad(); });
+  }
 }
+const memMB = () => memFor(G.N, S.C);
 
 const ui  = (u,n,v) => { const l = u[n]; if(l) gl.uniform1i(l, v); };
 const uf  = (u,n,v) => { const l = u[n]; if(l) gl.uniform1f(l, v); };
 const u2  = (u,n,a,b) => { const l = u[n]; if(l) gl.uniform2f(l, a, b); };
+const u3  = (u,n,a,b,c) => { const l = u[n]; if(l) gl.uniform3f(l, a, b, c); };
 const u3v = (u,n,v) => { const l = u[n]; if(l) gl.uniform3fv(l, v); };
 const ufv = (u,n,v) => { const l = u[n]; if(l) gl.uniform1fv(l, v); };
+/* Both banks of the field, for the passes that read it as a 3D texture. */
+function bindRho(u, bank, unit){
+  ui(u, "uRho0", tex(unit, bank[0], gl.TEXTURE_3D));
+  ui(u, "uRho1", tex(unit + 1, bank[G.L > 1 ? 1 : 0], gl.TEXTURE_3D));
+}
 
 /* ==================================================================== step
-   Seven passes. Six of them are one draw call over an atlas of every slice at
-   once; only the last has to write the 3D texture the renderer samples, and it
-   does four slices per call. At N = 96 that is 6 + 24 draws for a step.      */
+   Seven passes. Six of them are one draw call over an atlas holding every
+   slice of every layer at once; only the last has to write the 3D textures the
+   renderer samples, and it does four slices per call. At N = 96 with three
+   colours that is 6 + 24 draws for a step.                                  */
 function simStep(){
-  const {N, M, tw, mw, mh, th} = G;
-  const src = T.rho[0], dst = T.rho[1];
-  const AW = tw*N, AH = th*N, MW = mw*M, MH = mh*M;
+  const {N, M, tw, mw, L, AW, AH, MW, MH} = G;
   // stencil half-width and the two sigmas, in HALF-grid cells. The far sigma
   // is a quarter of the reach, as on the flat page: cut nearer than about four
   // sigma and the window's own shape starts showing through the field.
@@ -1114,12 +1323,12 @@ function simStep(){
   const sigF = K/4, sigN = Math.max(0.5, K*0.1);
 
   let u = use(P.down);
-  ui(u, "uRho", tex(0, src, gl.TEXTURE_3D));
-  ui(u, "uM", M); ui(u, "uTW", mw);
+  bindRho(u, T.rhoA, 0);
+  ui(u, "uM", M); ui(u, "uTW", mw); ui(u, "uL", L);
   target2(T.dn, MW, MH); drawQuad();
 
   u = use(P.blur);
-  ui(u, "uM", M); ui(u, "uTW", mw); ui(u, "uK", K);
+  ui(u, "uM", M); ui(u, "uTW", mw); ui(u, "uL", L); ui(u, "uK", K);
   uf(u, "uSigN", sigN); uf(u, "uSigF", sigF);
   for(let ax = 0; ax < 3; ax++){
     const from = ax === 0 ? [T.dn, T.dn] : ax === 1 ? [T.b0, T.b1] : [T.c0, T.c1];
@@ -1130,56 +1339,63 @@ function simStep(){
   }
 
   u = use(P.aff);
-  ui(u, "uM", M); ui(u, "uTW", mw); ui(u, "uC", S.C);
+  ui(u, "uM", M); ui(u, "uTW", mw); ui(u, "uL", L); ui(u, "uC", S.C);
   ui(u, "uNear", tex(0, T.b0)); ui(u, "uFar", tex(1, T.b1));
   ufv(u, "uMat", mat); uf(u, "uForce", S.force); uf(u, "uRepel", S.repel);
   target2(T.aff, MW, MH); drawQuad();
 
   u = use(P.exp);
-  ui(u, "uN", N); ui(u, "uTW", tw); ui(u, "uM", M); ui(u, "uTWm", mw);
+  ui(u, "uN", N); ui(u, "uTW", tw); ui(u, "uL", L); ui(u, "uM", M); ui(u, "uTWm", mw);
   ui(u, "uA", tex(0, T.aff)); uf(u, "uBeta", S.beta); uf(u, "uNoise", S.noise);
   ui(u, "uFrame", S.frame);
   target2(T.E, AW, AH); drawQuad();
 
   u = use(P.share);
-  ui(u, "uN", N); ui(u, "uTW", tw);
-  ui(u, "uE", tex(0, T.E)); ui(u, "uRho", tex(1, src, gl.TEXTURE_3D));
+  ui(u, "uN", N); ui(u, "uTW", tw); ui(u, "uL", L);
+  ui(u, "uE", tex(0, T.E)); bindRho(u, T.rhoA, 1);
   target2(T.S, AW, AH); drawQuad();
 
   u = use(P.move);
-  ui(u, "uN", N); ui(u, "uTW", tw);
+  ui(u, "uN", N); ui(u, "uTW", tw); ui(u, "uL", L);
   ui(u, "uE", tex(0, T.E)); ui(u, "uS", tex(1, T.S));
-  eachSlab(N, (z, c) => {
-    ui(u, "uZ0", z);
-    targetLayers(dst, z, c, N);
-    drawQuad();
-  });
-  T.rho = [dst, src];
+  eachLayerSlab(T.rhoB, N, l => ui(u, "uLay", l), (l, z) => ui(u, "uZ0", z));
+  const t = T.rhoA; T.rhoA = T.rhoB; T.rhoB = t;
   S.frame++;
 }
 
 /* The renderer's acceleration volume, rebuilt from the field it will march. */
 function buildOcc(){
   const u = use(P.occ);
-  ui(u, "uN", G.N); ui(u, "uQ", G.Q); ui(u, "uC", S.C);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
+  ui(u, "uN", G.N); ui(u, "uQ", G.Q); ui(u, "uC", S.C); ui(u, "uL", G.L);
+  bindRho(u, T.rhoA, 0);
   eachSlab(G.Q, (z, c) => { ui(u, "uZ0", z); targetLayers(T.occ, z, c, G.Q); drawQuad(); });
 }
 
-/* Total mass per colour, by summing 8^3 blocks on the GPU and finishing the
-   few thousand that are left on the CPU. */
-function totals(){
+/* Per colour: the mean over the cube, and the peak of any 8^3 block. Both are
+   reductions on the GPU finished on the CPU. The peak is worth having in the
+   readout -- when a colour looks like it has vanished, this is what says
+   whether it went away or merely spread out until it fell under the
+   threshold the picture cuts at. */
+function reduce(op){
   const u = use(P.sum);
-  ui(u, "uQ", G.QS); ui(u, "uB", G.B); ui(u, "uTW", G.qw);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
-  const w = G.qw*G.QS, h = G.qh*G.QS;
-  target2(T.sum, w, h); drawQuad();
-  const buf = new Float32Array(w*h*4);
-  gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, buf);
-  const out = [0, 0, 0, 0];
-  for(let i = 0; i < buf.length; i += 4)
-    for(let k = 0; k < 4; k++) out[k] += buf[i + k];
-  return out;
+  ui(u, "uQ", G.QS); ui(u, "uB", G.B); ui(u, "uTW", G.qw); ui(u, "uL", G.L); ui(u, "uOp", op);
+  bindRho(u, T.rhoA, 0);
+  target2(T.sum, G.SW, G.SH); drawQuad();
+  const buf = new Float32Array(G.SW*G.SH*4);
+  gl.readPixels(0, 0, G.SW, G.SH, gl.RGBA, gl.FLOAT, buf);
+  const out = new Array(8).fill(0);
+  for(let y = 0; y < G.SH; y++)
+    for(let x = 0; x < G.SW; x++){
+      const l = ((((y/G.QS)|0)*G.qw + ((x/G.QS)|0))/G.QS)|0;
+      if(l >= G.L) continue;
+      const i = (y*G.SW + x)*4;
+      for(let k = 0; k < 4; k++){
+        const c = l*4 + k;
+        if(c < S.C) out[c] = op === 1 ? Math.max(out[c], buf[i+k]) : out[c] + buf[i+k];
+      }
+    }
+  if(op === 0){ const cells = G.N**3; for(let c = 0; c < S.C; c++) out[c] /= cells; }
+  return out.slice(0, S.C);
 }
 
 function reseed(newSeed){
@@ -1187,18 +1403,17 @@ function reseed(newSeed){
   const N = G.N;
   let u = use(P.seed);
   ui(u, "uN", N); ui(u, "uC", S.C); ui(u, "uSeed", S.seed);
-  ui(u, "uMode", S.seedMode); uf(u, "uAmp", 1.0);
-  eachSlab(N, (z, c) => { ui(u, "uZ0", z); targetLayers(T.rho[0], z, c, N); drawQuad(); });
+  ui(u, "uMode", S.seedMode); uf(u, "uAmp", 1.0); uf(u, "uSize", S.seedSize);
+  eachLayerSlab(T.rhoA, N, l => ui(u, "uLay", l), (l, z) => ui(u, "uZ0", z));
   // Then set every colour's mean to the density asked for. The seed shader has
   // no way to know its own sum, so it is measured and divided out here.
-  const tot = totals(), cells = N*N*N, mul = new Float32Array(4);
-  for(let k = 0; k < 4; k++)
-    mul[k] = k < S.C ? (tot[k] > 1e-9 ? S.density*cells/tot[k] : 0) : 0;
+  const mean = reduce(0), mul = new Float32Array(8);
+  for(let c = 0; c < S.C; c++) mul[c] = mean[c] > 1e-9 ? S.density/mean[c] : 0;
   u = use(P.scale);
-  ui(u, "uC", S.C); ufv(u, "uMul", mul);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
-  eachSlab(N, (z, c) => { ui(u, "uZ0", z); targetLayers(T.rho[1], z, c, N); drawQuad(); });
-  T.rho = [T.rho[1], T.rho[0]];
+  ui(u, "uN", N); ui(u, "uC", S.C); ufv(u, "uMul", mul);
+  bindRho(u, T.rhoA, 0);
+  eachLayerSlab(T.rhoB, N, l => ui(u, "uLay", l), (l, z) => ui(u, "uZ0", z));
+  const t = T.rhoA; T.rhoA = T.rhoB; T.rhoB = t;
   S.frame = 0; massAt = -1e9;
   buildOcc();
   resetAccum();
@@ -1208,12 +1423,12 @@ function paintAt(p, amount){
   const N = G.N;
   const u = use(P.paint);
   ui(u, "uN", N); ui(u, "uC", S.C);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
-  const l = u.uBrush; if(l) gl.uniform3f(l, p[0]*N, p[1]*N, p[2]*N);
+  bindRho(u, T.rhoA, 0);
+  u3(u, "uBrush", p[0]*N, p[1]*N, p[2]*N);
   uf(u, "uBrushR", S.brush); uf(u, "uBrushAmt", amount);
   ufv(u, "uBrushMask", paintMask);
-  eachSlab(N, (z, c) => { ui(u, "uZ0", z); targetLayers(T.rho[1], z, c, N); drawQuad(); });
-  T.rho = [T.rho[1], T.rho[0]];
+  eachLayerSlab(T.rhoB, N, l => ui(u, "uLay", l), (l, z) => ui(u, "uZ0", z));
+  const t = T.rhoA; T.rhoA = T.rhoB; T.rhoB = t;
 }
 
 /* ================================================================== camera */
@@ -1249,8 +1464,7 @@ function camera(){
   const fwd = [-dir[0], -dir[1], -dir[2]];
   const up0 = Math.abs(sp) > 0.995 ? [0,0,1] : [0,1,0];
   const right = norm(cross(fwd, up0));
-  const up = cross(right, fwd);
-  return {eye, fwd, right, up};
+  return {eye, fwd, right, up: cross(right, fwd)};
 }
 /* The key is held at a fixed angle FROM THE VIEW rather than from the world.
    A light fixed in the world spends half of every orbit directly behind the
@@ -1259,6 +1473,18 @@ function lightDir(){
   const yaw = S.yaw + S.lyaw, pitch = Math.max(-1.2, Math.min(1.2, S.pitch + S.lpitch));
   const cp = Math.cos(pitch);
   return norm([cp*Math.sin(yaw), Math.sin(pitch), cp*Math.cos(yaw)]);
+}
+/* The box the renderer actually draws. Thickness 1 with the position off
+   centre is a half-space -- a cut through the thing -- and a small thickness
+   is a slab, which is the flat page's picture again, one plane of the cube. */
+function cutBox(){
+  const lo = [-0.5,-0.5,-0.5], hi = [0.5,0.5,0.5];
+  if(S.cutAx >= 0){
+    const a = S.cutAx, e = Math.max(0.5/G.N, 1e-4);
+    lo[a] = Math.min(S.cutA, S.cutB) - 0.5;
+    hi[a] = Math.max(Math.max(S.cutA, S.cutB) - 0.5, lo[a] + e);
+  }
+  return [new Float32Array(lo), new Float32Array(hi)];
 }
 
 /* ================================================================== render */
@@ -1273,59 +1499,66 @@ function allocRT(w, h){
   RT.w = w; RT.h = h;
   resetAccum();
 }
-function ensurePick(){
-  if(pickTex) return;
-  pickTex = make2D(1, 1, gl.RGBA32F);
-  pickFB = gl.createFramebuffer();
-}
+const FULLLO = new Float32Array([-0.5,-0.5,-0.5]), FULLHI = new Float32Array([0.5,0.5,0.5]);
 
 function render(){
   const cw = cv.width, ch = cv.height;
   const rw = Math.max(64, Math.round(cw*S.scale)), rh = Math.max(48, Math.round(ch*S.scale));
   allocRT(rw, rh);
-  const cam = camera(), N = G.N;
+  const cam = camera(), N = G.N, [lo, hi] = cutBox();
   const stepw = 1/(N*S.stepq);
-  const maxSteps = Math.min(900, Math.ceil(2.0*N*S.stepq));
+  const maxSteps = Math.min(1400, Math.ceil(2.0*N*S.stepq));
 
   gl.disable(gl.BLEND);
   target2(RT.hdr, rw, rh);
   let u = use(P.bg);
   u2(u, "uRes", rw, rh);
-  u3v(u, "uGlow", new Float32Array([0.016, 0.021, 0.036]));
+  u3(u, "uGlow", 0.016, 0.021, 0.036);
   drawQuad();
 
   if(S.showBox){
     const mvp = mul4(persp(FOV, rw/rh, 0.05, 40), lookAt(cam.eye, [0,0,0], [0,1,0]));
     u = use(P.line);
     gl.uniformMatrix4fv(u.uMVP, false, mvp);
-    uf(u, "uScl", 1.0);
-    u3v(u, "uCol", new Float32Array([0.020, 0.028, 0.042]));
     gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
-    gl.bindVertexArray(lineVAO); gl.drawArrays(gl.LINES, 0, 24);
+    gl.bindVertexArray(lineVAO);
+    const cut = lo[0] !== -0.5 || hi[0] !== 0.5 || lo[1] !== -0.5 || hi[1] !== 0.5
+             || lo[2] !== -0.5 || hi[2] !== 0.5;
+    if(cut){                              // the whole domain, faintly, behind it
+      u3v(u, "uLo", FULLLO); u3v(u, "uHi", FULLHI);
+      u3(u, "uCol", 0.010, 0.014, 0.021);
+      gl.drawArrays(gl.LINES, 0, 24);
+    }
+    u3v(u, "uLo", lo); u3v(u, "uHi", hi);
+    u3(u, "uCol", 0.020, 0.028, 0.042);
+    gl.drawArrays(gl.LINES, 0, 24);
     gl.disable(gl.BLEND);
   }
 
   u = use(P.march);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
-  ui(u, "uOcc", tex(1, T.occ, gl.TEXTURE_3D));
+  bindRho(u, T.rhoA, 0);
+  ui(u, "uOcc", tex(2, T.occ, gl.TEXTURE_3D));
   u2(u, "uRes", rw, rh);
   u3v(u, "uEye", new Float32Array(cam.eye));
   u3v(u, "uRight", new Float32Array(cam.right));
   u3v(u, "uUp", new Float32Array(cam.up));
   u3v(u, "uFwd", new Float32Array(cam.fwd));
-  const pal = new Float32Array(12);
-  palette.forEach((c, i) => { if(i < 4){ pal[i*3] = c[0]; pal[i*3+1] = c[1]; pal[i*3+2] = c[2]; } });
+  u3v(u, "uLo", lo); u3v(u, "uHi", hi);
+  const pal = new Float32Array(24);
+  palette.forEach((c, i) => { if(i < 8){ pal[i*3] = c[0]; pal[i*3+1] = c[1]; pal[i*3+2] = c[2]; } });
   u3v(u, "uPal", pal);
-  u3v(u, "uKeyCol", new Float32Array([1.0, 0.94, 0.84]));
-  u3v(u, "uSkyCol", new Float32Array([0.44, 0.58, 0.82]));
+  ufv(u, "uVis", vis);
+  u3(u, "uKeyCol", 1.0, 0.94, 0.84);
+  u3(u, "uSkyCol", 0.44, 0.58, 0.82);
   u3v(u, "uLdir", new Float32Array(lightDir()));
   uf(u, "uTanHalf", Math.tan(FOV/2));
   uf(u, "uSigma", S.sigma); uf(u, "uStep", stepw);
-  uf(u, "uFloor", S.floor); uf(u, "uShade", S.shade);
+  uf(u, "uFloor", S.floor); uf(u, "uShade", S.shade); uf(u, "uGain", S.gain);
   uf(u, "uEmit", S.emit); uf(u, "uKey", S.key); uf(u, "uAmb", S.amb);
   uf(u, "uSpec", S.spec); uf(u, "uPhase", S.phase); uf(u, "uAO", S.ao);
   uf(u, "uJit", (accN*0.6180339887) % 1);
-  ui(u, "uC", S.C); ui(u, "uMax", maxSteps); ui(u, "uN", N); ui(u, "uQ", G.Q);
+  ui(u, "uC", S.C); ui(u, "uL", G.L); ui(u, "uMode", S.mode);
+  ui(u, "uMax", maxSteps); ui(u, "uN", N); ui(u, "uQ", G.Q);
   gl.enable(gl.BLEND);
   gl.blendFuncSeparate(gl.ONE, gl.SRC_ALPHA, gl.ZERO, gl.ONE);
   drawQuad();
@@ -1357,25 +1590,25 @@ function render(){
 /* Where is the user pointing? One ray, marched the same way the picture is,
    read back as a single pixel. Only ever run with a finger down. */
 function pick(px, py){
-  ensurePick();
-  const cam = camera();
+  if(!pickTex){ pickTex = make2D(1, 1, gl.RGBA32F); pickFB = gl.createFramebuffer(); }
+  const cam = camera(), [lo, hi] = cutBox();
   const asp = cv.width/cv.height, th = Math.tan(FOV/2);
   const x = (px/cv.clientWidth)*2 - 1, y = 1 - (py/cv.clientHeight)*2;
-  const ray = [
-    cam.fwd[0] + cam.right[0]*x*th*asp + cam.up[0]*y*th,
-    cam.fwd[1] + cam.right[1]*x*th*asp + cam.up[1]*y*th,
-    cam.fwd[2] + cam.right[2]*x*th*asp + cam.up[2]*y*th];
+  const ray = [0, 1, 2].map(i =>
+    cam.fwd[i] + cam.right[i]*x*th*asp + cam.up[i]*y*th);
   gl.bindFramebuffer(gl.FRAMEBUFFER, pickFB);
   gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, pickTex, 0);
   gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
   gl.viewport(0, 0, 1, 1);
   const u = use(P.pick);
-  ui(u, "uRho", tex(0, T.rho[0], gl.TEXTURE_3D));
-  ui(u, "uOcc", tex(1, T.occ, gl.TEXTURE_3D));
+  bindRho(u, T.rhoA, 0);
+  ui(u, "uOcc", tex(2, T.occ, gl.TEXTURE_3D));
   u3v(u, "uEye", new Float32Array(cam.eye));
   u3v(u, "uRay", new Float32Array(ray));
+  u3v(u, "uLo", lo); u3v(u, "uHi", hi);
+  ufv(u, "uVis", vis);
   uf(u, "uSigma", S.sigma); uf(u, "uStep", 1/G.N); uf(u, "uFloor", S.floor);
-  ui(u, "uC", S.C); ui(u, "uMax", Math.min(600, 2*G.N)); ui(u, "uQ", G.Q);
+  ui(u, "uC", S.C); ui(u, "uL", G.L); ui(u, "uMax", Math.min(900, 2*G.N)); ui(u, "uQ", G.Q);
   gl.disable(gl.BLEND);
   drawQuad();
   const out = new Float32Array(4);
@@ -1385,7 +1618,7 @@ function pick(px, py){
 
 /* =================================================================== input */
 const pts = new Map();
-let mode = null, pinch0 = 0, dist0 = 0, painting = 0, lastPaint = 0;
+let mode = null, pinch0 = 0, dist0 = 0, painting = 0;
 const app = $("app");
 function localXY(e){
   const r = cv.getBoundingClientRect();
@@ -1402,8 +1635,7 @@ cv.addEventListener("pointerdown", e => {
     pinch0 = Math.hypot(a[0]-b[0], a[1]-b[1]); dist0 = S.dist;
     return;
   }
-  const wantPaint = e.shiftKey || e.button === 2 || e.altKey;
-  if(wantPaint){
+  if(e.shiftKey || e.button === 2 || e.altKey){
     mode = "paint"; painting = e.altKey || e.button === 2 ? -1 : 1;
     cv.classList.add("painting"); doPaint(e);
   }else{
@@ -1452,6 +1684,10 @@ addEventListener("keydown", e => {
   else if(k === "f") toggleFull();
   else if(k === "h") $("rack").classList.toggle("hid");
   else if(k === "s"){ S.running = false; syncRun(); simStep(); buildOcc(); resetAccum(); }
+  else if(k === "v"){ S.mode = (S.mode + 1) % MODES.length; buildUI(); resetAccum(); }
+  else if(k === "c"){ S.cutAx = S.cutAx >= 2 ? -1 : S.cutAx + 1;
+                      if(S.cutAx >= 0 && S.cutB - S.cutA > 0.98) S.cutB = 0.5;
+                      buildUI(); resetAccum(); }
 });
 function toggleRun(){ S.running = !S.running; syncRun(); resetAccum(); }
 function syncRun(){ $("play").textContent = S.running ? "pause" : "play"; }
@@ -1479,22 +1715,23 @@ function row(label){
   return d;
 }
 const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
-function slider(label, key, min, max, stp, dp, after){
+function slider(label, key, min, max, stp, dp, after, show){
   const d = row(label);
   const wrap = document.createElement("div");
   wrap.style.position = "relative"; wrap.style.minWidth = "0";
   const r = document.createElement("input");
   r.type = "range"; r.min = min; r.max = max; r.step = stp; r.value = S[key];
   const v = document.createElement("span");
-  v.className = "val"; v.textContent = fmt(S[key], dp);
+  v.className = "val"; v.textContent = show ? show(S[key]) : fmt(S[key], dp);
   const paint = () => r.style.setProperty("--p", ((S[key] - min)/(max - min)*100) + "%");
   r.addEventListener("input", () => {
-    S[key] = parseFloat(r.value); v.textContent = fmt(S[key], dp); paint();
+    S[key] = parseFloat(r.value);
+    v.textContent = show ? show(S[key]) : fmt(S[key], dp); paint();
     resetAccum(); if(after) after();
   });
   paint();
   wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
-  return {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
+  return {set(x){ S[key] = x; r.value = x; v.textContent = show ? show(x) : fmt(x, dp); paint(); }};
 }
 function picker(label, key, opts, after){
   const d = row(label);
@@ -1522,6 +1759,29 @@ function buttons(defs){
   }
   return d;
 }
+/* A row of colour chips you switch on and off. Used twice: which colours the
+   brush lays down, and which the picture is allowed to show. The second is the
+   answer to "where did that colour go" -- turn the others off and look. */
+function chips(label, arr, after){
+  const d = row(label);
+  const sw = document.createElement("div");
+  sw.style.cssText = "display:flex; gap:3px; flex-wrap:wrap";
+  for(let c = 0; c < S.C; c++){
+    const b = document.createElement("button");
+    b.style.cssText = `width:14px;height:14px;min-width:0;padding:0;background:${css(palette[c])}`;
+    b.style.opacity = arr[c] ? "1" : "0.25";
+    b.title = "click to toggle, double-click to solo";
+    b.onclick = () => { arr[c] = arr[c] ? 0 : 1; b.style.opacity = arr[c] ? "1" : "0.25";
+                        resetAccum(); if(after) after(); };
+    b.ondblclick = () => {
+      const only = arr.slice(0, S.C).every((v, i) => (i === c) === (v > 0.5));
+      for(let i = 0; i < 8; i++) arr[i] = only ? 1 : (i === c ? 1 : 0);
+      buildUI(); resetAccum(); if(after) after();
+    };
+    sw.appendChild(b);
+  }
+  d.appendChild(sw);
+}
 
 /* The interaction matrix, as a grid you drag on. Row c, column d: how hard
    colour c is pulled towards what its kernel sees of colour d. */
@@ -1534,7 +1794,7 @@ function buildMatrixUI(){
       const cell = document.createElement("div");
       cell.className = "mc";
       const put = () => {
-        const v = mat[c*4 + d];
+        const v = mat[c*8 + d];
         const col = v >= 0 ? [255,107,53] : [63,184,175];
         cell.style.background = `rgba(${col.join(",")},${(Math.abs(v)*0.85 + 0.06).toFixed(3)})`;
         cell.title = `${c} ← ${d} : ${v.toFixed(2)}`;
@@ -1542,12 +1802,12 @@ function buildMatrixUI(){
       put();
       cell.addEventListener("pointerdown", e => {
         cell.setPointerCapture(e.pointerId);
-        let y0 = e.clientY, v0 = mat[c*4 + d];
+        const y0 = e.clientY, v0 = mat[c*8 + d];
         const mv = ev => {
-          mat[c*4 + d] = Math.max(-1, Math.min(1, v0 + (y0 - ev.clientY)/60));
+          mat[c*8 + d] = Math.max(-1, Math.min(1, v0 + (y0 - ev.clientY)/60));
           put(); resetAccum();
         };
-        const up = () => { cell.removeEventListener("pointermove", mv); };
+        const up = () => cell.removeEventListener("pointermove", mv);
         cell.addEventListener("pointermove", mv);
         cell.addEventListener("pointerup", up, {once:true});
         cell.addEventListener("pointercancel", up, {once:true});
@@ -1564,44 +1824,112 @@ function buildMatrixUI(){
   }
 }
 
-const SIZES = [48, 64, 80, 96, 112, 128, 160];
+const SIZES = [48, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256];
+const COLOURS = [2, 3, 4, 5, 6, 8];
 let scaleUI = null, stepUI = null;
+
+function applyPreset(i){
+  const p = PRESETS[i]; if(!p) return;
+  S.preset = i;
+  for(const k of ["C","force","repel","beta","noise","density","seedMode","seedSize"])
+    if(p[k] !== undefined) S[k] = p[k];
+  // The radius is stored as a fraction of the grid, not a number of cells, so
+  // a world found on a small grid is the same world on a large one. Everything
+  // else in the rule already reads normalised averages and needs no scaling.
+  S.radius = Math.max(4, Math.min(40, Math.round(p.radiusF*S.N)));
+  palette = makePalette(S.C, S.palette);
+  mat = new Float32Array(64);
+  for(let c = 0; c < S.C; c++)
+    for(let d = 0; d < S.C; d++) mat[c*8 + d] = p.mat[c*S.C + d];
+  paintMask = new Float32Array(8).fill(1);
+  vis = new Float32Array(8).fill(1);
+  allocSim(); reseed(p.seed !== undefined ? p.seed : 1234);
+  buildUI();
+}
 
 function buildUI(){
   rack.innerHTML = "";
+  if(PRESETS.length){
+    group("worlds");
+    const d = row("preset");
+    const s = document.createElement("select");
+    for(let i = 0; i < PRESETS.length; i++){
+      const e = document.createElement("option");
+      e.value = String(i); e.textContent = PRESETS[i].name;
+      s.appendChild(e);
+    }
+    s.value = String(S.preset >= 0 ? S.preset : 0);
+    s.addEventListener("change", () => applyPreset(+s.value));
+    d.appendChild(s);
+    buttons([["prev", () => applyPreset((S.preset - 1 + PRESETS.length) % PRESETS.length)],
+             ["next", () => applyPreset((S.preset + 1) % PRESETS.length)]]);
+  }
   group("field");
-  picker("grid", "N", SIZES.map(v => ({v, t:`${v}³`})), () => { allocSim(); reseed(); });
-  picker("colours", "C", [2, 3, 4], () => {
+  picker("grid", "N", SIZES.filter(v => fitsGrid(v, S.C))
+           .map(v => ({v, t:`${v}³ · ${memFor(v, S.C)|0}MB`})),
+         () => { allocSim(); reseed(); });
+  picker("colours", "C", COLOURS.filter(c => fitsGrid(S.N, c)), () => {
+    // More colours means another layer of everything, which can put a grid
+    // that fitted out of reach of the atlas. Step it down rather than fail.
+    while(!fitsGrid(S.N, S.C) && S.N > SIZES[0])
+      S.N = SIZES[SIZES.indexOf(S.N) - 1];
     palette = makePalette(S.C, S.palette);
-    resampleMatrix(S.seed); reseed();
-    buildUI();                       // the matrix and the brush swatches change shape
+    resampleMatrix(S.seed); allocSim(); reseed();
+    buildUI();                       // the matrix and the chip rows change shape
   });
   slider("radius", "radius", 6, 40, 1, 0);
   slider("force", "force", 0, 260, 1, 0);
   slider("repel", "repel", 0, 30, 0.1, 1);
   slider("beta", "beta", 0.2, 8, 0.05, 2);
   slider("noise", "noise", 0, 2, 0.01, 2);
-  slider("density", "density", 0.02, 0.4, 0.005, 3, () => reseed());
-  picker("start", "seedMode", [{v:1, t:"ball"}, {v:0, t:"cloud"}], () => reseed());
-  slider("steps", "steps", 1, 4, 1, 0);
+  slider("rate", "rate", 0, RATES.length - 1, 1, 0, null, v => RATELAB[v] + "/f");
+
+  group("start");
+  picker("shape", "seedMode",
+    [{v:1, t:"ball"}, {v:0, t:"cloud"}, {v:2, t:"shell"}, {v:3, t:"spots"}, {v:4, t:"dust"}],
+    () => reseed());
+  slider("size", "seedSize", 0.06, 0.5, 0.005, 3, () => reseed());
+  slider("mass", "density", 0.01, 0.4, 0.005, 3, () => reseed());
+  buttons([["reseed", () => reseed((Math.random()*1e6)|0)],
+           ["world", newWorld]]);
 
   group("matrix");
   const lab = document.createElement("div"); lab.id = "matlab"; rack.appendChild(lab);
   const m = document.createElement("div"); m.id = "mat"; rack.appendChild(m);
-  buttons([["shuffle", () => resampleMatrix((Math.random()*1e6)|0)],
-           ["reseed", () => reseed((Math.random()*1e6)|0)]]);
+  buttons([["shuffle", () => resampleMatrix((Math.random()*1e6)|0)]]);
+
+  group("view");
+  picker("mode", "mode", MODES.map((t, v) => ({v, t})));
+  picker("cut", "cutAx", [{v:-1, t:"off"}, {v:0, t:"x"}, {v:1, t:"y"}, {v:2, t:"z"}]);
+  // Two ends of the slab that survives. Pull one in and you have a cross
+  // section; bring them together and you have a single plane of the cube,
+  // which is the flat page's picture again.
+  slider("from", "cutA", 0, 1, 0.004, 3);
+  slider("to", "cutB", 0, 1, 0.004, 3);
+  chips("show", vis);
+  const bd = row("box");
+  const bb = document.createElement("button");
+  const setb = () => { bb.textContent = S.showBox ? "shown" : "hidden";
+                       bb.className = S.showBox ? "on" : ""; };
+  setb();
+  bb.onclick = () => { S.showBox = !S.showBox; setb(); resetAccum(); };
+  bd.appendChild(bb);
 
   group("look");
   picker("palette", "palette", PALETTES, () => {
-    palette = makePalette(S.C, S.palette); buildMatrixUI();
+    palette = makePalette(S.C, S.palette); buildUI();
   });
   slider("opacity", "sigma", 2, 160, 1, 0);
   slider("threshold", "floor", 0, 1.5, 0.01, 2);
   slider("exposure", "expo", 0.2, 4, 0.02, 2);
+  slider("gain", "gain", 0.1, 4, 0.02, 2);
   slider("key", "key", 0, 4, 0.02, 2);
   slider("ambient", "amb", 0, 2, 0.01, 2);
+  // Specular at zero removes the highlight and the rim entirely -- the shading
+  // is then key, ambient and nothing else. The flat view goes one further and
+  // takes the light away too.
+  slider("specular", "spec", 0, 2, 0.01, 2);
   slider("glow", "emit", 0, 1.2, 0.01, 2);
-  slider("sheen", "spec", 0, 2, 0.01, 2);
   slider("forward", "phase", 0, 0.85, 0.01, 2);
   slider("occlude", "ao", 0, 1, 0.01, 2);
   slider("shade", "shade", 0, 0.8, 0.005, 3);
@@ -1613,42 +1941,19 @@ function buildUI(){
     [{v:"auto", t:"auto"}, {v:"fast", t:"fast"}, {v:"even", t:"balanced"}, {v:"fine", t:"fine"}],
     applyQuality);
   scaleUI = slider("resolution", "scale", 0.35, 1, 0.05, 2, () => { S.quality = "manual"; });
-  stepUI  = slider("ray step", "stepq", 0.4, 2.2, 0.05, 2, () => { S.quality = "manual"; });
-  const bd = row("box");
-  const bb = document.createElement("button");
-  bb.textContent = S.showBox ? "shown" : "hidden";
-  bb.className = S.showBox ? "on" : "";
-  bb.onclick = () => {
-    S.showBox = !S.showBox;
-    bb.textContent = S.showBox ? "shown" : "hidden";
-    bb.className = S.showBox ? "on" : ""; resetAccum();
-  };
-  bd.appendChild(bb);
+  stepUI  = slider("ray step", "stepq", 0.4, 4, 0.05, 2, () => { S.quality = "manual"; });
 
   group("brush");
   slider("size", "brush", 2, 30, 0.5, 1);
   slider("flow", "flow", 0.05, 3, 0.05, 2);
-  const cd = row("colours");
-  const sw = document.createElement("div");
-  sw.style.display = "flex"; sw.style.gap = "3px";
-  for(let c = 0; c < S.C; c++){
-    const b = document.createElement("button");
-    b.style.cssText = `width:14px;height:14px;min-width:0;padding:0;background:${css(palette[c])}`;
-    b.style.opacity = paintMask[c] ? "1" : "0.3";
-    b.onclick = () => {
-      paintMask[c] = paintMask[c] ? 0 : 1;
-      b.style.opacity = paintMask[c] ? "1" : "0.3";
-    };
-    sw.appendChild(b);
-  }
-  cd.appendChild(sw);
+  chips("colours", paintMask);
   buildMatrixUI();
 }
 function applyQuality(){
   const q = S.quality;
-  if(q === "fast"){ S.scale = 0.55; S.stepq = 0.7; }
-  else if(q === "even"){ S.scale = 0.8; S.stepq = 1.0; }
-  else if(q === "fine"){ S.scale = 1.0; S.stepq = 1.6; }
+  if(q === "fast"){ S.scale = 0.55; S.stepq = 0.9; }
+  else if(q === "even"){ S.scale = 0.8; S.stepq = 1.5; }
+  else if(q === "fine"){ S.scale = 1.0; S.stepq = 2.4; }
   if(scaleUI) scaleUI.set(S.scale);
   if(stepUI) stepUI.set(S.stepq);
   resetAccum();
@@ -1670,14 +1975,20 @@ function resize(){
 }
 new ResizeObserver(resize).observe(cv);
 
-let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0, mass = null, massAt = -1e9;
+let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0;
+let mass = null, peak = null, massAt = -1e9, carry = 0;
 function tick(now){
   requestAnimationFrame(tick);
   const dt = now - tPrev; tPrev = now;
   resize();
   if(S.running){
-    for(let i = 0; i < S.steps; i++) simStep();
-    buildOcc();
+    // Below one step a frame the remainder is carried, so 1/8 really is one
+    // step every eight frames rather than a stutter.
+    carry += RATES[S.rate];
+    let n = Math.floor(carry);
+    carry -= n;
+    for(let i = 0; i < Math.min(n, 8); i++) simStep();
+    if(n > 0) buildOcc();
   }
   render();
 
@@ -1698,18 +2009,18 @@ function tick(now){
     const cells = G.N*G.N*G.N;
     $("stat").innerHTML =
       `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
-      `<b>${G.N}³</b> ${(cells/1e6).toFixed(2)}M cells &middot; ` +
-      `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema,1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
-      `${memMB().toFixed(0)} MB &middot; render ${(S.scale*100)|0}%` +
-      (mass !== null ? ` &middot; mass ${mass}` : "");
+      `<b>${G.N}³</b> ${(cells/1e6).toFixed(2)}M &times; ${S.C} &middot; ` +
+      `${(cells*RATES[S.rate]/1e6*(S.running ? 1000/Math.max(ema,1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
+      `${memMB().toFixed(0)} MB &middot; ${(S.scale*100)|0}%` +
+      (mass ? ` &middot; mass ${mass}` : "") + (peak ? ` &middot; peak ${peak}` : "");
   }
   // Measuring the totals means reading pixels back, which stalls the pipeline,
   // so it happens rarely and the clock is restarted afterwards rather than
   // charging the stall to the frame.
   if(S.frame - massAt >= 240){
     massAt = S.frame;
-    const t = totals(), c = G.N*G.N*G.N;
-    mass = t.slice(0, S.C).map(v => (v/c).toFixed(3)).join("/");
+    mass = reduce(0).map(v => v.toFixed(3)).join("/");
+    peak = reduce(1).map(v => v.toFixed(2)).join("/");
     tPrev = performance.now();
   }
 }
@@ -1718,8 +2029,7 @@ function tick(now){
 allocSim();
 resampleMatrix(S.seed);
 palette = makePalette(S.C, S.palette);
-buildUI();
-reseed();
+if(PRESETS.length) applyPreset(0); else { buildUI(); reseed(); }
 syncRun();
 resize();
 requestAnimationFrame(tick);
