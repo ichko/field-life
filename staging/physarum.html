@@ -259,7 +259,7 @@ if(!gl) fatal("This page needs WebGL2, which this browser did not provide.");
 if(!gl.getExtension("EXT_color_buffer_float"))
   fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
 
-const NH = 6, NIN = 8;   // rule net: 8 inputs, 6 hidden units, one turn rate out
+const NH = 6, NIN = 6;   // rule net: 6 inputs, 6 hidden units, one turn rate out
 const NC = 8;            // Fourier features in the CPPN that lays out the genes
 const RNG = 3;           // how far the angular advection can reach, in bins
 
@@ -320,15 +320,16 @@ float rnd(ivec2 p, int k, int f){
    narrow WIDTH; open the width up and the same expression becomes a radial
    detector reading the whole ring at once. There is no third case.          */
 const FS_TURN = HEAD + HASH + `
-uniform sampler2D uT, uF, uRho;
+uniform sampler2D uT, uF, uRho, uGa, uGb;
 uniform float uSense, uAngle, uWidth, uSharp, uTurn, uCrowd, uJit, uTn, uRn;
 uniform int uFrame;
 #ifdef GENES
-uniform sampler2D uH;
 uniform float uGmix;
 uniform float uW1[NH*NIN], uB1[NH], uW2[NH];
 #endif
-out vec4 oF;
+layout(location = 0) out vec4 oF;
+layout(location = 1) out vec4 oGa;
+layout(location = 2) out vec4 oGb;
 
 void main(){
   int n = int(uN);
@@ -337,21 +338,23 @@ void main(){
   ivec2 c = ivec2(a.x - tile*n, a.y);
   vec2 uv = (vec2(c) + 0.5)*uTexel;
 
-  float T[K], C[K], f[K], W[K];
+  float T[K], C[K], f[K], W[K], ga[K], gb[K];
   for(int k = 0; k < K; k++){
     vec2 d = vec2(cos(float(k)*DTH), sin(float(k)*DTH))*uSense*uTexel;
     T[k] = texture(uT, uv + d).r*uTn;
     C[k] = uCrowd > 0.0 ? texture(uRho, uv + d).r*uRn : 0.0;
   }
   for(int t = 0; t < K/4; t++){
-    vec4 v = texelFetch(uF, ivec2(t*n + c.x, c.y), 0);
+    ivec2 q = ivec2(t*n + c.x, c.y);
+    vec4 v = texelFetch(uF, q, 0);
     f[4*t] = v.x; f[4*t+1] = v.y; f[4*t+2] = v.z; f[4*t+3] = v.w;
+    vec4 A = texelFetch(uGa, q, 0);
+    ga[4*t] = A.x; ga[4*t+1] = A.y; ga[4*t+2] = A.z; ga[4*t+3] = A.w;
+    vec4 B = texelFetch(uGb, q, 0);
+    gb[4*t] = B.x; gb[4*t+1] = B.y; gb[4*t+2] = B.z; gb[4*t+3] = B.w;
   }
   float rho = 0.0;
   for(int k = 0; k < K; k++) rho += f[k];
-#ifdef GENES
-  vec4 gc = texelFetch(uH, c, 0)/max(rho, 1e-5);
-#endif
 
   // The kernel is the same for every bin and every cell, so it is built once
   // and normalised to unit weight -- which is what keeps SHARP meaning the
@@ -384,10 +387,14 @@ void main(){
       // the genes were laid down as a smooth field, so neighbouring patches
       // of the grid run measurably different rules and can be watched
       // competing for the same trail.
+      // The genes this bin is carrying -- not the cell's. Two streams
+      // crossing the same cell run their own rules, which is the whole
+      // reason the genes were given a heading in the first place.
+      float inv = 1.0/max(f[j], 1e-6);
       float x[NIN];
       x[0] = T[j]; x[1] = drive;
-      x[2] = gc.x; x[3] = gc.y; x[4] = gc.z; x[5] = gc.w;
-      x[6] = rho*uRn; x[7] = 1.0;
+      x[2] = ga[j]*inv; x[3] = gb[j]*inv;
+      x[4] = rho*uRn; x[5] = 1.0;
       float net = 0.0;
       for(int h = 0; h < NH; h++){
         float sm = uB1[h];
@@ -403,20 +410,19 @@ void main(){
     W[j] = wmax*tanh(drive);
   }
 
-  vec4 outv = vec4(0.0);
+  vec4 outv = vec4(0.0), outA = vec4(0.0), outB = vec4(0.0);
   for(int o = 0; o < 4; o++){
     int kOut = 4*tile + o;
-    float acc = 0.0;
     for(int d = -RNG; d <= RNG; d++){
       int j = wrapi(kOut + d, K);
       // The source sat at kOut+d and landed at kOut+d+W[j], so what this bin
       // takes is the linear share of a landing |d+W| away. Written on the
       // unwrapped index, which is why no wrap appears in the weight.
-      acc += f[j]*max(0.0, 1.0 - abs(float(d) + W[j]));
+      float wt = max(0.0, 1.0 - abs(float(d) + W[j]));
+      outv[o] += f[j]*wt; outA[o] += ga[j]*wt; outB[o] += gb[j]*wt;
     }
-    outv[o] = acc;
   }
-  oF = outv;
+  oF = outv; oGa = outA; oGb = outB;
 }`;
 
 /* -------------------------------------------------- 2: move = advect space
@@ -427,20 +433,23 @@ void main(){
    created and nothing lost. It also means the speed can be less than one cell
    per step, which a lattice otherwise cannot do at all.                     */
 const FS_MOVE = HEAD + `
-uniform sampler2D uF;
+uniform sampler2D uF, uGa, uGb;
 uniform vec2 uOff[K];
-out vec4 oF;
+layout(location = 0) out vec4 oF;
+layout(location = 1) out vec4 oGa;
+layout(location = 2) out vec4 oGb;
 void main(){
   int n = int(uN);
   ivec2 a = ivec2(gl_FragCoord.xy);
   int tile = a.x/n;
   ivec2 c = ivec2(a.x - tile*n, a.y);
-  vec4 v;
+  vec4 v, A, B;
   for(int o = 0; o < 4; o++){
     int k = 4*tile + o;
-    v[o] = getF(uF, c - ivec2(uOff[k]), k);
+    ivec2 q = c - ivec2(uOff[k]);
+    v[o] = getF(uF, q, k); A[o] = getF(uGa, q, k); B[o] = getF(uGb, q, k);
   }
-  oF = v;
+  oF = v; oGa = A; oGb = B;
 }`;
 
 /* Everything downstream wants the total per cell, and only this pass has to
@@ -457,27 +466,6 @@ void main(){
     s += v.x + v.y + v.z + v.w;
   }
   oRho = vec4(s);
-}`;
-
-/* --------------------------------------------------------- 3: genes ride along
-   What left cell q heading k was f_k(q) out of q's rho, so that same fraction
-   of q's genes went with it. Read on the post-turn state and the pre-move
-   total, which are the same numbers the move itself is about to use.        */
-const FS_GMOVE = HEAD + `
-uniform sampler2D uF, uH, uRho;
-uniform vec2 uOff[K];
-out vec4 oH;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy);
-  int n = int(uN);
-  vec4 h = vec4(0.0);
-  for(int k = 0; k < K; k++){
-    ivec2 q = c - ivec2(uOff[k]);
-    ivec2 qw = ivec2(wrapi(q.x, n), wrapi(q.y, n));
-    float rq = texelFetch(uRho, qw, 0).r;
-    if(rq > 1e-7) h += texelFetch(uH, qw, 0)*(getF(uF, q, k)/rq);
-  }
-  oH = h;
 }`;
 
 /* --------------------------------------------------------- 4: blur + decay */
@@ -503,36 +491,66 @@ void main(){
   oT = vec4(min(uDecay*mix(c, s*(1.0/9.0), uDiff), 6.0e4));
 }`;
 
-/* Genes mix, but only through mass they share. Diffusing the AMOUNT is what
-   an ordinary blur would do, and it is wrong twice over: it pushes genes into
-   empty cells, where the next transport finds no mass to carry them and drops
-   them on the floor. What moves here is a flux between neighbours,
-   d*min(rho_p,rho_q)*(g_q - g_p), on the concentrations. Two things follow.
-   The weight is symmetric and the difference is exactly negated at the other
-   end, so what p gains q loses to the last bit -- the total does not move even
-   in float32. And the weight vanishes wherever either side is empty, so genes
-   cannot leave the mass that is carrying them.                              */
+/* Genes mix, and left alone they always end up uniform. Transport is the
+   cause and it cannot simply be switched off: the spatial move carries a
+   foreign gene into a neighbouring BIN of the same cell, and the angular
+   advection then averages across bins. Measured, that runs the spread down
+   by three hundred times in four hundred steps.
+   So this pass carries a flux that can run either way:
+
+       F = min(f_p,f_q) * dg * ( mix - sep*(1 - 2*|dg|) )
+
+   where dg is the difference in concentration between the two sides. Where
+   the two sides nearly agree the bracket goes negative and the flux runs
+   UPHILL, deepening the difference; where they already disagree strongly it
+   goes positive and smooths. That is a double well, and it holds domains
+   apart instead of letting them average -- and because dg is exactly negated
+   at the other end while min(f_p,f_q) is symmetric, the flux is exactly
+   antisymmetric, so no gene mass is made or lost by any of it.
+   The neighbours are the eight around the cell AND the two bins either side
+   in the same cell, since that second pair is where the mixing actually
+   happens. */
 const FS_GBLUR = HEAD + `
-uniform sampler2D uH, uRho;
-uniform float uGdiff;
-out vec4 oH;
+uniform sampler2D uF, uGa, uGb;
+uniform float uMix, uSep;
+layout(location = 0) out vec4 oGa;
+layout(location = 1) out vec4 oGb;
 void main(){
   int n = int(uN);
-  ivec2 p = ivec2(gl_FragCoord.xy);
-  float rp = texelFetch(uRho, p, 0).r;
-  vec4 hp = texelFetch(uH, p, 0);
-  vec4 gp = hp/max(rp, 1e-6);
-  vec4 acc = vec4(0.0);
-  for(int dy = -1; dy <= 1; dy++)
-    for(int dx = -1; dx <= 1; dx++){
-      if(dx == 0 && dy == 0) continue;
-      ivec2 q = ivec2(wrapi(p.x + dx, n), wrapi(p.y + dy, n));
-      float rq = texelFetch(uRho, q, 0).r;
-      acc += min(rp, rq)*(texelFetch(uH, q, 0)/max(rq, 1e-6) - gp);
+  ivec2 a = ivec2(gl_FragCoord.xy);
+  int tile = a.x/n;
+  ivec2 c = ivec2(a.x - tile*n, a.y);
+  vec4 A, B;
+  for(int o = 0; o < 4; o++){
+    int k = 4*tile + o;
+    float fp = getF(uF, c, k), inv = 1.0/max(fp, 1e-5);
+    float ha = getF(uGa, c, k), hb = getF(uGb, c, k);
+    float ap = ha*inv, bp = hb*inv;
+    float sa = 0.0, sb = 0.0;
+    for(int i = 0; i < 10; i++){
+      // 0..7 are the ring of cells at this heading; 8 and 9 are the headings
+      // either side in this cell, which is the pair that does the damage.
+      ivec2 q = c; int kk = k;
+      if(i < 8){ q = c + ivec2(i < 3 ? i - 1 : (i < 5 ? (i == 3 ? -1 : 1) : i - 6),
+                               i < 3 ? -1 : (i < 5 ? 0 : 1)); }
+      else kk = k + (i == 8 ? -1 : 1);
+      float fq = getF(uF, q, kk);
+      // A bin holding almost nothing has a concentration of h/f that is all
+      // rounding, and dividing by it is what turned this pass into NaN at
+      // full strength. Below the floor the pair simply does not trade.
+      if(fq < 1e-5 || fp < 1e-5) continue;
+      float w = min(fp, fq), iq = 1.0/fq;
+      float da = getF(uGa, q, kk)*iq - ap, db = getF(uGb, q, kk)*iq - bp;
+      sa += w*da*(uMix - uSep*(1.0 - 2.0*abs(da)));
+      sb += w*db*(uMix - uSep*(1.0 - 2.0*abs(db)));
     }
-  // At uGdiff = 1 a cell can give away everything it holds and no more, which
-  // is what keeps the amounts non-negative without a clamp.
-  oH = hp + (uGdiff*0.125)*acc;
+    // A tenth, so ten neighbours at full strength can move at most everything
+    // the bin holds and never more -- which is what keeps amounts positive
+    // with no clamp to break the conservation.
+    A[o] = ha + 0.1*sa;
+    B[o] = hb + 0.1*sb;
+  }
+  oGa = A; oGb = B;
 }`;
 
 /* Half-pitch copy of the trail for the sensors to read. */
@@ -571,75 +589,73 @@ void main(){
 }`;
 
 /* The genes are laid down by a CPPN rather than by noise: a handful of plane
-   waves of (x, y) mixed into four outputs. Noise would give every cell an
-   unrelated rule and the average of a thousand rules is one grey rule. A
+   waves of (x, y) mixed into two outputs. Noise would give every cell an
+   unrelated rule, and the average of a thousand rules is one grey rule. A
    smooth field gives REGIONS -- a patch of grid that shares a rule, wide
    enough to build something before it meets a patch that does not. The
    frequencies are whole numbers of cycles across the grid, so the field is
-   periodic on the torus and has no seam.                                   */
-const FS_GSEED = HEAD + HASH + `
-uniform float uFill, uCScale;
-uniform float uCA[NC*3], uCV[NC*4];
-uniform int uSeed;
-out vec4 oH;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy);
-  float on = (rnd(c, 0, uSeed) + 0.5) < uFill ? 1.0 : 0.0;
-  vec2 q = (vec2(c) + 0.5)/uN*TAU;
-  vec4 g = vec4(0.0);
-  for(int i = 0; i < NC; i++){
-    float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
-    g += vec4(uCV[4*i], uCV[4*i+1], uCV[4*i+2], uCV[4*i+3])*z;
-  }
-  // gene AMOUNT, so it rides with the mass
-  oH = (0.5 + 0.5*tanh(g*uCScale))*on;
-}`;
-
-const FS_PAINT = HEAD + HASH + `
+   periodic on the torus and has no seam. What is written is an AMOUNT, laid
+   on the mass that was just seeded, so it rides with it from the first step. */
+const FS_GSEED = HEAD + `
 uniform sampler2D uF;
-uniform vec2 uAt;
-uniform float uRad, uAmt;
-uniform int uSeed;
-out vec4 oF;
+uniform float uCScale;
+uniform float uCA[NC*3], uCV[NC*2];
+layout(location = 0) out vec4 oGa;
+layout(location = 1) out vec4 oGb;
 void main(){
   int n = int(uN);
   ivec2 a = ivec2(gl_FragCoord.xy);
   int tile = a.x/n;
   ivec2 c = ivec2(a.x - tile*n, a.y);
-  vec4 v = texelFetch(uF, a, 0);
+  vec2 q = (vec2(c) + 0.5)/uN*TAU;
+  vec2 g = vec2(0.0);
+  for(int i = 0; i < NC; i++){
+    float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
+    g += vec2(uCV[2*i], uCV[2*i+1])*z;
+  }
+  g = 0.5 + 0.5*tanh(g*uCScale);
+  vec4 A, B;
+  for(int o = 0; o < 4; o++){
+    float m = getF(uF, c, 4*tile + o);
+    A[o] = g.x*m; B[o] = g.y*m;
+  }
+  oGa = A; oGb = B;
+}`;
+
+const FS_PAINT = HEAD + HASH + `
+uniform sampler2D uF, uGa, uGb;
+uniform vec2 uAt, uGene;
+uniform float uRad, uAmt;
+uniform int uSeed;
+layout(location = 0) out vec4 oF;
+layout(location = 1) out vec4 oGa;
+layout(location = 2) out vec4 oGb;
+void main(){
+  int n = int(uN);
+  ivec2 a = ivec2(gl_FragCoord.xy);
+  int tile = a.x/n;
+  ivec2 c = ivec2(a.x - tile*n, a.y);
+  vec4 v = texelFetch(uF, a, 0), A = texelFetch(uGa, a, 0), B = texelFetch(uGb, a, 0);
   vec2 d = vec2(c) + 0.5 - uAt;
   d -= uN*floor(d/uN + 0.5);                       // shortest way round the torus
   float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
   if(t > 0.0){
-    if(uAmt < 0.0) v *= (1.0 - t);
+    if(uAmt < 0.0){ v *= (1.0 - t); A *= (1.0 - t); B *= (1.0 - t); }
     else {
       int k = int(floor((rnd(c, 2, uSeed) + 0.5)*float(K)));
       k = min(k, K - 1);
-      for(int o = 0; o < 4; o++) if(4*tile + o == k) v[o] += uAmt*t;
+      float add = uAmt*t;
+      for(int o = 0; o < 4; o++) if(4*tile + o == k){
+        v[o] += add; A[o] += uGene.x*add; B[o] += uGene.y*add;
+      }
     }
   }
-  oF = v;
-}`;
-
-const FS_GPAINT = HEAD + `
-uniform sampler2D uH, uRho;
-uniform vec2 uAt;
-uniform vec4 uGene;
-uniform float uRad, uAmt;
-out vec4 oH;
-void main(){
-  ivec2 c = ivec2(gl_FragCoord.xy);
-  vec4 h = texelFetch(uH, c, 0);
-  vec2 d = vec2(c) + 0.5 - uAt;
-  d -= uN*floor(d/uN + 0.5);
-  float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
-  if(t > 0.0) h = uAmt < 0.0 ? h*(1.0 - t) : h + uGene*uAmt*t;
-  oH = h;
+  oF = v; oGa = A; oGb = B;
 }`;
 
 /* ----------------------------------------------------------- 6: the picture */
 const FS_DRAW = HEAD + `
-uniform sampler2D uT, uRho, uF, uH;
+uniform sampler2D uT, uRho, uF, uGa, uGb;
 uniform vec2 uRes, uPan;
 uniform float uZoom, uExp, uFloor, uTn, uRn;
 uniform float uSense, uAngle, uWidth;
@@ -715,9 +731,19 @@ void main(){
     return;
   }
   if(uView == 3){
-    float m = texture(uRho, uv).r;
+    // Genes live per heading now, so the cell's makeup is the sum over bins.
+    ivec2 c = ivec2(floor(uv*uN));
+    float m = 0.0, A = 0.0, B = 0.0;
+    for(int i = 0; i < K; i++){
+      m += getF(uF, c, i); A += getF(uGa, c, i); B += getF(uGb, c, i);
+    }
+    float inv = 1.0/max(m, 1e-5);
     float v = 1.0 - exp(-max(m*uRn - uFloor, 0.0)*uExp);
-    oCol = vec4(clamp(texture(uH, uv).rgb/max(m, 1e-5), 0.0, 1.0)*v, 1.0);
+    // One gene picks the hue, the other how far it is washed towards white,
+    // so the two dimensions stay legible as two dimensions.
+    vec3 col = mix(hue(clamp(A*inv, 0.0, 1.0)*0.85), vec3(1.0),
+                   0.45*clamp(B*inv, 0.0, 1.0));
+    oCol = vec4(col*v, 1.0);
     return;
   }
   // The trail is normalised to a mean of one, so without a floor the whole
@@ -793,10 +819,15 @@ const quadVAO = gl.createVertexArray();
 const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES, 0, 3); };
 
 const fbo = gl.createFramebuffer();
-function target(t, w, h){
+const BUFS = [];
+for(let i = 1; i <= 4; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
+function target(list, w, h){
   gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
-  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t, 0);
-  gl.drawBuffers([gl.COLOR_ATTACHMENT0]);
+  const a = Array.isArray(list) ? list : [list];
+  for(let i = 0; i < 4; i++)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D,
+                            i < a.length ? a[i] : null, 0);
+  gl.drawBuffers(BUFS[a.length - 1]);
   gl.viewport(0, 0, w, h);
 }
 function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT){
@@ -816,7 +847,7 @@ const S = {
   N: 512, K: 24, steps: 1, running: true, frame: 0, lod: 1, prec: 16,
   sense: 9, angle: 34, width: 20, sharp: 14, turn: 9, speed: 1, crowd: 1.6, jit: 0.15,
   dep: 1, decay: 0.94, diff: 1, fill: 0.16,
-  gmix: 0.35, gdiff: 0, gscale: 40, cscale: 1.2, ker: 1,
+  gmix: 0.35, gdiff: 0, gsep: 0.45, gscale: 40, cscale: 1.2, ker: 1,
   exp: 1.6, floor: 0.55, view: 0, pal: 3, zoom: 1, panx: 0, pany: 0,
   brush: 26, seed: 1,
   w1: null, b1: null, w2: null, ca: null, cv: null,
@@ -841,7 +872,7 @@ function gauss(){
 // the torus and the gene field would show a seam down two edges.
 function rollCPPN(){
   const f = Math.max(1, Math.round(S.N/Math.max(4, S.gscale)));
-  S.ca = new Float32Array(NC*3); S.cv = new Float32Array(NC*4);
+  S.ca = new Float32Array(NC*3); S.cv = new Float32Array(NC*2);
   for(let i = 0; i < NC; i++){
     S.ca[3*i]     = Math.round((Math.random()*2 - 1)*f);
     S.ca[3*i + 1] = Math.round((Math.random()*2 - 1)*f);
@@ -849,7 +880,7 @@ function rollCPPN(){
     // Later features are finer and quieter, so the field has a large shape
     // with detail on it rather than one frequency everywhere.
     const amp = 1/(1 + i*0.55);
-    for(let j = 0; j < 4; j++) S.cv[4*i + j] = gauss()*amp;
+    for(let j = 0; j < 2; j++) S.cv[2*i + j] = gauss()*amp;
   }
 }
 function rollNet(){
@@ -884,10 +915,10 @@ function buildPrograms(){
   P = {
     turn: [program(FS_TURN, S.K, false), program(FS_TURN, S.K, true)],
     move: program(FS_MOVE, S.K), rho: program(FS_RHO, S.K),
-    gmove: program(FS_GMOVE, S.K), trail: program(FS_TRAIL, S.K),
+    trail: program(FS_TRAIL, S.K),
     gblur: program(FS_GBLUR, S.K), down: program(FS_DOWN, S.K),
     seed: program(FS_SEED, S.K), gseed: program(FS_GSEED, S.K),
-    paint: program(FS_PAINT, S.K), gpaint: program(FS_GPAINT, S.K),
+    paint: program(FS_PAINT, S.K),
     draw: program(FS_DRAW, S.K), sum: program(FS_SUM, S.K),
   };
   curP = null;
@@ -908,7 +939,13 @@ function alloc(){
   // not have it, since a tile edge would blend two unrelated headings.
   g.f = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
   g.f2 = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
-  g.h = make2D(N, N, F, LF); g.h2 = make2D(N, N, F, LF);
+  // Two gene dimensions, each laid out exactly like the mass. This is the
+  // whole point: a gene has a heading, so two streams crossing a cell carry
+  // their own and are never averaged into each other.
+  g.ga = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
+  g.ga2 = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
+  g.gb = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
+  g.gb2 = make2D(AW, N, F, gl.NEAREST, gl.CLAMP_TO_EDGE);
   g.rho = make2D(N, N, RC, LF); g.rho2 = make2D(N, N, RC, LF);
   g.T = make2D(N, N, gl.R16F, gl.LINEAR); g.T2 = make2D(N, N, gl.R16F, gl.LINEAR);
   g.half = make2D(N >> 1, N >> 1, gl.R16F, gl.LINEAR);
@@ -918,12 +955,13 @@ function alloc(){
     g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
     if(n === 1) break;
   }
-  g.all = [g.f, g.f2, g.h, g.h2, g.rho, g.rho2, g.T, g.T2, g.half, g.quar, ...g.pyr];
+  g.all = [g.f, g.f2, g.ga, g.ga2, g.gb, g.gb2, g.rho, g.rho2,
+           g.T, g.T2, g.half, g.quar, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (2*G.AW*N*8*w + 4*N*N*8*w/2 + 2*N*N*2 + (N*N/4 + N*N/16)*2
+  return (6*G.AW*N*8*w + 2*N*N*2*w + 2*N*N*2 + (N*N/4 + N*N/16)*2
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
@@ -958,10 +996,10 @@ function reseed(){
   gl.uniform1f(u.uFill, S.fill); gl.uniform1i(u.uSeed, S.seed);
   target(G.f, G.AW, G.N); drawQuad();
   u = use(P.gseed); common(u);
-  gl.uniform1f(u.uFill, S.fill); gl.uniform1f(u.uCScale, S.cscale);
+  gl.uniform1i(u.uF, tex(0, G.f));
+  gl.uniform1f(u.uCScale, S.cscale);
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
-  gl.uniform1i(u.uSeed, S.seed);
-  target(G.h, G.N, G.N); drawQuad();
+  target([G.ga, G.gb], G.AW, G.N); drawQuad();
   clearTo(G.T, G.N, G.N);
   clearTo(G.half, G.half.w, G.half.h); clearTo(G.quar, G.quar.w, G.quar.h);
   makeRho();
@@ -986,26 +1024,21 @@ function step(){
     gl.uniform1f(u.uJit, S.jit);
     gl.uniform1f(u.uTn, trailScale()); gl.uniform1f(u.uRn, invRho());
     gl.uniform1i(u.uFrame, S.frame);
+    gl.uniform1i(u.uGa, tex(3, G.ga)); gl.uniform1i(u.uGb, tex(4, G.gb));
     if(gOn){
-      gl.uniform1i(u.uH, tex(3, G.h));
       gl.uniform1f(u.uGmix, S.gmix);
       gl.uniform1fv(u.uW1, S.w1); gl.uniform1fv(u.uB1, S.b1); gl.uniform1fv(u.uW2, S.w2);
     }
-    target(G.f2, AW, N); drawQuad();
-  }
-  if(gOn || S.gdiff > 0){                      // genes ride the same shares
-    const u = use(P.gmove); common(u);
-    gl.uniform1i(u.uF, tex(0, G.f2)); gl.uniform1i(u.uH, tex(1, G.h));
-    gl.uniform1i(u.uRho, tex(2, G.rho));
-    gl.uniform2fv(u.uOff, OFF);
-    target(G.h2, N, N); drawQuad();
-    [G.h, G.h2] = [G.h2, G.h];
+    target([G.f2, G.ga2, G.gb2], AW, N); drawQuad();
+    [G.ga, G.ga2] = [G.ga2, G.ga]; [G.gb, G.gb2] = [G.gb2, G.gb];
   }
   {                                            // move: advect in space
     const u = use(P.move); common(u);
     gl.uniform1i(u.uF, tex(0, G.f2));
+    gl.uniform1i(u.uGa, tex(1, G.ga)); gl.uniform1i(u.uGb, tex(2, G.gb));
     gl.uniform2fv(u.uOff, OFF);
-    target(G.f, AW, N); drawQuad();
+    target([G.f, G.ga2, G.gb2], AW, N); drawQuad();
+    [G.ga, G.ga2] = [G.ga2, G.ga]; [G.gb, G.gb2] = [G.gb2, G.gb];
   }
   makeRho();
   {
@@ -1016,33 +1049,30 @@ function step(){
     target(G.T2, N, N); drawQuad();
     [G.T, G.T2] = [G.T2, G.T];
   }
-  if(S.gdiff > 0){
+  if(S.gdiff > 0 || S.gsep > 0){
     const u = use(P.gblur); common(u);
-    gl.uniform1i(u.uH, tex(0, G.h)); gl.uniform1i(u.uRho, tex(1, G.rho));
-    gl.uniform1f(u.uGdiff, S.gdiff);
-    target(G.h2, N, N); drawQuad();
-    [G.h, G.h2] = [G.h2, G.h];
+    gl.uniform1i(u.uF, tex(0, G.f));
+    gl.uniform1i(u.uGa, tex(1, G.ga)); gl.uniform1i(u.uGb, tex(2, G.gb));
+    gl.uniform1f(u.uMix, S.gdiff); gl.uniform1f(u.uSep, S.gsep);
+    target([G.ga2, G.gb2], AW, N); drawQuad();
+    [G.ga, G.ga2] = [G.ga2, G.ga]; [G.gb, G.gb2] = [G.gb2, G.gb];
   }
   if(S.lod > 0) downsample();
   S.frame++;
 }
 
-let paintGene = [0.9, 0.2, 0.2, 0.5];
+let paintGene = [0.9, 0.2];
 function paintAt(gx, gy, amount){
-  let u = use(P.paint); common(u);
+  const u = use(P.paint); common(u);
   gl.uniform1i(u.uF, tex(0, G.f));
+  gl.uniform1i(u.uGa, tex(1, G.ga)); gl.uniform1i(u.uGb, tex(2, G.gb));
   gl.uniform2f(u.uAt, gx, gy);
+  gl.uniform2f(u.uGene, paintGene[0], paintGene[1]);
   gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
   gl.uniform1i(u.uSeed, (Math.random()*1e9) | 0);
-  target(G.f2, G.AW, G.N); drawQuad();
+  target([G.f2, G.ga2, G.gb2], G.AW, G.N); drawQuad();
   [G.f, G.f2] = [G.f2, G.f];
-  u = use(P.gpaint); common(u);
-  gl.uniform1i(u.uH, tex(0, G.h)); gl.uniform1i(u.uRho, tex(1, G.rho));
-  gl.uniform2f(u.uAt, gx, gy);
-  gl.uniform4f(u.uGene, paintGene[0], paintGene[1], paintGene[2], paintGene[3]);
-  gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
-  target(G.h2, G.N, G.N); drawQuad();
-  [G.h, G.h2] = [G.h2, G.h];
+  [G.ga, G.ga2] = [G.ga2, G.ga]; [G.gb, G.gb2] = [G.gb2, G.gb];
   makeRho();
   massDue = true;
 }
@@ -1065,7 +1095,8 @@ function render(){
   gl.viewport(0, 0, cv.width, cv.height);
   const u = use(P.draw); common(u);
   gl.uniform1i(u.uT, tex(0, G.T)); gl.uniform1i(u.uRho, tex(1, G.rho));
-  gl.uniform1i(u.uF, tex(2, G.f)); gl.uniform1i(u.uH, tex(3, G.h));
+  gl.uniform1i(u.uF, tex(2, G.f));
+  gl.uniform1i(u.uGa, tex(3, G.ga)); gl.uniform1i(u.uGb, tex(4, G.gb));
   gl.uniform2f(u.uRes, cv.width, cv.height);
   gl.uniform2f(u.uPan, S.panx, S.pany);
   gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
@@ -1095,7 +1126,7 @@ cv.addEventListener("pointerdown", e => {
   if(e.shiftKey || e.altKey){
     drag = {mode:"paint", erase:e.altKey};
     cv.classList.add("painting");
-    if(!e.altKey) paintGene = [Math.random(), Math.random(), Math.random(), Math.random()];
+    if(!e.altKey) paintGene = [Math.random(), Math.random()];
     const [x, y] = gridAt(e); paintAt(x, y, e.altKey ? -1 : 1);
   } else {
     drag = {mode:"pan", x:e.clientX, y:e.clientY};
@@ -1270,6 +1301,7 @@ function buildUI(){
   group("genes");
   slider("rule mix", "gmix", 0, 1, 0.01, 2);
   slider("mixing", "gdiff", 0, 1, 0.01, 2);
+  slider("separate", "gsep", 0, 0.8, 0.01, 2);
   slider("gene patch", "gscale", 4, 200, 1, 0, rollCPPN);
   slider("gene bite", "cscale", 0.2, 6, 0.05, 2);
   buttons([["new rule", rollNet], ["new field", () => { rollCPPN(); reseed(); }]]);
