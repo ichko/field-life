@@ -189,35 +189,37 @@ Nothing is created and nothing is destroyed: the mass readout under the field is
 GPU each time it is shown, and it does not move off its opening value.</p>
 
 <h2>How big the grid can be</h2>
-<p><b>96&sup3;</b> holds sixty frames on ordinary hardware and is the default. It goes to
-<b>256&sup3;</b> if the card has the memory, and past about 128&sup3; the thing to reach for is the
-<b>rate</b> control rather than a smaller grid: at a step every second or fourth frame a very large
-field still turns over at a watchable speed while the picture stays at the frame rate. The grid menu
-prints what each size costs before you pick it, and sizes the card cannot hold are not offered.</p>
-<p>The reason it goes that far is that the expensive half of the step does not run at the grid's
-own pitch. A neighbourhood integral out to a dozen cells does not change measurably if it is taken
-on a grid with half the spacing, and in three dimensions halving the pitch is <b>eight times</b>
-less work, not four. So the field is downsampled once, the two Gaussians and the affinity are
-computed there, and only the exponent and the transport &mdash; the parts that have to be crisp
-&mdash; run at full pitch. The kernels are separable, which matters far more here than it does in
-two dimensions: a spherical stencil of half-width 8 is 4913 taps, three 1-D passes are 51.</p>
+<p>It opens at <b>128&sup3; with six colours</b> &mdash; two million cells, each carrying six
+numbers &mdash; and goes to <b>256&sup3;</b> if the card has the memory for it. Past about 128 the
+thing to reach for is the <b>rate</b> control rather than a smaller grid: at a step every second or
+fourth frame a very large field still turns over at a watchable speed while the picture stays at
+the frame rate. The grid menu prints what each size costs before you pick it, sizes the card cannot
+address are not offered, and if the allocation fails anyway the size steps down once and the
+readout says <i>capped</i>.</p>
+<p>Colours past four take a second layer of everything, so the six it opens with cost twice what
+three or four would; halve the table below for those. The reason it reaches these sizes at all is
+that the expensive half of the step does not run at the grid's own pitch. A neighbourhood integral
+out to a dozen cells does not change measurably if it is taken on a grid with half the spacing, and
+in three dimensions halving the pitch is <b>eight times</b> less work, not four. So the field is
+downsampled once, the two Gaussians and the affinity are computed there, and only the exponent and
+the transport &mdash; the parts that have to be crisp &mdash; run at full pitch. The kernels are
+separable, which matters far more here than in two dimensions: a spherical stencil of half-width 8
+is 4913 taps, three 1-D passes are 51.</p>
 <table>
 <tr><th>grid</th><th>cells</th><th>memory</th><th>draws / step</th><th>what to expect</th></tr>
-<tr><td>64&sup3;</td><td>0.26 M</td><td>12 MB</td><td>22</td><td>anything, including phones</td></tr>
-<tr><td>96&sup3;</td><td>0.88 M</td><td>40 MB</td><td>30</td><td>the default; integrated graphics hold 60</td></tr>
-<tr><td>128&sup3;</td><td>2.1 M</td><td>96 MB</td><td>38</td><td>a discrete card holds 60</td></tr>
-<tr><td>192&sup3;</td><td>7.1 M</td><td>326 MB</td><td>54</td><td>a good one, or a step every other frame</td></tr>
-<tr><td>256&sup3;</td><td>16.8 M</td><td>772 MB</td><td>70</td><td>a step every few frames, and worth it</td></tr>
+<tr><td>64&sup3;</td><td>0.26 M</td><td>24 MB</td><td>38</td><td>anything, including phones</td></tr>
+<tr><td>96&sup3;</td><td>0.88 M</td><td>81 MB</td><td>54</td><td>integrated graphics hold 60</td></tr>
+<tr><td>128&sup3;</td><td>2.1 M</td><td>193 MB</td><td>70</td><td>the default; a discrete card holds 60</td></tr>
+<tr><td>192&sup3;</td><td>7.1 M</td><td>651 MB</td><td>102</td><td>a good one, or a step every other frame</td></tr>
+<tr><td>256&sup3;</td><td>16.8 M</td><td>1.5 GB</td><td>134</td><td>a step every few frames, and worth it</td></tr>
 </table>
-<p>Those are for up to four colours. Past four it takes a second layer of everything, so five to
-eight colours cost twice the memory and twice the step &mdash; the trade is stated in the menu.
-A step is about <b>60 texture reads per cell</b> all told, six full-screen draws plus one pass that
-has to go slice by slice. That last one is the only place a 3D texture is written, because a 3D
-texture takes one draw call per slice where a 2D atlas of the same slices takes one for all of
+<p>A step is about <b>60 texture reads per cell per layer</b>, six full-screen draws plus one pass
+that has to go slice by slice. That last one is the only place a 3D texture is written, because a
+3D texture takes one draw call per slice where a 2D atlas of the same slices takes one for all of
 them. Everything the step reads back by index &mdash; the blurs, the affinity, the exponent, the
-shares &mdash; lives in an atlas for exactly that reason. The slice pass writes four at a time,
-and since neighbouring slices share 18 of their 27 taps it sums nine columns once and slides a
-window of three down them: half the reads for four cells at once.</p>
+shares &mdash; lives in an atlas for exactly that reason. The slice pass writes four at a time, and
+since neighbouring slices share 18 of their 27 taps it sums nine columns once and slides a window
+of three down them: half the reads for four cells at once.</p>
 
 <h2>How it is shaded</h2>
 <p>March and integrate, not trace. There is no surface to intersect &mdash; the field is a
@@ -249,46 +251,62 @@ a sense of surface for six taps instead of six times the march. That last one is
 and ambient and nothing else.</p>
 
 <h2>Setting force, repel and beta</h2>
-<p>The flat page runs at <b>force 90, repel 6, beta 3</b>, and those are not the numbers to use
-here. A sweep of 160 runs &mdash; five forces by four repels by four betas, each on two different
-matrices, each run about 120 steps with two slices of the field read back &mdash; puts the workable
-band somewhere else: <b>force 130 to 180, repel 1.5 to 4, beta 2 to 3.2</b>. That is more force and
-much less repulsion than the sheet wants, and it is not a small effect. A run counts as workable
-here if it holds structure without spiking, settles, and does not flicker.</p>
+<p>Two experiments, and the second one corrected the first. A sweep of 160 runs &mdash; five forces
+by four repels by four betas, on two matrices &mdash; put the workable band at force 130 to 180
+against the flat page's 90, and read that as "three dimensions want more force". A tighter probe
+then ran the same settings on two <i>hand-picked</i> matrices at both three and six colours, 48
+runs, and showed what the first one had really been measuring.</p>
 <table>
-<tr><th>force</th><th>workable</th><th>flicker</th><th>peak</th>
-    <th style="padding-left:18px">repel</th><th>workable</th><th>flicker</th><th>peak</th>
-    <th style="padding-left:18px">beta</th><th>workable</th><th>flicker</th><th>peak</th></tr>
-<tr><td>30</td><td>16%</td><td>2.60</td><td>69</td>
-    <td style="padding-left:18px">1.5</td><td>88%</td><td>0.18</td><td>13</td>
-    <td style="padding-left:18px">0.7</td><td>53%</td><td>1.35</td><td>44</td></tr>
-<tr><td>60</td><td>50%</td><td>2.87</td><td>58</td>
-    <td style="padding-left:18px">4</td><td>78%</td><td>0.17</td><td>26</td>
-    <td style="padding-left:18px">1.2</td><td>65%</td><td>1.37</td><td>39</td></tr>
-<tr><td>90</td><td>78%</td><td>0.21</td><td>29</td>
-    <td style="padding-left:18px">8</td><td>63%</td><td>1.40</td><td>39</td>
-    <td style="padding-left:18px">2.0</td><td>73%</td><td>1.21</td><td>34</td></tr>
-<tr><td>130</td><td>97%</td><td>0.19</td><td>12</td>
-    <td style="padding-left:18px">14</td><td>43%</td><td>3.12</td><td>67</td>
-    <td style="padding-left:18px">3.2</td><td>80%</td><td>0.93</td><td>28</td></tr>
-<tr><td>180</td><td>97%</td><td>0.22</td><td>12</td>
-    <td style="padding-left:18px"></td><td></td><td></td><td></td>
-    <td style="padding-left:18px"></td><td></td><td></td><td></td></tr>
+<tr><th rowspan="2">force</th><th colspan="3" style="text-align:center">three colours</th>
+    <th colspan="3" style="text-align:center;padding-left:18px">six colours</th></tr>
+<tr><th>contrast</th><th>peak</th><th>flicker</th>
+    <th style="padding-left:18px">contrast</th><th>peak</th><th>flicker</th></tr>
+<tr><td>40</td><td>15.4</td><td>8</td><td>0.12</td>
+    <td style="padding-left:18px">7.5</td><td>18</td><td>0.10</td></tr>
+<tr><td>90</td><td>10.3</td><td>4</td><td>0.09</td>
+    <td style="padding-left:18px">6.1</td><td>11</td><td>0.16</td></tr>
+<tr><td>180</td><td>8.4</td><td>2</td><td>0.10</td>
+    <td style="padding-left:18px">5.2</td><td>4</td><td>0.18</td></tr>
+<tr><td>260</td><td>7.6</td><td>2</td><td>0.14</td>
+    <td style="padding-left:18px">5.0</td><td>3</td><td>0.23</td></tr>
 </table>
-<p>Both shifts point the same way, and for the same reason. A neighbourhood integral in three
-dimensions averages over <b>r&sup3;</b> cells where the sheet averages over <b>r&sup2;</b>, so the
-ring &mdash; a difference of two such averages &mdash; comes out much smaller against the local
-density. The affinity needs more force to swing as far as it did. The crowding term is a near
-average of the same field and is comparatively <i>larger</i> for exactly the same reason, so it
-needs a smaller coefficient to balance against a weaker ring. Turn either dial the wrong way and
-the failure is visible in the table: at force 30 or repel 14 the flicker number goes up by an order
-of magnitude and the peak density runs to sixty times the mean, which is a field pulling itself
-into spikes rather than into structures.</p>
-<p>That is where random matrices work, not where good ones live. <b>world</b> draws its scalars
-from that band, so most draws land on something. Several of the named worlds sit outside it &mdash;
-studded runs at repel 13.9 and beta 1.07 &mdash; because a particular matrix can be happy where the
-average one is not. <b>shuffle</b> leaves the scalars where they are and changes only the matrix,
-which is the way to explore one corner rather than the whole space.</p>
+<p><b>Force sets how spiky the field comes out, and nothing else that matters.</b> From 40 to 260
+the contrast halves and the peak density falls by a factor of four: the same world goes from thin
+bright shells to broad smooth structures. Low force is not unstable, it is <i>sharp</i> &mdash;
+which is why the first sweep, whose usable test cut anything too spiky, read low force as failure.</p>
+<p><b>Flicker belongs to the matrix, not to the dials.</b> The two matrices in the probe are the
+whole story: one sits at a flicker of about 0.1 at every force, every repel, and both colour counts;
+the other sits between 3 and 10 everywhere, and no scalar rescues it. So a world that shimmers on
+the lattice is not a world that has been set up wrongly, it is a different world. Trying matrices is
+the only way out, which is exactly what the preset search does &mdash; and a little <b>noise</b>,
+which jitters the exponent and lets a structure drifting at an odd angle slip off the eight lattice
+directions, is the one dial that helps.</p>
+<p><b>The colour count rescales force.</b> Both the affinity and the crowding term sum over every
+colour, so six colours swing about twice as far as three at the same force &mdash; visible above as
+the whole six-colour column sitting where a three-colour one twice the force would. That is why the
+flat page runs force 90 at six colours and this page wants roughly the same there, while three
+colours want closer to 180. If you change the colour count and the field goes spiky or goes flat,
+that is the reason, and force is the dial.</p>
+<p><b>Repel</b> trims the peak and little else across the range that matters. <b>Beta</b> is the
+sharpness of the transport's own choice and behaves as it does on the sheet; 2 to 3 is the useful
+span. <b>world</b> draws all of them from bands that mostly land on something, and <b>shuffle</b>
+changes only the matrix, which &mdash; given the above &mdash; is the button that actually matters.</p>
+
+<h2>The worlds on the shelf</h2>
+<p>Ten of them, and finding them took two passes. The first varied everything at once &mdash;
+matrix, force, repel, beta, radius, noise &mdash; and mostly found noise, because with six colours
+the flicker measure is dominated by whichever matrix was drawn. The second varied <b>one</b> thing:
+sixty six-colour matrices with the scalars pinned at a sane point, each run 120 steps at 64&sup3;
+with two slices of every layer read back, ranked by how far three consecutive steps fall from a
+straight line in time. About one in ten comes back calm. Those are the ten, with force moved
+afterwards to give each its own character, since force is the dial that takes a world from thin
+bright walls to broad smooth ones and does not touch whether it sits still.</p>
+<p>An aside that cost an hour: narrow kernels flicker for a reason that has nothing to do with the
+rule. A structure eight cells across <i>is</i> the lattice. An early pool drawn with radii down to
+a tenth of the grid looked as though six colours simply could not be made to sit still; holding the
+radius above about a sixth of the grid made the problem go away. The presets store radius as a
+fraction of the grid for the same reason, so a world found on 64&sup3; is the same world on
+192&sup3; rather than a coarser one.</p>
 
 <h2>Seeing into it</h2>
 <p>A cloud lit properly shows you its skin and hides everything behind it, which is exactly wrong
@@ -302,6 +320,14 @@ for watching a simulation. Four views, and the <b>V</b> key cycles them:</p>
 </table>
 <p>The last two cannot stop early &mdash; that is what seeing through means &mdash; so they lean on
 the empty-space skip instead and cost rather more. The <b>gain</b> slider is their exposure.</p>
+<p>Two of the picture's dials are in units of the field rather than of the screen, and the field's
+mean total is the colour count times the density each colour carries. <b>threshold</b> &mdash; the
+density below which the picture treats the field as haze &mdash; and <b>opacity</b> therefore both
+move when the colour count or the mass does, or six colours would come out as fog where three came
+out as a thing. They are retuned whenever either changes, and stay wherever you put them after
+that. <b>purity</b> is the third: averaging six saturated hues gives grey, so at purity 1 the
+colour of a sample is simply that of whichever colour is strongest there, and turning it down
+blends back towards the average.</p>
 <p>The <b>cut</b> is the other half of it: pick an axis and the picture is clipped to a slab of the
 cube, with <b>from</b> and <b>to</b> as its two ends. Pull one in and you have a cross-section
 through the middle of the thing; bring the two together and you have a single plane of the cube,
@@ -801,7 +827,7 @@ uniform vec3 uPal[8], uKeyCol, uSkyCol, uLdir;
 uniform vec3 uLo, uHi;             // the box actually drawn -- the cross-section
 uniform float uVis[8];             // per colour, 0 hides it from the picture
 uniform float uTanHalf, uSigma, uStep, uEmit, uKey, uAmb, uSpec, uPhase, uAO, uJit;
-uniform float uFloor, uShade, uGain;
+uniform float uFloor, uShade, uGain, uPurity;
 uniform int uC, uL, uMax, uN, uQ, uMode;
 layout(location=0) out vec4 oC;    // premultiplied colour, alpha = transmittance
 
@@ -839,20 +865,26 @@ float hg(float c, float g){
 float sampleAt(vec3 w, out vec3 alb){
   vec4 v0 = max(textureLod(uRho0, w, 0.0), vec4(0.0));
   vec4 v1 = uL > 1 ? max(textureLod(uRho1, w, 0.0), vec4(0.0)) : vec4(0.0);
-  float tot = 0.0, ws = 0.0;
-  alb = vec3(0.0);
+  float tot = 0.0, top = -1.0;
+  vec3 mean = vec3(0.0), best = vec3(0.0);
   for(int k = 0; k < 4; k++){
     if(k >= uC) break;
     float m = v0[k]*uVis[k];
-    tot += m; float wq = m*m*m; alb += uPal[k]*wq; ws += wq;
+    tot += m; mean += uPal[k]*m;
+    if(m > top){ top = m; best = uPal[k]; }
   }
   for(int k = 0; k < 4; k++){
     int cc = k + 4;
     if(cc >= uC) break;
     float m = v1[k]*uVis[cc];
-    tot += m; float wq = m*m*m; alb += uPal[cc]*wq; ws += wq;
+    tot += m; mean += uPal[cc]*m;
+    if(m > top){ top = m; best = uPal[cc]; }
   }
-  alb /= max(ws, 1e-9);
+  // Averaging six saturated hues gives grey, and six colours is exactly when
+  // that stops being a picture. So the hue comes from whichever colour is
+  // strongest here, pulled back towards the average by however much purity is
+  // dialled down -- the flat page's default blend, in a volume.
+  alb = mix(mean/max(tot, 1e-9), best, uPurity);
   return tot;
 }
 void main(){
@@ -1177,56 +1209,108 @@ function make3D(n, ifmt, filt = gl.LINEAR){
 const RATES = [1/8, 1/4, 1/2, 1, 2, 3, 4];
 const RATELAB = ["1/8", "1/4", "1/2", "1", "2", "3", "4"];
 const MODES = ["solid", "flat", "x-ray", "peak"];
-/* Worlds worth keeping. A hundred matrices were sampled in a headless browser
-   and each was run for a hundred and forty steps while three slices of the
-   field were read back, which gives four numbers: how much structure it holds,
-   how fast it moves, whether it has settled, and -- the one that matters most
-   -- whether the motion is coherent or the lattice is merely shimmering. That
-   last is measured across three CONSECUTIVE steps: smooth motion is nearly a
-   straight line in time, flicker is not. A third of the hundred survived; these
-   are the ones worth a name. The radius is stored as a fraction of the grid so
-   a world found on 64 cubed is the same world on 192. */
+/* Worlds worth keeping. Finding them took two passes. The first varied
+   everything at once and mostly found noise; the second varied ONE thing --
+   the matrix -- with the scalars pinned at a sane point, because that is what
+   the probe above says actually decides whether a world sits still. Sixty
+   six-colour matrices, each run 120 steps at 64 cubed with two slices of every
+   layer read back, ranked by how far three consecutive steps fall from a
+   straight line in time. About one in ten is calm; these are those, with force
+   moved afterwards to give each one its own character, since force is the dial
+   that takes a world from thin bright walls to broad smooth ones. The radius
+   is stored as a fraction of the grid, so a world found on 64 cubed is the
+   same world on 192. */
 const PRESETS = [
-  {name:"studded",  C:3, radiusF:0.2188, force:90, repel:13.88, beta:1.07, noise:0,
-   density:0.142, seedMode:1, seedSize:0.32, seed:4242,
-   mat:[-0.847, 0.784, 0.562, 0.908, -0.522, -0.821, -0.269, 0.303, -0.702]},   // a green body under a crust of violet spheres
-  {name:"puffer",   C:3, radiusF:0.2188, force:54, repel:2.2, beta:1.48, noise:0.2,
-   density:0.095, seedMode:1, seedSize:0.32, seed:4242,
-   mat:[-0.835, 0.566, -0.894, -0.531, 0.729, -0.539, 0.931, 0.780, -0.693]},   // lobed, and it does not sit still
-  {name:"roe",      C:3, radiusF:0.1406, force:21, repel:15.48, beta:0.75, noise:0,
-   density:0.083, seedMode:1, seedSize:0.34, seed:4242,
-   mat:[-0.851, 0.999, 0.514, -0.267, -0.655, 0.715, -0.359, 0.834, -0.779]},   // the smoothest of them: no flicker at all
-  {name:"cells",    C:3, radiusF:0.2188, force:90, repel:13.88, beta:1.07, noise:0,
-   density:0.142, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.847, 0.784, 0.562, 0.908, -0.522, -0.821, -0.269, 0.303, -0.702]},   // the same rule filling the cube
-  {name:"froth",    C:3, radiusF:0.1562, force:53, repel:2.57, beta:2.99, noise:0,
-   density:0.1, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.994, 0.542, 0.002, -0.533, -0.209, -0.999, 0.946, -0.484, -0.136]},   // fine cells, coherent
-  {name:"gas",      C:3, radiusF:0.1406, force:21, repel:15.48, beta:0.75, noise:0,
-   density:0.083, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.851, 0.999, 0.514, -0.267, -0.655, 0.715, -0.359, 0.834, -0.779]},   // low contrast, always moving
-  {name:"grain",    C:3, radiusF:0.1094, force:54, repel:7.85, beta:2.99, noise:0,
-   density:0.063, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.834, 0.969, -0.450, 0.066, -0.492, 0.316, -0.275, -0.547, -0.641]},   // slow and heavily structured
-  {name:"fizz",     C:3, radiusF:0.1094, force:127, repel:4.66, beta:3.63, noise:0,
-   density:0.097, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.505, 0.790, -0.946, 0.100, -0.400, -0.132, 0.052, 0.140, -0.169]},   // fine and lively
-  {name:"surge",    C:3, radiusF:0.2188, force:54, repel:2.2, beta:1.48, noise:0.2,
-   density:0.095, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.835, 0.566, -0.894, -0.531, 0.729, -0.539, 0.931, 0.780, -0.693]},   // fast
-  {name:"storm",    C:3, radiusF:0.0938, force:127, repel:2.17, beta:3.1, noise:0,
-   density:0.084, seedMode:0, seedSize:0.3, seed:4242,
-   mat:[-0.156, 0.034, -0.963, 0.107, -0.501, -0.802, 0.679, 0.267, -0.037]},   // faster, and it shimmers a little
+  {name:"brood",   C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:1, seedSize:0.32, seed:4242,   // the calmest of them, as one body
+   mat:[-0.433, 0.049, 0.110, -0.247, 0.145, 0.752,
+        -0.095, -0.682, 0.678, -0.970, -0.198, -0.534,
+        -0.821, 0.158, -0.355, 0.391, 0.749, -0.748,
+        -0.585, 0.398, 0.583, -0.049, 0.800, 0.890,
+        -0.861, -0.299, -0.505, -0.241, -0.381, 0.934,
+        0.318, 0.921, 0.434, -0.723, 0.583, -0.753]},
+  {name:"quiet",   C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // the same rule filling the cube
+   mat:[-0.433, 0.049, 0.110, -0.247, 0.145, 0.752,
+        -0.095, -0.682, 0.678, -0.970, -0.198, -0.534,
+        -0.821, 0.158, -0.355, 0.391, 0.749, -0.748,
+        -0.585, 0.398, 0.583, -0.049, 0.800, 0.890,
+        -0.861, -0.299, -0.505, -0.241, -0.381, 0.934,
+        0.318, 0.921, 0.434, -0.723, 0.583, -0.753]},
+  {name:"swarm",   C:6, radiusF:0.1719, force:60, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // fast, and it never settles
+   mat:[-0.824, -0.874, -0.322, -0.375, 0.758, 0.588,
+        0.729, 0.120, 0.697, -0.021, 0.932, -0.899,
+        0.388, -0.394, -0.774, 0.850, -0.141, 0.470,
+        0.419, 0.606, -0.059, -0.063, -0.387, -0.871,
+        0.490, -0.488, 0.022, 0.614, 0.948, 0.031,
+        0.991, 0.970, 0.462, 0.791, 0.065, 0.371]},
+  {name:"reef",    C:6, radiusF:0.1719, force:150, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // smooth and busy
+   mat:[0.273, -0.040, -0.780, 0.911, -0.713, 0.414,
+        0.213, -0.030, 0.015, -0.075, -0.136, -0.905,
+        -0.051, 0.334, -0.837, 0.363, -0.288, -0.224,
+        -0.520, -0.664, 0.442, -0.751, -0.192, 0.008,
+        -0.050, 0.470, -0.215, 0.421, -0.020, 0.177,
+        -0.696, 0.750, -0.021, -0.449, -0.151, -0.021]},
+  {name:"shards",  C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // thin bright walls
+   mat:[-0.733, 0.036, -0.280, -0.601, 0.129, 0.325,
+        -0.213, -0.057, 0.253, 0.302, 0.533, 0.318,
+        0.626, -0.037, 0.018, -0.430, 0.464, -0.111,
+        0.874, -0.761, -0.619, -0.170, 0.676, 0.851,
+        -0.547, -0.578, -0.956, -0.821, -0.796, -0.286,
+        -0.160, 0.842, -0.620, -0.283, 0.528, 0.227]},
+  {name:"weave",   C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // threads through each other
+   mat:[-0.061, 0.538, 0.379, 0.804, 0.259, 0.591,
+        0.019, -0.693, 0.010, -0.881, -0.028, -0.286,
+        0.946, 0.767, -0.260, -0.990, 0.267, -0.734,
+        -0.800, 0.427, 0.082, 0.289, -0.506, 0.266,
+        0.736, -0.670, 0.344, -0.913, 0.705, 0.624,
+        -0.525, 0.097, 0.437, 0.766, 0.173, 0.332]},
+  {name:"coral",   C:6, radiusF:0.1719, force:150, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // slow, and heavily built
+   mat:[-0.734, -0.336, -0.184, -0.881, -0.251, -0.956,
+        0.697, -0.179, -0.690, -0.032, 0.325, -0.440,
+        -0.559, 0.061, 0.240, -0.100, 0.933, -0.453,
+        0.774, -0.494, 0.599, -0.333, 0.619, 0.627,
+        0.884, 0.200, -0.608, -0.636, -0.630, -0.513,
+        0.191, 0.202, -0.518, -0.696, 0.323, -0.711]},
+  {name:"churn",   C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // the fastest here
+   mat:[-0.217, -0.079, -0.602, 0.690, 0.953, 0.103,
+        -0.654, -0.717, 0.023, -0.104, -0.416, 0.713,
+        0.784, -0.266, 0.643, -0.938, -0.636, -0.203,
+        -0.638, -0.493, 0.755, 0.043, 0.204, -0.745,
+        0.081, -0.338, 0.752, -0.325, 0.437, 0.488,
+        0.932, 0.204, -0.763, -0.195, 0.258, -0.123]},
+  {name:"spines",  C:6, radiusF:0.1719, force:90, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:1, seedSize:0.34, seed:4242,   // a body that grows points
+   mat:[-0.107, -0.702, -0.487, 0.622, 0.238, -0.357,
+        -0.361, -0.994, -0.666, -0.384, 0.611, 0.113,
+        0.679, -0.175, 0.072, -0.881, 0.752, 0.704,
+        0.961, -0.061, 0.088, -0.736, 0.051, 0.936,
+        -0.310, 0.250, 0.296, -0.486, 0.662, 0.351,
+        0.653, -0.236, -0.974, 0.728, -0.750, -0.555]},
+  {name:"bloom",   C:6, radiusF:0.1719, force:120, repel:2, beta:2.4, noise:0,
+   density:0.1, seedMode:0, seedSize:0.3, seed:4242,   // six colours all holding their own
+   mat:[-0.638, 0.891, 0.498, 0.505, 0.962, -0.814,
+        0.125, -0.091, 0.907, 0.073, 0.777, -0.984,
+        -0.621, -0.927, 0.999, -0.122, -0.220, -0.704,
+        0.204, 0.164, -0.683, 0.783, -0.632, -0.666,
+        -0.356, -0.576, -0.246, 0.040, 0.582, 0.662,
+        0.013, 0.846, -0.112, 0.996, -0.023, -0.836]},
 ];
 
 const S = {
-  N: 96, C: 3, density: 0.10, radius: 16,
-  force: 130, repel: 3, beta: 2.6, noise: 0, rate: 3,
+  N: 128, C: 6, density: 0.10, radius: 21,
+  force: 100, repel: 2.5, beta: 2.4, noise: 0.08, rate: 3,
   seed: (Math.random()*1e6)|0, seedMode: 1, seedSize: 0.30,
-  palette: "Aurora",
-  mode: 0, gain: 1.0,
-  sigma: 46, floor: 0.30, expo: 1.0, key: 2.9, amb: 0.22, emit: 0.05, spec: 0.22,
-  phase: 0.4, ao: 0.10, shade: 0.13, quality: "auto", scale: 0.8, stepq: 1.5,
+  palette: "Spectrum",
+  mode: 0, gain: 1.0, purity: 0.8,
+  sigma: 23, floor: 0.60, expo: 1.0, key: 2.9, amb: 0.22, emit: 0.05, spec: 0.22,
+  phase: 0.4, ao: 0.10, shade: 0.13, quality: "auto", scale: 0.8, stepq: 2.0,
   lyaw: 1.15, lpitch: 0.5,
   yaw: 0.7, pitch: 0.36, dist: 2.15,
   cutAx: -1, cutA: 0.0, cutB: 0.5, scan: 0, preset: -1,
@@ -1236,7 +1320,7 @@ const S = {
 let paintMask = new Float32Array(8).fill(1);      // which colours the brush lays down
 let vis = new Float32Array(8).fill(1);            // which colours the picture shows
 
-const PALETTES = ["Aurora", "Spectrum", "Ember", "Ice", "Candy", "Mono"];
+const PALETTES = ["Spectrum", "Aurora", "Ember", "Ice", "Candy", "Mono"];
 function hueRing(t){
   const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
   return [[1,x,0],[x,1,0],[0,1,x],[0,x,1],[x,0,1],[1,0,x]][Math.floor(h) % 6];
@@ -1305,7 +1389,25 @@ function fitsGrid(N, C){
 }
 
 let T = {}, G = {};
+/* Allocating the field can simply fail -- 256 cubed with eight colours asks for
+   a gigabyte and a half of texture, and a card that has not got it says so by
+   way of OUT_OF_MEMORY rather than by throwing. So the size is stepped down
+   until it fits, once, and the readout shows where it landed. */
 function allocSim(){
+  oom = false;
+  while(gl.getError() !== gl.NO_ERROR);            // start from a clean slate
+  for(;;){
+    tryAlloc();
+    if(gl.getError() !== gl.OUT_OF_MEMORY) break;
+    const i = SIZES.indexOf(S.N);
+    if(i <= 0) break;
+    S.N = SIZES[i - 1];
+    oom = true;
+  }
+  if(oom && typeof buildUI === "function") setTimeout(buildUI, 0);
+}
+let oom = false;
+function tryAlloc(){
   for(const k in T){
     const v = T[k];
     for(const t of (Array.isArray(v) ? v.flat() : [v])) if(t) gl.deleteTexture(t);
@@ -1516,6 +1618,18 @@ function lightDir(){
   const cp = Math.cos(pitch);
   return norm([cp*Math.sin(yaw), Math.sin(pitch), cp*Math.cos(yaw)]);
 }
+/* The two dials that turn density into a picture -- the threshold it treats as
+   haze, and how opaque what is left comes out -- are in units of the field, and
+   the field's mean total is the colour count times the density each colour
+   carries. So both have to move when either of those does, or six colours come
+   out as fog where three came out as a thing. Tuned at three colours and a
+   tenth each; everything else follows from there. */
+function retuneLook(){
+  const tot = Math.max(S.C*S.density, 0.02);
+  S.floor = +tot.toFixed(2);
+  S.sigma = Math.round(46*0.30/tot);
+}
+
 /* The box the renderer actually draws. Thickness 1 with the position off
    centre is a half-space -- a cut through the thing -- and a small thickness
    is a slab, which is the flat page's picture again, one plane of the cube. */
@@ -1596,6 +1710,7 @@ function render(){
   uf(u, "uTanHalf", Math.tan(FOV/2));
   uf(u, "uSigma", S.sigma); uf(u, "uStep", stepw);
   uf(u, "uFloor", S.floor); uf(u, "uShade", S.shade); uf(u, "uGain", S.gain);
+  uf(u, "uPurity", S.purity);
   uf(u, "uEmit", S.emit); uf(u, "uKey", S.key); uf(u, "uAmb", S.amb);
   uf(u, "uSpec", S.spec); uf(u, "uPhase", S.phase); uf(u, "uAO", S.ao);
   uf(u, "uJit", (accN*0.6180339887) % 1);
@@ -1737,18 +1852,19 @@ function toggleFull(){
   if(document.fullscreenElement) document.exitFullscreen();
   else app.requestFullscreen && app.requestFullscreen();
 }
-/* A new world is a new matrix AND new scalars, drawn from the band a sweep of
-   160 runs found workable in three dimensions: force 90 to 190, repel 1 to 5,
-   beta 1.6 to 3.4. Outside it most matrices give a field that either flickers
-   on the lattice or pulls itself into spikes, so drawing uniformly over the
-   whole range mostly wastes the draw. Shuffle, in the matrix panel, leaves the
-   scalars alone and changes only the matrix. */
+/* A new world is a new matrix AND new scalars. Force is drawn against the
+   colour count rather than flat, because the affinity sums over every colour:
+   the same 350 to 650 lands near 180 at three colours and near 90 at six,
+   which is where each of them is neither spiky nor washed out. Shuffle, in the
+   matrix panel, leaves the scalars alone and changes only the matrix -- which
+   is the button that decides whether the world shimmers. */
 function newWorld(){
   const r = Math.random;
-  S.force = Math.round(90 + r()*100);
-  S.repel = +(1 + r()*4).toFixed(1);
-  S.beta = +(1.6 + r()*1.8).toFixed(2);
-  S.radius = Math.max(5, Math.round((0.14 + r()*0.10)*S.N));
+  S.force = Math.round((350 + r()*300)/S.C);
+  S.repel = +(0.6 + r()*3.5).toFixed(1);
+  S.beta = +(1.6 + r()*1.6).toFixed(2);
+  S.noise = r() < 0.5 ? +(0.05 + r()*0.2).toFixed(2) : 0;
+  S.radius = Math.max(5, Math.round((0.13 + r()*0.09)*S.N));
   S.preset = -1;
   resampleMatrix((Math.random()*1e6)|0);
   reseed((Math.random()*1e6)|0);
@@ -1881,7 +1997,7 @@ function buildMatrixUI(){
 
 const SIZES = [48, 64, 80, 96, 112, 128, 144, 160, 192, 224, 256];
 const COLOURS = [2, 3, 4, 5, 6, 8];
-let scaleUI = null, stepUI = null, cutAUI = null, cutBUI = null;
+let scaleUI = null, stepUI = null, cutAUI = null, cutBUI = null, rateUI = null;
 
 function applyPreset(i){
   const p = PRESETS[i]; if(!p) return;
@@ -1892,6 +2008,7 @@ function applyPreset(i){
   // a world found on a small grid is the same world on a large one. Everything
   // else in the rule already reads normalised averages and needs no scaling.
   S.radius = Math.max(4, Math.min(40, Math.round(p.radiusF*S.N)));
+  retuneLook();
   palette = makePalette(S.C, S.palette);
   mat = new Float32Array(64);
   for(let c = 0; c < S.C; c++)
@@ -1929,6 +2046,7 @@ function buildUI(){
     while(!fitsGrid(S.N, S.C) && S.N > SIZES[0])
       S.N = SIZES[SIZES.indexOf(S.N) - 1];
     palette = makePalette(S.C, S.palette);
+    retuneLook();
     resampleMatrix(S.seed); allocSim(); reseed();
     buildUI();                       // the matrix and the chip rows change shape
   });
@@ -1937,14 +2055,14 @@ function buildUI(){
   slider("repel", "repel", 0, 30, 0.1, 1);
   slider("beta", "beta", 0.2, 8, 0.05, 2);
   slider("noise", "noise", 0, 2, 0.01, 2);
-  slider("rate", "rate", 0, RATES.length - 1, 1, 0, null, v => RATELAB[v] + "/f");
+  rateUI = slider("rate", "rate", 0, RATES.length - 1, 1, 0, null, v => RATELAB[v] + "/f");
 
   group("start");
   picker("shape", "seedMode",
     [{v:1, t:"ball"}, {v:0, t:"cloud"}, {v:2, t:"shell"}, {v:3, t:"spots"}, {v:4, t:"dust"}],
     () => reseed());
   slider("size", "seedSize", 0.06, 0.5, 0.005, 3, () => reseed());
-  slider("mass", "density", 0.01, 0.4, 0.005, 3, () => reseed());
+  slider("mass", "density", 0.01, 0.4, 0.005, 3, () => { retuneLook(); reseed(); buildUI(); });
   buttons([["reseed", () => reseed((Math.random()*1e6)|0)],
            ["world", newWorld]]);
 
@@ -1990,6 +2108,7 @@ function buildUI(){
   });
   slider("opacity", "sigma", 2, 160, 1, 0);
   slider("threshold", "floor", 0, 1.5, 0.01, 2);
+  slider("purity", "purity", 0, 1, 0.01, 2);
   slider("exposure", "expo", 0.2, 4, 0.02, 2);
   slider("gain", "gain", 0.1, 4, 0.02, 2);
   slider("key", "key", 0, 4, 0.02, 2);
@@ -2020,9 +2139,9 @@ function buildUI(){
 }
 function applyQuality(){
   const q = S.quality;
-  if(q === "fast"){ S.scale = 0.55; S.stepq = 0.9; }
-  else if(q === "even"){ S.scale = 0.8; S.stepq = 1.5; }
-  else if(q === "fine"){ S.scale = 1.0; S.stepq = 2.4; }
+  if(q === "fast"){ S.scale = 0.6; S.stepq = 1.2; }
+  else if(q === "even"){ S.scale = 0.8; S.stepq = 2.0; }
+  else if(q === "fine"){ S.scale = 1.0; S.stepq = 3.2; }
   if(scaleUI) scaleUI.set(S.scale);
   if(stepUI) stepUI.set(S.stepq);
   resetAccum();
@@ -2043,9 +2162,14 @@ function resize(){
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; resetAccum(); }
 }
 new ResizeObserver(resize).observe(cv);
+cv.addEventListener("webglcontextlost", e => {
+  e.preventDefault();
+  fatal("The GPU dropped this page's WebGL context, which usually means the grid\n"
+      + "asked for more memory than the card had. Reload and pick a smaller one.");
+});
 
 let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0;
-let mass = null, peak = null, massAt = -1e9, carry = 0;
+let mass = null, peak = null, massAt = -1e9, carry = 0, rateAt = 0;
 function tick(now){
   requestAnimationFrame(tick);
   const dt = now - tPrev; tPrev = now;
@@ -2079,6 +2203,13 @@ function tick(now){
       const s = Math.max(0.4, Math.min(1, Math.round((S.scale + want)*20)/20));
       if(s !== S.scale){ S.scale = s; if(scaleUI) scaleUI.set(s); resetAccum(); }
     }
+    // Last resort. Once the picture is as cheap as it is allowed to get and the
+    // frames are still nowhere near, the field steps less often rather than the
+    // whole page stalling -- but only down to a step every other frame, and
+    // never on its own initiative past that.
+    if(ema > 34 && S.scale <= 0.4 && S.rate > 2 && now - rateAt > 3000){
+      rateAt = now; S.rate--; if(rateUI) rateUI.set(S.rate);
+    }
   }
   if(now - shown > 420){
     shown = now;
@@ -2089,7 +2220,7 @@ function tick(now){
       `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
       `<b>${G.N}³</b> ${(cells/1e6).toFixed(2)}M &times; ${S.C} &middot; ` +
       `${(cells*RATES[S.rate]/1e6*(S.running ? 1000/Math.max(ema,1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
-      `${memMB().toFixed(0)} MB &middot; ${(S.scale*100)|0}%` +
+      `${memMB().toFixed(0)} MB${oom ? " (capped)" : ""} &middot; ${(S.scale*100)|0}%` +
       (mass ? ` &middot; mass ${mass}` : "") + (peak ? ` &middot; peak ${peak}` : "");
   }
   // Measuring the totals means reading pixels back, which stalls the pipeline,
