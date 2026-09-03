@@ -639,8 +639,15 @@ function alloc(){
   g.f0 = make2D(N, N, F, LF); g.f1 = make2D(N, N, F, LF);
   g.f0b = make2D(N, N, F, LF); g.f1b = make2D(N, N, F, LF);
   g.k0 = make2D(N, N, F); g.k1 = make2D(N, N, F);
-  g.e0 = make2D(N, N, F); g.e1 = make2D(N, N, F);
-  g.s0 = make2D(N, N, F); g.s1 = make2D(N, N, F);
+  // E and S are ALWAYS 32-bit, whatever the precision picker says. They are
+  // not state, they are one step's working, and S is the dangerous one: it is
+  // rho/Z, Z runs to a few times exp(beta), and at beta 9 that puts S under
+  // float16's subnormal floor. Measured, a third of them flushed to zero and
+  // took their mass with them -- twelve per cent of the field gone in three
+  // hundred steps, while the fields themselves were conserving perfectly. The
+  // picker still decides what the FIELDS are kept in, which is what it is for.
+  g.e0 = make2D(N, N, gl.RGBA32F); g.e1 = make2D(N, N, gl.RGBA32F);
+  g.s0 = make2D(N, N, gl.RGBA32F); g.s1 = make2D(N, N, gl.RGBA32F);
   g.d = make2D(N, N, RG, LF);
   g.rho = make2D(N, N, R, LF);
   g.pyr = [];
@@ -654,7 +661,7 @@ function alloc(){
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (10*N*N*8*w + N*N*4*w + N*N*2*w
+  return (6*N*N*8*w + 4*N*N*16 + N*N*4*w + N*N*2*w
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
