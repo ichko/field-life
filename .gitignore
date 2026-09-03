@@ -1,2 +1,7 @@
 video/
 explore/
+train/*.pt
+train/*.log
+train/*.png
+train/*.npy
+train/__pycache__/
