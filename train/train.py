@@ -767,8 +767,13 @@ def main():
             hit = int(torch.randint(0, batch.shape[0], (1,)))
             cy = float(torch.randint(0, a.grid, (1,)))
             cx = float(torch.randint(0, a.grid, (1,)))
-            hurt = fl.smudge(batch[hit:hit + 1], cy, cx,
-                             a.smudge_radius, a.smudge_alpha)
+            # A range of sizes, not one. Trained on a single radius the world
+            # learns to repair exactly that and nothing larger: at radius 26 it
+            # healed completely, at 40 it recovered half the damage, at 55
+            # almost none. The boundary sat where the training did.
+            lo = a.smudge_radius * 0.3
+            r = lo + float(torch.rand(1)) * (a.smudge_radius - lo)
+            hurt = fl.smudge(batch[hit:hit + 1], cy, cx, r, a.smudge_alpha)
             batch = torch.cat([batch[:hit], hurt, batch[hit + 1:]], 0)
 
         out, scored = batch, []
