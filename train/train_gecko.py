@@ -91,6 +91,11 @@ def main():
                     help="how much the silhouette outweighs the colour")
     ap.add_argument("--blur", type=float, default=0.9,
                     help="soften the target to what the kernels can hold, in cells")
+    ap.add_argument("--pool", type=int, default=0,
+                    help="keep this many grown states and restart from them")
+    ap.add_argument("--chunk", type=int, default=14, help="steps run from a pool state")
+    ap.add_argument("--fresh", type=float, default=0.22, help="how often to start from the seed")
+    ap.add_argument("--recycle", type=int, default=14, help="retire a pool state after this many visits")
     ap.add_argument("--threads", type=int, default=4)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -117,18 +122,49 @@ def main():
     opt = torch.optim.Adam(m.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.iters, eta_min=a.lr*0.08)
 
+    # The pool. A rule that is only ever run from the seed learns to ARRIVE at
+    # the target and not to STAY there, which is why lengthening the unroll
+    # keeps throwing the loss back up: nothing has ever asked the pattern to
+    # stop. So keep a bag of states the rule has already made, start from one of
+    # those as often as from the seed, and score where it gets to. A state that
+    # is already the animal is then scored on whether it is still the animal a
+    # dozen steps later, which is the only way a fixed point gets learned.
+    pool = None
+    if a.pool > 0:
+        pool = torch.zeros(a.pool, a.C, a.N, a.N, a.N)
+        pool_age = torch.zeros(a.pool, dtype=torch.long)
+
     best = float("inf")
     t0 = time.time()
+    rng = torch.Generator().manual_seed(11)
     for it in range(a.iters):
-        # a curriculum on depth: a short unroll first, so the early steps get a
-        # clean gradient before there are forty of them to travel back through
-        frac = min(1.0, it/(0.55*a.iters))
-        steps = int(round(a.warm + (a.steps - a.warm)*frac))
-        keep = tuple(sorted({steps, steps + a.hold//2, steps + a.hold}))
-
         masses = F.softplus(m.seed_mass).clone()
         masses = torch.cat([vis_mass, masses[3:]])        # visible mass is not free
-        rho, snaps = m.run(masses, keep[-1], keep=keep)
+
+        if pool is None:
+            frac = min(1.0, it/(0.55*a.iters))
+            steps = int(round(a.warm + (a.steps - a.warm)*frac))
+            keep = tuple(sorted({steps, steps + a.hold//2, steps + a.hold}))
+            rho, snaps = m.run(masses, keep[-1], keep=keep)
+        else:
+            j = int(torch.randint(a.pool, (1,), generator=rng))
+            fresh = bool(pool_age[j] == 0) or float(torch.rand(1, generator=rng)) < a.fresh
+            m.dscale.fill_(float(a.N**3)/float(masses.sum().detach()))
+            rho = m.seed(masses) if fresh else pool[j:j+1].clone()
+            # a longer run from the seed, a short one from a state already grown
+            steps = a.warm if fresh else a.chunk
+            keep = tuple(sorted({max(1, steps - a.hold//2), steps}))
+            snaps = {}
+            for i in range(1, steps + 1):
+                rho = m.step(rho)
+                if i in keep: snaps[i] = rho
+            with torch.no_grad():
+                # age 0 means the slot is empty. A slot that has been visited
+                # too many times is retired rather than kept for ever, so the
+                # pool never drifts away from states the seed can actually reach.
+                pool[j] = rho[0].detach()
+                pool_age[j] = 1 if fresh else pool_age[j] + 1
+                if pool_age[j] > a.recycle: pool_age[j] = 0
 
         # Shape first, colour second. Left to itself the fit spends its early
         # effort deciding where red sits against where green sits -- which comes
@@ -137,7 +173,7 @@ def main():
         # says: agree on where the animal is, then argue about its colour.
         loss = 0.0
         for k in keep:
-            w = 1.0 if k == keep[0] else 0.6
+            w = 1.0 if k == keep[-1] else 0.6
             vis = snaps[k][:, :3]
             loss = loss + w*(a.wsil*pyramid_loss(vis.sum(1, keepdim=True),
                                                  tgt.sum(1, keepdim=True), wmap)
@@ -155,10 +191,16 @@ def main():
         if float(loss) < best:
             best = float(loss)
             torch.save(m.state_dict(), a.out.replace(".json", ".pt"))
-        if it % 5 == 0 or it == a.iters - 1:
+        # With a pool the loss alternates between easy iterations from the seed
+        # and hard ones from a grown state, so the lowest score is not the best
+        # rule -- it is the luckiest draw. Keep the latest as well, and judge it
+        # by running it.
+        if it % 50 == 0:
+            torch.save(m.state_dict(), a.out.replace(".json", "_last.pt"))
+        if it % 10 == 0 or it == a.iters - 1:
             with torch.no_grad():
-                err = float(F.mse_loss(snaps[keep[0]][:, :3], tgt))
-                mx = float(snaps[keep[0]][:, :3].max())
+                err = float(F.mse_loss(snaps[keep[-1]][:, :3], tgt))
+                mx = float(snaps[keep[-1]][:, :3].max())
             print(f"{it:4d} steps {steps:3d} loss {float(loss):.5f} best {best:.5f} "
                   f"mse {err:.5f} max {mx:.2f} |g| {float(gn):.2f} "
                   f"{(time.time()-t0)/max(it,1):.1f}s/it", flush=True)

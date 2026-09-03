@@ -59,27 +59,53 @@ channel gets a region of its own, and the picture is put back together at the
 far end by giving each part a colour, which is what every other world on the
 page already does.
 
-## Where it has got to, and what is left
+## Where it has got to
 
 The fit brings the three parts into the right arrangement — a gold head at one
-end, the green back along the middle, the pale underside around them — and stops
-there. It is not a gecko yet: no legs, no tail, no silhouette.
+end, the green back along the middle, the pale underside around them. It is not
+a gecko yet: no legs, no tail, no silhouette.
 
-Two things stand between here and one, and neither is a mystery.
+Two things stood between here and one. The second is now fixed.
 
 **It needs far more training than one sitting.** Fits of this kind normally run
-for tens of thousands of steps; this has had a few hundred, at seven seconds
-each on four CPU cores.
+for tens of thousands of steps; this has had a couple of thousand, at three to
+seven seconds each on four CPU cores. That is the whole of the remaining gap.
 
-**The pattern is not a stable fixed point yet.** The curriculum lengthens the
-unroll as it goes, and each time it does, the loss jumps: a rule tuned to look
-right at step 32 does not hold at step 36, because it was never asked to stop.
-The standard fix is a pool — keep a bag of states the rule has already produced,
-restart from those as often as from the seed, and score them too, which is what
-teaches a pattern to stay rather than merely to arrive. That is the next thing
-to write.
+**The pattern was not a stable fixed point.** The first runs lengthened the
+unroll as they went and the loss jumped every time they did: a rule tuned to
+look right at step 32 did not hold at step 36, because it had never been asked
+to stop. Run it past where it was trained and the animal kept going, into
+something else.
 
-Nothing has been added to `staging/volume.html` for this yet, deliberately. The
-page would need the displaced-Gaussian bank, a gather pass, and a seed that is a
+`--pool` is the fix, and it works. Keep a bag of states the rule has already
+made, start from one of those as often as from the seed, and score where it
+gets to fourteen steps later. A state that is already the animal is then scored
+on whether it is still the animal afterwards, which is the only way a fixed
+point gets learned. The measure that matters is the loss on those pool
+restarts, and over the run it falls steadily:
+
+    pool restarts   1- 15   mean 0.101
+                   16- 30   mean 0.098
+                   31- 45   mean 0.092
+                   46- 60   mean 0.078
+
+and the picture stops moving: run from the seed, the shape at step 20, step 40
+and step 70 is the same shape. Before the pool it was three different ones.
+
+The cost is that what it holds is now *simpler* than what it reached before —
+persistence pressure likes smooth attractors, and it found one before it found
+a gecko. That is the ordinary way round for this kind of fit, and the way out
+of it is the first paragraph: more steps.
+
+```
+python3 train_gecko.py --iters 2400 --N 40 --C 8 --S 5 --T 12 \
+    --pool 16 --warm 30 --chunk 14 --lr 3e-3 --wsil 2.0 --blur 0.9 \
+    --resume geckoP_best.pt --out geckoQ.json
+```
+
+## Not on the page yet
+
+Nothing has been added to `staging/volume.html` for this, deliberately. The page
+would need the displaced-Gaussian bank, a gather pass, and a seed that is a
 small pattern rather than a ball — a contained change, but not one worth making
 to a page that works until there is a gecko to put in it.
