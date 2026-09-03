@@ -96,6 +96,11 @@ def main():
     ap.add_argument("--chunk", type=int, default=14, help="steps run from a pool state")
     ap.add_argument("--fresh", type=float, default=0.22, help="how often to start from the seed")
     ap.add_argument("--recycle", type=int, default=14, help="retire a pool state after this many visits")
+    ap.add_argument("--kernel", default="gauss", choices=("gauss", "cppn"),
+                    help="displaced Gaussians, or a network over the offset vector")
+    ap.add_argument("--K", type=int, default=7, help="stencil half-width, in half-pitch cells")
+    ap.add_argument("--axes", type=int, default=4, help="learned axes for the angular orders")
+    ap.add_argument("--orders", type=int, default=3, help="angular orders about each axis")
     ap.add_argument("--threads", type=int, default=4)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
@@ -106,7 +111,8 @@ def main():
     wmap = 1.0 + 14.0*occ                                 # the animal against the void
     print("target mass per visible channel:", [round(float(v), 1) for v in vis_mass])
 
-    m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR)
+    m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
+                kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders)
     if a.resume and os.path.exists(a.resume):
         m.load_state_dict(torch.load(a.resume))
         print("resumed from", a.resume)

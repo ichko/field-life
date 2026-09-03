@@ -23,6 +23,8 @@ import math
 import torch
 import torch.nn.functional as F
 
+from kernel_cppn import KernelCPPN
+
 
 def gauss1d(sigma, K, device, dtype):
     """A feathered Gaussian, cut and slid down to zero at the rim, as the page
@@ -70,11 +72,18 @@ def shift_all(x, off, pad, base_grid):
 class Field3D(torch.nn.Module):
     """C channels, S blur widths, T displaced terms per channel."""
 
-    def __init__(self, C=8, S=3, T=6, N=48, seedR=3.5, device="cpu", dtype=torch.float32):
+    def __init__(self, C=8, S=3, T=6, N=48, seedR=3.5, device="cpu", dtype=torch.float32,
+                 kernel="gauss", K=7, axes=4, orders=3):
         super().__init__()
         self.C, self.S, self.T, self.N = C, S, T, N
         self.soft = True
+        self.kind = kernel
         self.register_buffer('dscale', torch.tensor(1.0, dtype=dtype))
+        # The kernel bank, drawn by a small network over the offset vector. It
+        # replaces the displaced Gaussians outright: one dense stencil per
+        # channel, each with its own reach, so the bank holds a kernel that
+        # looks two cells out and one that looks across a third of the world.
+        self.kern = KernelCPPN(C, K=K, axes=axes, orders=orders) if kernel == "cppn" else None
         self.device, self.dtype = device, dtype
         g = torch.Generator().manual_seed(7)
 
@@ -136,27 +145,37 @@ class Field3D(torch.nn.Module):
         half = F.avg_pool3d(rho, 2)                        # the half-pitch copy
         sig = torch.exp(self.log_sig)
 
-        bank = []
-        for s in range(self.S):
-            K = max(2, int(math.ceil(4.0*float(sig[s].detach()))))
-            K = min(K, N//4 - 1)
-            w = gauss1d(sig[s], K, rho.device, rho.dtype)
-            b = blur3(blur3(blur3(half, w, 0), w, 1), w, 2)
-            bank.append(b)
+        if self.kind == "cppn":
+            # one tight blur, only for the crowding term; the kernels are the
+            # network's own business
+            w = gauss1d(sig[0], min(max(2, int(math.ceil(4.0*float(sig[0].detach())))),
+                                    N//4 - 1), rho.device, rho.dtype)
+            bank = [blur3(blur3(blur3(half, w, 0), w, 1), w, 2)]
+        else:
+            bank = []
+            for s in range(self.S):
+                K = max(2, int(math.ceil(4.0*float(sig[s].detach()))))
+                K = min(K, N//4 - 1)
+                w = gauss1d(sig[s], K, rho.device, rho.dtype)
+                b = blur3(blur3(blur3(half, w, 0), w, 1), w, 2)
+                bank.append(b)
 
         # the kernel: displaced blobs, summed per channel. One gather per term
         # over every channel at once -- the displacement is the only thing that
         # differs between channels, and grid_sample will take it per batch item.
-        # The lobe weights are normalised to sum to one in absolute value, as
-        # the flat page normalises each baked kernel: without it the kernel's
-        # overall scale and the force in front of it are the same number twice,
-        # and the fit spends its time trading one against the other.
-        amp = self.amp/self.amp.abs().sum(1, keepdim=True).clamp_min(1e-6)
-        Kc = 0.0
-        for t in range(self.T):
-            g = shift_all(bank[self.term_sig[t]], self.off[:, t, :],
-                          self.gpad, self.base_grid)
-            Kc = Kc + g*amp[:, t].view(1, C, 1, 1, 1)
+        if self.kind == "cppn":
+            Kc = self.kern(half)
+        else:
+            # The lobe weights are normalised to sum to one in absolute value,
+            # as the flat page normalises each baked kernel: without it the
+            # kernel's overall scale and the force in front of it are the same
+            # number twice, and the fit trades one against the other.
+            amp = self.amp/self.amp.abs().sum(1, keepdim=True).clamp_min(1e-6)
+            Kc = 0.0
+            for t in range(self.T):
+                g = shift_all(bank[self.term_sig[t]], self.off[:, t, :],
+                              self.gpad, self.base_grid)
+                Kc = Kc + g*amp[:, t].view(1, C, 1, 1, 1)
 
         crowd = bank[0].sum(1, keepdim=True)               # tightest blur, all colours
         # Both terms are divided by the field's mean density before force and
