@@ -442,6 +442,58 @@ void main(){
   oD = vec4(l > 1e-6 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
 }`;
 
+/* Genes mix, and left alone they always end up uniform. Every cell sums what
+   nine neighbours sent it, every step, which is a diffusion with nothing
+   opposing it. So this pass carries a flux that can run either way:
+
+       F = min(rho_p,rho_q) * dg * ( mix - sep*(1 - 2*|dg|) )
+
+   on the CONCENTRATIONS. Where two sides nearly agree the bracket goes
+   negative and the flux runs uphill, deepening the difference; where they
+   already disagree strongly it smooths. A double well, so domains are held
+   apart instead of averaged. dg is exactly negated at the other end and
+   min(rho_p,rho_q) is symmetric, so the flux is exactly antisymmetric and no
+   gene mass is made or lost by any of it. */
+const FS_GSEP = HEAD + `
+uniform sampler2D uG0, uG1, uRho;
+uniform float uMixG, uSep;
+layout(location = 0) out vec4 oG0;
+layout(location = 1) out vec4 oG1;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float rp = texelFetch(uRho, p, 0).r;
+  vec4 h0 = texelFetch(uG0, p, 0), h1 = texelFetch(uG1, p, 0);
+  if(rp < 1e-5){ oG0 = h0; oG1 = h1; return; }
+  float ip = 1.0/rp;
+  vec4 a0 = h0*ip, a1 = h1*ip, s0 = vec4(0.0), s1 = vec4(0.0);
+  // Both terms together must not exceed one, or a channel can be asked to
+  // send away more than it holds and goes negative -- and a negative amount
+  // makes a nonsense concentration, which is where the NaN came from.
+  float sc = 1.0/max(1.0, uMixG + uSep);
+  for(int dy = -1; dy <= 1; dy++)
+    for(int dx = -1; dx <= 1; dx++){
+      if(dx == 0 && dy == 0) continue;
+      ivec2 q = wrap(p + ivec2(dx, dy));
+      float rq = texelFetch(uRho, q, 0).r;
+      // A cell holding almost nothing has a concentration that is all
+      // rounding, and dividing by it is what turns this pass into NaN.
+      if(rq < 1e-5) continue;
+      float iq = 1.0/rq;
+      vec4 q0 = texelFetch(uG0, q, 0), q1 = texelFetch(uG1, q, 0);
+      vec4 d0 = clamp(q0*iq - a0, -1.0, 1.0), d1 = clamp(q1*iq - a1, -1.0, 1.0);
+      // Weighted by the smaller of the two AMOUNTS IN THIS CHANNEL, not by
+      // the cells' totals. Symmetric either way, so the flux stays exactly
+      // antisymmetric and the total is still untouched -- but now a channel
+      // can never be asked to give away more than it has, and a channel that
+      // is empty here simply does not trade.
+      vec4 w0 = min(h0, q0), w1 = min(h1, q1);
+      s0 += w0*d0*(uMixG - uSep*(1.0 - 2.0*abs(d0)))*sc;
+      s1 += w1*d1*(uMixG - uSep*(1.0 - 2.0*abs(d1)))*sc;
+    }
+  oG0 = h0 + 0.125*s0;
+  oG1 = h1 + 0.125*s1;
+}`;
+
 /* The mass is the trail. It takes what the rule laid down, is blurred, and
    is faded. It is NOT conserved and must not be -- decay is the only reason a
    network settles instead of filling in, and it is what the genes, which are
@@ -616,10 +668,27 @@ void main(){
     oCol = vec4(hue((atan(d.y, d.x)/TAU) + 0.5)*v, 1.0);
     return;
   }
-  if(uView == 3){                                  // the genes
-    vec4 g = texture(uG0, uv);
-    float inv = 1.0/max(texture(uRho, uv).r, 1e-5);
-    oCol = vec4(clamp(g.xyz*inv, 0.0, 1.0)*v, 1.0);
+  if(uView == 3){
+    // Eight species, eight hues, mixed by how much of each is here. A cell
+    // that is all one species comes out a saturated hue; a cell that is an
+    // even blend of all eight comes out GREY. The colour says PURITY, not
+    // just which one won, which is the whole question being asked of it.
+    vec4 a = texture(uG0, uv), b = texture(uG1, uv);
+    float t = dot(a, vec4(1.0)) + dot(b, vec4(1.0));
+    if(t < 1e-6){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
+    float inv = 1.0/t;
+    vec3 col = vec3(0.0);
+    float best = 0.0;
+    for(int i = 0; i < 4; i++){
+      float wa = a[i]*inv, wb = b[i]*inv;
+      col += hue(float(i)/8.0)*wa + hue(float(4 + i)/8.0)*wb;
+      best = max(best, max(wa, wb));
+    }
+    float sat = clamp((best*8.0 - 1.0)/7.0, 0.0, 1.0);
+    col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
+    // Brightness follows density but never all the way to black, or the
+    // sparse half of the field -- the interesting half -- is invisible.
+    oCol = vec4(clamp(col*(0.30 + 0.70*v)*1.7, 0.0, 1.0), 1.0);
     return;
   }
   if(uView == 4){                                // the trail the genes laid
@@ -720,7 +789,8 @@ function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT){
 
 const P = {
   rule: program(FS_RULE), move: program(FS_MOVE), dmove: program(FS_DMOVE),
-  mass: program(FS_MASS), seed: program(FS_SEED), dseed: program(FS_DSEED),
+  mass: program(FS_MASS), gsep: program(FS_GSEP),
+  seed: program(FS_SEED), dseed: program(FS_DSEED),
   paint: program(FS_PAINT), rho: program(FS_RHO), draw: program(FS_DRAW),
   sum: program(FS_SUM),
 };
@@ -729,7 +799,7 @@ const P = {
 const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
   dist: 8, angle: 34, width: 18, commit: 4, turn: 14, gain: 1.2, jit: 0.02,
-  mix: 0.25, sharp: 6, beta: 1.5, crowd: 3.0,
+  mix: 0.25, sharp: 6, beta: 1.5, crowd: 3.0, gmix: 0, gsep: 0.6, gsteps: 3,
   dep: 1, decay: 0.94, diff: 1, fill: 0.16, cscale: 1.2, gscale: 40,
   exp: 1.6, floor: 0.2, view: 0, pal: 3, ker: 1,
   zoom: 1, panx: 0, pany: 0, brush: 26, seed: 1,
@@ -876,6 +946,22 @@ function step(){
     [G.m0, G.m0b] = [G.m0b, G.m0]; [G.m1, G.m1b] = [G.m1b, G.m1];
   }
   makeRho();
+  if(S.gsep > 0 || S.gmix > 0){
+    // Weighting the flux by the per-channel amount is what makes it safe, and
+    // it is also what makes it weak: a channel usually holds a small share of
+    // its cell. Repeating the pass is the honest way to get the strength back
+    // -- each repeat is separately bounded, so the total stays exact however
+    // many are run.
+    const u = use(P.gsep); common(u);
+    for(let i = 0; i < S.gsteps; i++){
+      gl.uniform1i(u.uG0, tex(0, G.g0)); gl.uniform1i(u.uG1, tex(1, G.g1));
+      gl.uniform1i(u.uRho, tex(2, G.rho));
+      gl.uniform1f(u.uMixG, S.gmix); gl.uniform1f(u.uSep, S.gsep);
+      target([G.g0b, G.g1b], N, N); drawQuad();
+      [G.g0, G.g0b] = [G.g0b, G.g0]; [G.g1, G.g1b] = [G.g1b, G.g1];
+    }
+    makeRho();
+  }
   S.frame++;
 }
 
@@ -1089,6 +1175,9 @@ function buildUI(){
   slider("decay", "decay", 0.70, 0.995, 0.001, 3);
   slider("diffuse", "diff", 0, 1, 0.01, 2);
   slider("fill", "fill", 0.02, 0.6, 0.01, 2);
+  slider("mixing", "gmix", 0, 1, 0.01, 2);
+  slider("separate", "gsep", 0, 1, 0.01, 2);
+  slider("sep passes", "gsteps", 1, 8, 1, 0);
   slider("gene patch", "gscale", 4, 200, 1, 0, rollCPPN);
   slider("gene bite", "cscale", 0.2, 6, 0.05, 2);
 
