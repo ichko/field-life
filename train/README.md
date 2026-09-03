@@ -10,6 +10,7 @@ way the flat page's lizard was fitted to an emoji.
 | `train_gecko.py` | the fit: unroll from a seed, compare, push the error back |
 | `export_fit.py` | writes the fitted rule out in the units the page reads |
 | `render_fit.py`, `look.py`, `view.py` | look at what grew |
+| `sheet.py` | contact sheets: `stages` compares every attempt against the target, `growth` follows one from its seed |
 
 ```
 pip install torch numpy pillow
