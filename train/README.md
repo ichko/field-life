@@ -88,14 +88,30 @@ restarts, and over the run it falls steadily:
                    16- 30   mean 0.098
                    31- 45   mean 0.092
                    46- 60   mean 0.078
+                   61- 75   mean 0.057
 
 and the picture stops moving: run from the seed, the shape at step 20, step 40
 and step 70 is the same shape. Before the pool it was three different ones.
 
-The cost is that what it holds is now *simpler* than what it reached before —
+The cost is that what it holds is *simpler* than what it reached before —
 persistence pressure likes smooth attractors, and it found one before it found
-a gecko. That is the ordinary way round for this kind of fit, and the way out
-of it is the first paragraph: more steps.
+a gecko.
+
+And here is the part worth knowing before spending a night on this: **the extra
+training did not buy the shape back.** A thousand more pool iterations took the
+restart loss from 0.078 to 0.057, and the picture at the end of them is the
+picture at the start — the same slab, held more precisely. The improvement went
+into polishing the attractor it had already found, not into leaving it. So
+"just run it longer" is not, on this evidence, the whole answer.
+
+What that points at is the balance between the two pressures rather than the
+amount of either. Once the pool is filling, nearly every iteration is a short
+restart from a state that is already smooth, and the long run from the seed --
+the only one that ever has to *build* anything -- is a fifth of the batch and
+gets a fifth of the gradient. Things to try, in order: hold the fresh fraction
+high and decay it slowly rather than fixing it at a fifth; weight the fresh
+iterations up in the loss; and keep the silhouette term climbing while the pool
+term holds, so persistence is bought without paying for it in shape.
 
 ```
 python3 train_gecko.py --iters 2400 --N 40 --C 8 --S 5 --T 12 \
