@@ -478,3 +478,39 @@ def bake_from_config(kernels, C, KR, dtype=torch.float64, device="cpu", mip=0):
         v = torch.where(rr > 1, torch.zeros_like(v), v).sum(dim=(0, 1)) / 9
         out.append(_finish(v, KR, k.get("feather", 0.1), True, RR=R))
     return torch.stack(out)
+
+
+def smudge(rho, cy, cx, radius, alpha=1.0, softness=1.5):
+    """Scramble mass inside a disc without destroying any of it.
+
+    Damage in this system is not the same problem it is for an NCA. An NCA's
+    state is free-floating activation, so erasing a patch and asking the world
+    to rebuild it is well posed. Here the update only MOVES mass: erase a patch
+    and that mass is gone for good, the picture costs exactly what it costs, and
+    the target becomes unreachable rather than merely distant. Recovery would be
+    measuring a hole.
+
+    So this smudges instead of erasing: inside the disc each channel is mixed
+    toward its own mean over that disc, which leaves the total in every channel
+    exactly where it was and destroys the structure holding it. alpha = 1 is a
+    full flatten, lower values are a lighter smear. That is what a finger
+    through wet paint does, and it is the version of the question that has an
+    answer.
+    """
+    B, C, H, W = rho.shape
+    y = torch.arange(H, device=rho.device, dtype=rho.dtype)[:, None]
+    x = torch.arange(W, device=rho.device, dtype=rho.dtype)[None, :]
+    # nearest image on the torus, so a disc near an edge is still a disc
+    dy = (y - cy + H / 2) % H - H / 2
+    dx = (x - cx + W / 2) % W - W / 2
+    d = torch.sqrt(dy * dy + dx * dx)
+    m = ((radius - d) / softness).clamp(0, 1)
+    m = m * m * (3 - 2 * m)                       # smoothstep, as the seed uses
+    w = m.sum()
+    if w < 1e-9:
+        return rho
+    # the mean under the mask, weighted by the mask itself: mixing toward it
+    # moves mass around inside the disc and across its soft rim, and the
+    # weighting is what makes the total invariant rather than merely similar.
+    mean = (rho * m).sum(dim=(2, 3), keepdim=True) / w
+    return rho + alpha * m * (mean - rho)

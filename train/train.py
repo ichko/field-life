@@ -98,6 +98,77 @@ class Mix(torch.nn.Module):
         return v if U.ndim == 4 else v[0]
 
 
+
+class SeedCPPN(torch.nn.Module):
+    """A learned circular seed: where to put the mass, not how much.
+
+    The disc the run has used so far is a placeholder -- flat, featureless, and
+    chosen rather than found. This makes the opening state a small function of
+    polar position, trained with everything else, so the world can decide what
+    it wants to start from.
+
+    Two things are fixed rather than learned, and both for the same reason.
+    The support is a disc: the seed is masked by the same smoothstep rim the
+    flat one used, so "circular" is structural and the animal cannot cheat by
+    starting as a lizard. And the per-channel TOTAL is renormalised to the
+    picture's own masses, because MaCE only moves mass -- a seed free to choose
+    how much it carries would be choosing how bright the animal is, which is
+    not a question about growth. What is learned is the distribution inside
+    that disc, which is exactly the interesting part.
+
+    Angular features enter as cos/sin of integer multiples of theta, so the
+    field is periodic in theta by construction and has no seam at the branch
+    cut of atan2.
+    """
+
+    def __init__(self, C, radius, orders=(1, 2, 3, 4), hidden=24, seed=0):
+        super().__init__()
+        g = torch.Generator().manual_seed(seed + 7)
+        self.C, self.radius = C, float(radius)
+        self.register_buffer("orders", torch.tensor(orders, dtype=torch.float32))
+        n_in = 3 + 2 * len(orders)                 # 1, r, r^2, then cos/sin per order
+        self.l1 = torch.nn.Linear(n_in, hidden)
+        self.l2 = torch.nn.Linear(hidden, hidden)
+        self.l3 = torch.nn.Linear(hidden, C)
+        with torch.no_grad():
+            for lay in (self.l1, self.l2, self.l3):
+                lay.weight.copy_(torch.randn(lay.weight.shape, generator=g)
+                                 * (1.0 / lay.in_features ** 0.5))
+                lay.bias.zero_()
+            # start near flat: a small last layer means the first seed this
+            # produces is the disc the run was already using, so a fine-tune
+            # begins where it left off instead of somewhere new.
+            self.l3.weight.mul_(0.05)
+        self._grid = None
+
+    def _coords(self, grid, dtype, device):
+        if self._grid is not None and self._grid[0] == (grid, dtype, device):
+            return self._grid[1]
+        y = torch.arange(grid, dtype=dtype, device=device)[:, None] - (grid - 1) / 2
+        x = torch.arange(grid, dtype=dtype, device=device)[None, :] - (grid - 1) / 2
+        d = torch.sqrt(y * y + x * x)
+        th = torch.atan2(y.expand(grid, grid), x.expand(grid, grid))
+        r = (d / self.radius).clamp(max=1.5)
+        mask = ((self.radius - d) / 1.5).clamp(0, 1)
+        mask = mask * mask * (3 - 2 * mask)
+        feats = [torch.ones_like(r), r, r * r]
+        for m in self.orders.to(dtype):
+            feats += [torch.cos(m * th), torch.sin(m * th)]
+        out = (torch.stack(feats, -1), mask)
+        self._grid = ((grid, dtype, device), out)
+        return out
+
+    def forward(self, masses, grid):
+        feats, mask = self._coords(grid, self.l1.weight.dtype, self.l1.weight.device)
+        v = torch.tanh(self.l1(feats))
+        v = torch.tanh(self.l2(v))
+        v = torch.nn.functional.softplus(self.l3(v) + 1.0)     # non-negative mass
+        v = v.permute(2, 0, 1) * mask
+        tot = v.sum(dim=(1, 2), keepdim=True).clamp_min(1e-9)
+        m = torch.as_tensor(masses, dtype=v.dtype, device=v.device)[:, None, None]
+        return v * (m / tot)
+
+
 class World(torch.nn.Module):
     """Everything trainable: the kernels, the matrix, and the three globals.
 
@@ -107,9 +178,12 @@ class World(torch.nn.Module):
     where the gradient it is following stops meaning anything.
     """
 
-    def __init__(self, C, orders, KR, seed=0, hidden=0, mat_init="random", mip=0):
+    def __init__(self, C, orders, KR, seed=0, hidden=0, mat_init="random", mip=0,
+                 seed_radius=0.0):
         super().__init__()
         self.kern = fl.PolarKernels(C, orders=orders, KR=KR, seed=seed)
+        # A learned opening state, when asked for. None means the flat disc.
+        self.seeder = SeedCPPN(C, seed_radius, seed=seed) if seed_radius else None
         g = torch.Generator().manual_seed(seed + 1)
         self.hidden = hidden
         self.mip = mip
@@ -278,6 +352,43 @@ def horizon_losses(model, target, seed, steps_list):
     return out
 
 
+def recovery_losses(model, target, seed, at=384, after=(128, 256), radius=24.0):
+    """Grow, smear, and see whether it comes back.
+
+    Measured from the seed rather than the pool so it answers the question a
+    person asks by dragging a finger through the field: reach the animal, take
+    a disc of it and stir, then keep running. The disc is centred on the
+    animal's own centre of mass, because a smear over empty space damages
+    nothing and would flatter the number.
+
+    `at` has to be past the point where the animal has actually formed, or the
+    number measures growth rather than repair -- with a small seed the first
+    reading of this metric came back BETTER after the smear than before it,
+    purely because the world had not finished building at 256 steps.
+
+    Returns (loss before the smear, [loss after each of `after` more steps]).
+    Read it as a pair: recovery is the second number returning to the first,
+    not the second number being small.
+    """
+    with torch.no_grad():
+        rho = model.rollout(seed[None].clone(), at)
+        before = ((rho[0, :3] - target) ** 2).mean().item()
+        vis = rho[0, :3].sum(0)
+        tot = vis.sum().clamp_min(1e-9)
+        H, W = vis.shape
+        ys = torch.arange(H, dtype=vis.dtype)
+        xs = torch.arange(W, dtype=vis.dtype)
+        cy = float((vis.sum(1) * ys).sum() / tot)
+        cx = float((vis.sum(0) * xs).sum() / tot)
+        rho = fl.smudge(rho, cy, cx, radius, 1.0)
+        out, done = [], 0
+        for n in after:
+            rho = model.rollout(rho, n - done)
+            done = n
+            out.append(((rho[0, :3] - target) ** 2).mean().item())
+    return before, out
+
+
 def save_progress(path, target, model, seed, steps_list):
     """Target on the left, then the rollout at each checkpoint length."""
     with torch.no_grad():
@@ -327,6 +438,18 @@ def main():
                          "a tenth of the grid. Scaling it to the animal rather "
                          "than the grid shortens how far mass must travel, and "
                          "that distance sets the window and so the cost.")
+    ap.add_argument("--seed-cppn", type=float, default=0.0,
+                    help="learn the seed as a circular function of (r, theta) "
+                         "inside a disc of this radius, instead of using a flat "
+                         "one. The per-channel mass stays the picture's own.")
+    ap.add_argument("--smudge-every", type=int, default=0,
+                    help="how often to smear a disc of a pooled state, in "
+                         "iterations. 0 never does. The smear conserves mass "
+                         "exactly -- erasing it would make the target "
+                         "unreachable, since the update only moves mass.")
+    ap.add_argument("--smudge-radius", type=float, default=24.0)
+    ap.add_argument("--smudge-alpha", type=float, default=1.0,
+                    help="1 flattens the disc to its own mean, less smears it")
     ap.add_argument("--recompute-every", type=int, default=1,
                     help="steps per checkpointed segment. 1 stores one boundary "
                          "per step; larger stores fewer and rebuilds more, which "
@@ -432,8 +555,14 @@ def main():
     target = torch.tensor(target_np, dtype=torch.float32)
     seed = torch.tensor(seed_np, dtype=torch.float32)
 
+    def live_seed(model):
+        """The opening state as it stands now, carrying gradient if it is learned."""
+        if model.seeder is None:
+            return seed
+        return model.seeder(masses, a.grid)
+
     model = World(a.channels, orders, a.kr, seed=a.seed, hidden=a.hidden,
-                  mat_init=a.mat_init, mip=a.mip)
+                  mat_init=a.mat_init, mip=a.mip, seed_radius=a.seed_cppn)
     model.chunk = a.recompute_every
     # A pool of long-lived states is a REFINEMENT, not a bootstrap. It assumes
     # the world can already roughly do the task, so that an aged state is a
@@ -478,20 +607,35 @@ def main():
     if a.resume and os.path.exists(ck):
         st = torch.load(ck, weights_only=False)
         grew = grow_lobes(st["model"], model)
+        # A checkpoint from before the seed was learnable has no seeder in it.
+        # Take the module's own fresh parameters for those keys rather than
+        # refusing the resume -- they are initialised to reproduce the flat disc
+        # the checkpoint was trained with, so the world does not move.
+        added_seed = False
+        if model.seeder is not None and not any(k.startswith("seeder.")
+                                                for k in st["model"]):
+            cur = model.state_dict()
+            for k in cur:
+                if k.startswith("seeder."):
+                    st["model"][k] = cur[k].clone()
+            added_seed = True
         model.load_state_dict(st["model"])
         # Adam's moments are shaped like the parameters they track, so a grown
         # kernel bank cannot inherit them. Everything else is preserved.
-        if not grew:
+        if not grew and not added_seed:
             opt.load_state_dict(st["opt"])
         pool = st["pool"]; start_it = st["iter"]
         ages = st.get("ages", torch.zeros(a.pool, dtype=torch.long))
         print(f"resumed {a.name} at iteration {start_it}"
               + (f", kernels grown from {grew[0]} lobes to {grew[1]} "
-                 f"(the new ones at zero amplitude)" if grew else ""))
+                 f"(the new ones at zero amplitude)" if grew else "")
+              + (f", seed now learned inside r={a.seed_cppn:g}" if added_seed else ""))
 
     logp = os.path.join(run, "log.csv")
     head = (["iter", "loss", "best", "lam", "force", "beta"]
-            + [f"h{h}" for h in HORIZONS] + ["age", "secs"])
+            + [f"h{h}" for h in HORIZONS] + ["age", "secs"]
+            # what a smear costs, and what is left of it after N more steps
+            + ["smear0", "rec128", "rec256"])
     # A resumed run that measures more horizons than the file was opened with
     # writes wider rows than its own header, and every reader of the csv then
     # mis-columns the far end. Rewrite the header in place when that happens.
@@ -590,7 +734,12 @@ def main():
                     # a young state at 90 of 96 ahead of an old one at 300 of
                     # 2048, which is what "due to be retired" actually means.
                     pick = (ages[idx].double() / lifespan[idx].double()).argmax()
-            batch[pick] = seed
+            # the live seed, not the frozen one: this assignment is the only
+            # path by which a loss on the rollout can reach a learned seed at
+            # all, since every other state in the batch came out of the pool
+            # with its history detached.
+            batch = batch.clone()
+            batch[pick] = live_seed(model)
             ages[idx[pick]] = 0
         # and retire a state once it has lived its full span, so the pool holds
         # a spread of ages rather than drifting to all-old or all-young
@@ -606,6 +755,22 @@ def main():
         # Charging for every frame asks for the shape to be STOOD IN, which is
         # what persistence means and what the horizon columns measure.
         kern = model.kern()
+        # Damage. A smeared state is still the same mass in the same place,
+        # just without the structure that was holding it, so asking the world
+        # to come back from one is a fair question with a reachable answer.
+        if a.smudge_every and it % a.smudge_every == 0:
+            # NOT under no_grad. The reseeded slot is the only member of the
+            # batch still attached to anything -- everything else came out of
+            # the pool detached -- so cloning the batch inside no_grad would
+            # sever the one path by which a loss can reach a learned seed, and
+            # the seed would sit at its initial value looking trained.
+            hit = int(torch.randint(0, batch.shape[0], (1,)))
+            cy = float(torch.randint(0, a.grid, (1,)))
+            cx = float(torch.randint(0, a.grid, (1,)))
+            hurt = fl.smudge(batch[hit:hit + 1], cy, cx,
+                             a.smudge_radius, a.smudge_alpha)
+            batch = torch.cat([batch[:hit], hurt, batch[hit + 1:]], 0)
+
         out, scored = batch, []
         for t in range(a.window):
             out = model.rollout(out, 1, kern=kern, recompute=a.recompute)
@@ -643,14 +808,18 @@ def main():
         if it % a.ckpt == 0 or it == a.iters - 1:
             f, r, b = model.scalars()
             secs = time.time() - t0
-            hz = horizon_losses(model, target, seed, HORIZONS)
+            sd = live_seed(model).detach()
+            hz = horizon_losses(model, target, sd, HORIZONS)
+            rec = recovery_losses(model, target, sd, radius=a.smudge_radius) \
+                if a.smudge_every else (float("nan"), [float("nan")] * 2)
             # weighted toward the long horizons: holding the shape is the point
             score = sum(h * w for h, w in zip(hz, HZ_WEIGHTS)) / sum(HZ_WEIGHTS)
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
                                          *[f"{v:.6f}" for v in hz],
-                                         int(ages.float().mean()), f"{secs:.0f}"])
+                                         int(ages.float().mean()), f"{secs:.0f}",
+                                         *[f"{v:.6f}" for v in (rec[0], *rec[1])]])
             # a rung 1 world is not expressible as a preset: index.html's
             # FS_AFF is a matrix multiply. Write the kernels anyway -- they are
             # still legal -- and say so, rather than emitting a preset that
@@ -679,8 +848,10 @@ def main():
                   f"age~{int(ages[:n_young].float().mean())}/"
                   f"{int(ages[n_young:].float().mean())}  "
                   f"horizon {'/'.join(f'{v:.4f}' for v in hz)}"
-                  f"{' *best*' if score <= best_h else ''}  "
-                  f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)
+                  + (f"  smear {rec[0]:.4f}->{rec[1][0]:.4f}/{rec[1][1]:.4f}"
+                     if a.smudge_every else "")
+                  + f"{' *best*' if score <= best_h else ''}  "
+                  + f"{secs / max(it - start_it + 1, 1):.2f}s/it", flush=True)
 
         if a.minutes and time.time() - t0 > a.minutes * 60:
             print(f"stopping after {a.minutes} minutes at iteration {it}")
