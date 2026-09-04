@@ -630,7 +630,7 @@ const P = {
 /* ===================================================================== state */
 const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
-  size: 9, lobe: 4, spread: 70, feather: 0.65,
+  size: 9, lobe: 4, spread: 70, feather: 0.65, variety: 0.6,
   beta: 9, crowd: 1.4, str: 1.0, fill: 0.22, cscale: 1.6, gscale: 40,
   exp: 1.5, floor: 0.05, view: 0, kkind: 0, zoom: 1, panx: 0, pany: 0,
   brush: 26, kind: 0, seed: 1,
@@ -662,7 +662,11 @@ function rollWorld(){
   // through each lobe.
   S.sa = new Float32Array(C); S.sb = new Float32Array(C); S.sc = new Float32Array(C);
   for(let c = 0; c < C; c++){
-    const pk = Math.random()*2;                    // which shell this kind favours
+    // Which shell this kind favours. At variety 0 every kind sits on the
+    // middle shell and they all share one kernel, so the preview is exactly
+    // what the sliders say and a refresh cannot change it; wound up, the
+    // kinds spread out over the three and each looks its own distance.
+    const pk = 1 + (Math.random()*2 - 1)*S.variety;
     S.sa[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 0, 2)/0.55);
     S.sb[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 1, 2)/0.55);
     S.sc[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 2, 2)/0.55);
@@ -1028,6 +1032,7 @@ function buildUI(){
   slider("lobe", "lobe", 0.5, 20, 0.5, 1, drawKernel);
   slider("spread", "spread", 0, 180, 1, 0, drawKernel);
   slider("feather", "feather", 0, 1, 0.01, 2, drawKernel);
+  slider("variety", "variety", 0, 1, 0.01, 2, () => { rollWorld(); drawKernel(); });
 
   group("world");
   slider("beta", "beta", 0.5, 30, 0.5, 1);
