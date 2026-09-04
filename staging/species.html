@@ -66,6 +66,16 @@ h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
 /* Squares, never interpolated: drawn at a fixed pixel size and stretched by
    the browser with no smoothing, so a bigger radius makes the cells smaller
    rather than blurrier. */
+/* A real tooltip, not a title attribute: it has to appear beside the control
+   without waiting a second and a half for the browser to decide. */
+#tip{position:absolute; z-index:9; width:214px; padding:6px 8px;
+  background:color-mix(in srgb, var(--panel) 97%, transparent);
+  border:1px solid var(--line); color:var(--ink2);
+  font-size:10px; line-height:1.5; letter-spacing:.015em;
+  pointer-events:none; opacity:0; transition:opacity .1s;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+#tip.on{opacity:1}
+#tip b{color:var(--ink); font-weight:500}
 #kern{display:block; width:100%; height:auto; margin:2px 0 3px;
   border:1px solid var(--line2); background:#06090c;
   image-rendering:pixelated; image-rendering:crisp-edges}
@@ -393,6 +403,30 @@ void main(){
   oD = vec4(l > 1e-5 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
 }`;
 
+/* Dissipation. Physarum's decay fades a TRAIL, which is not a thing that
+   exists here -- the eight fields are the creatures, and they are conserved.
+   The honest analogue is a normalised blur: it spreads a structure out and
+   softens it exactly as decay does, but every gram it takes off one cell it
+   puts on another, so it can sit in a conserving model without lying. Turn it
+   up and edges soften and thin arms dissolve; leave it at zero and nothing
+   is ever forgotten. */
+const FS_DIFF = HEAD + `
+uniform sampler2D uF0, uF1;
+uniform float uDiff;
+layout(location = 0) out vec4 oF0;
+layout(location = 1) out vec4 oF1;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 s0 = vec4(0.0), s1 = vec4(0.0);
+  for(int dy = -1; dy <= 1; dy++)
+    for(int dx = -1; dx <= 1; dx++){
+      ivec2 q = wrap(p + ivec2(dx, dy));
+      s0 += texelFetch(uF0, q, 0); s1 += texelFetch(uF1, q, 0);
+    }
+  oF0 = mix(texelFetch(uF0, p, 0), s0/9.0, uDiff);
+  oF1 = mix(texelFetch(uF1, p, 0), s1/9.0, uDiff);
+}`;
+
 /* --------------------------------------------------- 4: collect what arrived */
 const FS_MOVE = HEAD + `
 uniform sampler2D uE0, uE1, uS0, uS1;
@@ -623,7 +657,8 @@ function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT, mips = fals
 
 const P = {
   ring: program(FS_RING), aff: program(FS_AFF), share: program(FS_SHARE),
-  move: program(FS_MOVE), rho: program(FS_RHO), seed: program(FS_SEED),
+  move: program(FS_MOVE), diff: program(FS_DIFF),
+  rho: program(FS_RHO), seed: program(FS_SEED),
   paint: program(FS_PAINT), draw: program(FS_DRAW), sum: program(FS_SUM),
 };
 
@@ -631,7 +666,7 @@ const P = {
 const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
   size: 9, lobe: 4, spread: 70, feather: 0.65, variety: 0.6,
-  beta: 9, crowd: 1.4, str: 1.0, fill: 0.22, cscale: 1.6, gscale: 40,
+  beta: 9, crowd: 1.4, str: 1.0, diff: 0, fill: 0.22, cscale: 1.6, gscale: 40,
   exp: 1.5, floor: 0.05, view: 0, kkind: 0, zoom: 1, panx: 0, pany: 0,
   brush: 26, kind: 0, seed: 1,
   M: null, sa: null, sb: null, sc: null, ca: null, cv: null,
@@ -789,6 +824,13 @@ function step(){
     target([G.f0b, G.f1b], N, N); drawQuad();
     [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
   }
+  if(S.diff > 0){
+    const u = use(P.diff); common(u);
+    gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
+    gl.uniform1f(u.uDiff, S.diff);
+    target([G.f0b, G.f1b], N, N); drawQuad();
+    [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
+  }
   remip();
   makeRho();
   S.frame++;
@@ -892,6 +934,20 @@ function toggleFull(){
 /* ======================================================================= ui */
 const rack = $("rack");
 const UI = {};
+const tipEl = document.createElement("div");
+tipEl.id = "tip"; $("app").appendChild(tipEl);
+function tip(el, html){
+  if(!html) return el;
+  el.addEventListener("pointerenter", () => {
+    tipEl.innerHTML = html; tipEl.classList.add("on");
+    const a = $("app").getBoundingClientRect(), r = el.getBoundingClientRect();
+    tipEl.style.top = Math.max(6, Math.min(a.height - tipEl.offsetHeight - 6,
+                                           r.top - a.top - 4)) + "px";
+    tipEl.style.left = (r.left - a.left - tipEl.offsetWidth - 9) + "px";
+  });
+  el.addEventListener("pointerleave", () => tipEl.classList.remove("on"));
+  return el;
+}
 function group(name){
   const d = document.createElement("div");
   d.className = "grp"; d.textContent = name; rack.appendChild(d);
@@ -905,8 +961,8 @@ function row(label){
   return d;
 }
 const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
-function slider(label, key, min, max, stp, dp, after){
-  const d = row(label);
+function slider(label, key, min, max, stp, dp, after, help){
+  const d = tip(row(label), help);
   const wrap = document.createElement("div");
   wrap.style.position = "relative"; wrap.style.minWidth = "0";
   const r = document.createElement("input");
@@ -921,8 +977,8 @@ function slider(label, key, min, max, stp, dp, after){
   wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
   return UI[key] = {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
 }
-function picker(label, key, opts, after){
-  const d = row(label);
+function picker(label, key, opts, after, help){
+  const d = tip(row(label), help);
   const s = document.createElement("select");
   for(const o of opts){
     const e = document.createElement("option");
@@ -1012,7 +1068,7 @@ function buildKernel(){
   k.id = "kern"; k.width = 320; k.height = 320;
   rack.appendChild(k);
   const d = document.createElement("div");
-  d.className = "grp"; d.textContent = "kernel";
+  d.className = "grp"; d.textContent = "the kernel";
   rack.insertBefore(d, k);
   const r = row("kind");
   const sel = document.createElement("select");
@@ -1024,41 +1080,102 @@ function buildKernel(){
   sel.value = "0";
   sel.addEventListener("change", () => { S.kkind = parseInt(sel.value); drawKernel(); });
   r.appendChild(sel);
+  tip(r, "Which kind's kernel is drawn above. Display only &mdash; it changes "
+       + "nothing about the simulation. With <b>variety</b> at 0 all eight are "
+       + "the same and this does nothing visible.");
   rack.insertBefore(r, k);
 }
 function buildUI(){
   buildKernel();
-  slider("size", "size", 1, 40, 0.5, 1, drawKernel);
-  slider("lobe", "lobe", 0.5, 20, 0.5, 1, drawKernel);
-  slider("spread", "spread", 0, 180, 1, 0, drawKernel);
-  slider("feather", "feather", 0, 1, 0.01, 2, drawKernel);
-  slider("variety", "variety", 0, 1, 0.01, 2, () => { rollWorld(); drawKernel(); });
+  group("shape");
+  slider("size", "size", 1, 40, 0.5, 1, drawKernel,
+    "How far out the two lobes sit, in cells. This is the <b>scale of "
+    + "everything</b> &mdash; the size of the structures that form is set here "
+    + "more than by any other knob.");
+  slider("lobe", "lobe", 0.5, 20, 0.5, 1, drawKernel,
+    "The radius of each lobe. It is read as a <b>blurred average</b> over that "
+    + "disc, so a bigger lobe is a broader, softer, more forgiving reading, not "
+    + "a slower one.");
+  slider("spread", "spread", 0, 180, 1, 0, drawKernel,
+    "The angle <b>between</b> the two lobes. Narrow puts them both nearly "
+    + "straight ahead, so a cell is comparing two things almost in front of it; "
+    + "wide makes it a plain left-versus-right sensor.");
+  slider("feather", "feather", 0, 1, 0.01, 2, drawKernel,
+    "How soft the lobe's edge is. At <b>0</b> it is a hard disc and a reading "
+    + "jumps as a cell crosses the boundary, which is what makes movement look "
+    + "sharp and twitchy. Up, and the reading changes as smoothly as the field.");
+  slider("variety", "variety", 0, 1, 0.01, 2, () => { rollWorld(); drawKernel(); },
+    "How much the eight kinds differ in <b>where</b> they look. At 0 they share "
+    + "one kernel and the preview is exactly what the sliders say, refresh after "
+    + "refresh. Up, and each kind reads its own distance out.");
 
   group("world");
-  slider("beta", "beta", 0.5, 30, 0.5, 1);
-  slider("strength", "str", 0, 4, 0.05, 2);
-  slider("crowd", "crowd", 0, 8, 0.05, 2);
-  buttons([["new world", () => { rollWorld(); drawKernel(); reseed(); }],
-           ["new field", () => { rollCPPN(); reseed(); }]]);
+  slider("beta", "beta", 0.5, 30, 0.5, 1, null,
+    "How <b>decisively</b> a cell commits. Low and it hands its contents to all "
+    + "nine neighbours in nearly equal shares, which is a fog; high and nearly "
+    + "everything goes to the single best one, which is crisp and fast. This is "
+    + "the temperature of the transport, and the sharpest knob on the page.");
+  slider("strength", "str", 0, 4, 0.05, 2, null,
+    "Overall gain on the <b>interaction matrix</b> &mdash; how strongly the kinds "
+    + "care about each other at all. At 0 nothing wants anything and the only "
+    + "thing left moving mass is crowding.");
+  slider("crowd", "crowd", 0, 8, 0.05, 2, null,
+    "How hard a cell is pushed away from its own density. This is the <b>only "
+    + "thing stopping everything collapsing</b> into a handful of cells, since "
+    + "nothing here decays. Too low and the field goes black.");
+  slider("dissipate", "diff", 0, 1, 0.01, 2, null,
+    "The nearest thing here to physarum's <b>decay</b>. Decay fades a trail, and "
+    + "there is no trail here &mdash; the eight fields are the creatures and they "
+    + "are conserved. So this is a normalised blur instead: it softens edges and "
+    + "dissolves thin arms exactly as decay would, but every gram it takes off "
+    + "one cell it puts on another.");
+  tip(buttons([["new world", () => { rollWorld(); drawKernel(); reseed(); }],
+               ["new field", () => { rollCPPN(); reseed(); }]]),
+    "<b>New world</b> rolls the 8&times;8 matrix and the per-kind profiles &mdash; "
+    + "the rule itself. <b>New field</b> rolls only the CPPN that lays out the "
+    + "starting mixture, keeping the rule.");
 
   group("view");
   picker("show", "view", [{v:0,t:"blend"}, {v:3,t:"purity"},
-                          {v:1,t:"density"}, {v:2,t:"direction"}]);
-  slider("exposure", "exp", 0.1, 8, 0.05, 2);
-  slider("floor", "floor", 0, 2, 0.01, 2);
-  slider("brush", "brush", 4, 90, 1, 0);
+                          {v:1,t:"density"}, {v:2,t:"direction"}], null,
+    "<b>blend</b> is each kind as a colour, added. <b>purity</b> paints a cell "
+    + "grey when it is an even mixture and a saturated hue when it is one clean "
+    + "kind, which is the view for asking whether the species are staying apart. "
+    + "<b>density</b> is the total, <b>direction</b> the heading.");
+  slider("exposure", "exp", 0.1, 8, 0.05, 2, null,
+    "Brightness. Nothing to do with the simulation.");
+  slider("floor", "floor", 0, 2, 0.01, 2, null,
+    "Subtracted before the brightness curve, so the empty half of the field "
+    + "goes properly black instead of grey. Nothing to do with the simulation.");
+  slider("brush", "brush", 4, 90, 1, 0, null,
+    "Radius of the paint brush. <b>Shift-drag</b> adds a random kind, "
+    + "<b>alt-drag</b> takes away.");
 
   group("run");
-  slider("fill", "fill", 0.02, 1, 0.01, 2);
-  slider("patch", "gscale", 4, 200, 1, 0, rollCPPN);
+  slider("fill", "fill", 0.02, 1, 0.01, 2, null,
+    "How much is laid down at a reseed. It is <b>conserved from then on</b>, so "
+    + "this is the one setting that is really about the whole run rather than "
+    + "about the next step.");
+  slider("patch", "gscale", 4, 200, 1, 0, rollCPPN,
+    "How coarse the starting mixture is. Big patches give regions that share a "
+    + "kind and are wide enough to build something before they meet a region "
+    + "that does not; small ones average to grey before anything moves.");
   picker("grid", "N", [{v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
                        {v:1024,t:"1024"}, {v:1536,t:"1536"}],
-         () => { alloc(); rollCPPN(); reseed(); });
+         () => { alloc(); rollCPPN(); reseed(); },
+    "Cells per side. Everything else is measured in cells, so a bigger grid at "
+    + "the same settings shows more of the same thing rather than finer detail.");
   picker("precision", "prec", [{v:16,t:"16-bit"}, {v:32,t:"32-bit exact"}],
-         () => { alloc(); reseed(); });
-  slider("steps/f", "steps", 1, 8, 1, 0);
-  buttons([["roll", () => { rollWorld(); rollCPPN(); drawKernel(); reseed(); }],
-           ["reseed", reseed]]);
+         () => { alloc(); reseed(); },
+    "What the eight fields are kept in. 16-bit is half the memory and the totals "
+    + "hold to five places; 32-bit is exact. The working textures are 32-bit "
+    + "either way &mdash; at 16-bit they lost mass.");
+  slider("steps/f", "steps", 1, 8, 1, 0, null,
+    "Simulation steps per drawn frame. Fast-forward.");
+  tip(buttons([["roll", () => { rollWorld(); rollCPPN(); drawKernel(); reseed(); }],
+               ["reseed", reseed]]),
+    "<b>Roll</b> is a new rule and a new start. <b>Reseed</b> keeps the rule and "
+    + "lays out a fresh start under it.");
 }
 
 $("play").onclick = toggleRun;
