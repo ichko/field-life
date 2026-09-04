@@ -275,23 +275,25 @@ float rnd(ivec2 p, int k, int f){
 }`;
 
 /* ----------------------------------------------------------- 1: the kernel
-   Two lobes, one counting POSITIVE and one NEGATIVE, sitting SPREAD degrees
-   apart either side of straight ahead and SIZE cells out, each a blob of
-   radius LOBE with a FEATHERED edge. What comes back is one number per kind:
-   there is more of this on my positive side than my negative one. That is
-   what a sensor is, and it is why the answer is a direction and not an
-   amount.
+   Two lobes, one counting POSITIVE and one NEGATIVE, SPREAD degrees apart
+   either side of straight ahead and SIZE cells out. Each lobe is a smooth
+   blob of radius LOBE.
 
-   The kernel is BUILT from the angle, not rotated. Every tap's position is
-   computed from this cell's own heading -- a local frame e0, e1 spun to face
-   it, and the pattern laid out in that frame -- so there is no stored stencil
-   being turned and resampled, and nothing to alias as the heading creeps
-   round. The only interpolation anywhere is the field being read at a
-   fractional position, which is a property of the field, not of the kernel.
+   A blob is NOT a scatter of point taps. Sampling a disc at fifteen places
+   gives fifteen dots, in the picture and in the simulation both -- which is
+   what was wrong here. A Gaussian-weighted average over a disc is a BLURRED
+   READ: the fields carry a mip chain, and one tap at the right level is that
+   average, smooth by construction and cheaper than the dots were. LOBE picks
+   the level and FEATHER softens it further.
 
-   FEATHER is what stops the movement being sharp. At zero the lobe is a hard
-   disc and a creature's reading jumps as a cell crosses the edge; wound up,
-   the edge is a slope and the reading changes as smoothly as the field does. */
+   Built from the angle, not rotated: the lobe centres are computed from this
+   cell's own heading, so no stored stencil is turned and resampled.
+
+   Three shells a lobe, and each kind weighs them its own way -- but with
+   POSITIVE weights only. A signed profile put a negative shell inside the
+   positive lobe, which is why one lobe had a stripe of the other's colour
+   through it. A kind differs by WHERE in depth it looks, not by a lobe
+   changing sign halfway.                                                   */
 const FS_RING = HEAD + `
 uniform sampler2D uF0, uF1, uD;
 uniform float uSize, uLobe, uSpread, uFeather;
@@ -303,28 +305,24 @@ void main(){
   vec2 uv = (vec2(p) + 0.5)*uTexel;
   vec2 dir = texelFetch(uD, p, 0).xy;
   float th = atan(dir.y, dir.x);
+  // The level whose footprint is the lobe. Feather widens it further, which
+  // is what keeps a reading from jumping as a cell crosses the lobe's edge.
+  float lod = max(0.0, log2(max(uLobe, 1.0)) + uFeather*1.2);
+  const float SH[3] = float[3](0.6, 1.0, 1.5);
   vec4 k0 = vec4(0.0), k1 = vec4(0.0);
   float wn = 0.0;
   for(int t = 0; t < 2; t++){
     float sgn = t == 0 ? 1.0 : -1.0;
-    // The lobe's own centre, and the frame it is laid out in, both from th.
     float a = th + sgn*uSpread*0.5;
-    vec2 c = vec2(cos(a), sin(a))*uSize;
-    vec2 e0 = vec2(cos(th), sin(th)), e1 = vec2(-e0.y, e0.x);
-    for(int i = -2; i <= 2; i++)
-      for(int j = -1; j <= 1; j++){
-        vec2 q = vec2(float(j)*0.9, float(i)*0.6);
-        float d = length(q);
-        // A feathered edge: hard disc at feather 0, a long slope at 1.
-        float w = sgn*(1.0 - smoothstep(1.0 - uFeather, 1.0 + uFeather, d));
-        if(w == 0.0) continue;
-        vec2 off = c + (e0*q.x + e1*q.y)*uLobe;
-        vec4 p0 = j < 0 ? uSa0 : (j == 0 ? uSb0 : uSc0);
-        vec4 p1 = j < 0 ? uSa1 : (j == 0 ? uSb1 : uSc1);
-        k0 += w*p0*texture(uF0, uv + off*uTexel);
-        k1 += w*p1*texture(uF1, uv + off*uTexel);
-        wn += abs(w);
-      }
+    vec2 e = vec2(cos(a), sin(a));
+    for(int j = 0; j < 3; j++){
+      vec2 off = e*(uSize*SH[j])*uTexel;
+      vec4 p0 = j == 0 ? uSa0 : (j == 1 ? uSb0 : uSc0);
+      vec4 p1 = j == 0 ? uSa1 : (j == 1 ? uSb1 : uSc1);
+      k0 += sgn*p0*textureLod(uF0, uv + off, lod);
+      k1 += sgn*p1*textureLod(uF1, uv + off, lod);
+      wn += 1.0;
+    }
   }
   float iw = 1.0/max(wn, 1e-6);
   oK0 = k0*iw; oK1 = k1*iw;
@@ -608,11 +606,14 @@ function target(list, w, h){
   gl.drawBuffers(BUFS[a.length - 1]);
   gl.viewport(0, 0, w, h);
 }
-function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT){
+function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT, mips = false){
   const t = gl.createTexture();
   gl.bindTexture(gl.TEXTURE_2D, t);
-  gl.texStorage2D(gl.TEXTURE_2D, 1, ifmt, w, h);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, filt);
+  const levels = mips ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1;
+  gl.texStorage2D(gl.TEXTURE_2D, levels, ifmt, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER,
+                   mips ? gl.LINEAR_MIPMAP_LINEAR : filt);
+  t.mips = mips;
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
@@ -655,14 +656,16 @@ function rollWorld(){
   S.M = new Float32Array(C*C);
   for(let i = 0; i < C*C; i++) S.M[i] = gauss();
   for(let c = 0; c < C; c++) S.M[c*C + c] -= 0.6;      // a little self-restraint
-  // Each kind's own profile through the depth of the lobe. Biased so the
-  // near shell tends to count against and the far shell for, which is the
-  // shape that gives a shell rather than a blob.
+  // Each kind's own profile through the depth of the lobe, POSITIVE only: a
+  // kind differs by where it looks, not by a lobe reversing sign inside
+  // itself. Signed weights here are what put a stripe of the wrong colour
+  // through each lobe.
   S.sa = new Float32Array(C); S.sb = new Float32Array(C); S.sc = new Float32Array(C);
   for(let c = 0; c < C; c++){
-    S.sa[c] = -(0.2 + Math.random()*1.2);
-    S.sb[c] = gauss()*0.7;
-    S.sc[c] = 0.3 + Math.random()*1.2;
+    const pk = Math.random()*2;                    // which shell this kind favours
+    S.sa[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 0, 2)/0.55);
+    S.sb[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 1, 2)/0.55);
+    S.sc[c] = 0.15 + Math.exp(-0.5*Math.pow(pk - 2, 2)/0.55);
   }
 }
 function rollCPPN(){
@@ -690,8 +693,11 @@ function alloc(){
   const g = {N};
   // The rings sample the fields at a fractional radius, so those need
   // filtering; everything else is read by index only.
-  g.f0 = make2D(N, N, F, LF); g.f1 = make2D(N, N, F, LF);
-  g.f0b = make2D(N, N, F, LF); g.f1b = make2D(N, N, F, LF);
+  // The fields carry a mip chain: one tap on the right level IS the Gaussian
+  // average over a lobe, which is what makes the lobes smooth instead of a
+  // handful of dots.
+  g.f0 = make2D(N, N, F, LF, gl.REPEAT, true); g.f1 = make2D(N, N, F, LF, gl.REPEAT, true);
+  g.f0b = make2D(N, N, F, LF, gl.REPEAT, true); g.f1b = make2D(N, N, F, LF, gl.REPEAT, true);
   g.k0 = make2D(N, N, F); g.k1 = make2D(N, N, F);
   // E and S are ALWAYS 32-bit, whatever the precision picker says. They are
   // not state, they are one step's working, and S is the dangerous one: it is
@@ -722,6 +728,11 @@ function memMB(){
 let meanRho = S.fill;
 const rnorm = () => 1/Math.max(1e-6, meanRho);
 function common(u){ gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N); }
+// The blurred copies have to be rebuilt every time the fields change, or the
+// kernel is reading the step before last.
+function remip(){
+  for(const t of [G.f0, G.f1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
+}
 function makeRho(){
   const u = use(P.rho); common(u);
   gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
@@ -734,7 +745,7 @@ function reseed(){
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
   gl.uniform1i(u.uSeed, S.seed);
   target([G.f0, G.f1, G.d], G.N, G.N); drawQuad();
-  makeRho();
+  remip(); makeRho();
   meanRho = S.fill; S.frame = 0; mass = null; massDue = true;
 }
 const v4 = (a, o) => [a[o], a[o+1], a[o+2], a[o+3]];
@@ -774,6 +785,7 @@ function step(){
     target([G.f0b, G.f1b], N, N); drawQuad();
     [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
   }
+  remip();
   makeRho();
   S.frame++;
 }
@@ -785,7 +797,7 @@ function paintAt(gx, gy, amount){
   gl.uniform1i(u.uKind, S.kind);
   target([G.f0b, G.f1b], G.N, G.N); drawQuad();
   [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
-  makeRho();
+  remip(); makeRho();
   massDue = true;
 }
 const readback = new Float32Array(4);
@@ -941,44 +953,46 @@ function drawKernel(){
   const k = $("kern"); if(!k) return;
   const g2 = k.getContext("2d");
   const W = k.width;
-  const R = Math.max(2, Math.ceil(S.size + 1.6*S.lobe) + 1);
+  const R = Math.max(2, Math.ceil(S.size*1.5 + 2.2*S.lobe) + 1);
   const side = 2*R + 1, cs = W/side;
   const acc = new Float64Array(side*side);
-  // The same taps the shader takes, built from the angle the same way, at a
-  // heading of zero -- so this is the stencil that actually runs.
-  for(let t = 0; t < 2; t++){
-    const sgn = t === 0 ? 1 : -1;
+  // Evaluated per CELL, not splatted from taps: the kernel is a continuous
+  // function of position, so the picture of it is that function sampled on
+  // the grid. Smooth blobs, drawn as squares.
+  const sig = Math.max(0.7, S.lobe*(0.55 + 0.75*S.feather));
+  const SH = [0.6, 1.0, 1.5];
+  const prof = [S.sa[S.kkind], S.sb[S.kkind], S.sc[S.kkind]];
+  const lobes = [];
+  for(const sgn of [1, -1]){
     const a = sgn*S.spread*Math.PI/360;
-    const cx = Math.cos(a)*S.size, cy = Math.sin(a)*S.size;
-    for(let i = -2; i <= 2; i++) for(let j = -1; j <= 1; j++){
-      const qx = j*0.9, qy = i*0.6, d = Math.hypot(qx, qy);
-      const lo = 1 - S.feather, hi = 1 + S.feather;
-      let sm = (d - lo)/Math.max(hi - lo, 1e-6);
-      sm = Math.min(1, Math.max(0, sm)); sm = sm*sm*(3 - 2*sm);
-      const prof = j < 0 ? S.sa[S.kkind] : (j === 0 ? S.sb[S.kkind] : S.sc[S.kkind]);
-      const w = sgn*(1 - sm)*prof;
-      if(w === 0) continue;
-      const x = cx + qx*S.lobe + R, y = cy + qy*S.lobe + R;
-      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-      for(let dy = 0; dy < 2; dy++) for(let dx = 0; dx < 2; dx++){
-        const xi = x0 + dx, yi = y0 + dy;
-        if(xi < 0 || yi < 0 || xi >= side || yi >= side) continue;
-        acc[yi*side + xi] += w*(dx ? fx : 1 - fx)*(dy ? fy : 1 - fy);
-      }
+    for(let j = 0; j < 3; j++)
+      lobes.push([Math.cos(a)*S.size*SH[j], Math.sin(a)*S.size*SH[j], sgn*prof[j]]);
+  }
+  for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
+    let v = 0;
+    for(const [cx, cy, w] of lobes){
+      const dx = x - R - cx, dy = y - R - cy;
+      v += w*Math.exp(-0.5*(dx*dx + dy*dy)/(sig*sig));
     }
+    acc[y*side + x] = v;
   }
   let mx = 0;
   for(const v of acc) mx = Math.max(mx, Math.abs(v));
   mx = mx || 1;
   g2.fillStyle = "#06090c"; g2.fillRect(0, 0, W, W);
+  // Opaque fills on exact integer bounds. Semi-transparent rectangles on
+  // fractional bounds overlap by a pixel and the overlaps read as a grid of
+  // seams across the blob, which is not part of the kernel.
+  const BG = [6, 9, 12];
   for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
     const v = acc[y*side + x]/mx;
     if(Math.abs(v) < 2e-3) continue;
-    const col = v > 0 ? "255,118,64" : "87,158,255";
-    g2.fillStyle = `rgba(${col},${Math.min(1, Math.abs(v)*0.85 + 0.15)})`;
-    // y up on screen, the way the field is drawn
-    g2.fillRect(Math.floor(x*cs), Math.floor((side - 1 - y)*cs),
-                Math.ceil(cs), Math.ceil(cs));
+    const c = v > 0 ? [255, 118, 64] : [87, 158, 255];
+    const t = Math.min(1, Math.abs(v)*0.9 + 0.1);
+    g2.fillStyle = "rgb(" + c.map((q, i) => Math.round(BG[i] + (q - BG[i])*t)).join(",") + ")";
+    const x0 = Math.round(x*cs), x1 = Math.round((x + 1)*cs);
+    const y0 = Math.round((side - 1 - y)*cs), y1 = Math.round((side - y)*cs);
+    g2.fillRect(x0, y0, x1 - x0, y1 - y0);
   }
   const m = Math.max(2, Math.ceil(cs));
   g2.strokeStyle = "rgba(255,255,255,.65)"; g2.lineWidth = 1;
