@@ -274,17 +274,28 @@ float rnd(ivec2 p, int k, int f){
   return float(h) * (1.0/4294967296.0) - 0.5;
 }`;
 
-/* ------------------------------------------------------------ 1: the rings
-   Three rings a cell -- near, mid, far -- six taps each, sampled at angles
-   measured from the cell's own heading and weighted so the front can count
-   for more than the back. Every kind then weighs the three rings its own way,
-   which is what gives each kind its own kernel: one wants a close huddle,
-   another a shell at arm's length. Thirty-six samples for all eight kinds at
-   all three radii, because four kinds ride in each texture.               */
+/* ----------------------------------------------------------- 1: the kernel
+   Two lobes, one counting POSITIVE and one NEGATIVE, sitting SPREAD degrees
+   apart either side of straight ahead and SIZE cells out, each a blob of
+   radius LOBE with a FEATHERED edge. What comes back is one number per kind:
+   there is more of this on my positive side than my negative one. That is
+   what a sensor is, and it is why the answer is a direction and not an
+   amount.
+
+   The kernel is BUILT from the angle, not rotated. Every tap's position is
+   computed from this cell's own heading -- a local frame e0, e1 spun to face
+   it, and the pattern laid out in that frame -- so there is no stored stencil
+   being turned and resampled, and nothing to alias as the heading creeps
+   round. The only interpolation anywhere is the field being read at a
+   fractional position, which is a property of the field, not of the kernel.
+
+   FEATHER is what stops the movement being sharp. At zero the lobe is a hard
+   disc and a creature's reading jumps as a cell crosses the edge; wound up,
+   the edge is a slope and the reading changes as smoothly as the field does. */
 const FS_RING = HEAD + `
 uniform sampler2D uF0, uF1, uD;
-uniform float uRn, uRm, uRf, uFace;
-uniform vec4 uWn0, uWn1, uWm0, uWm1, uWf0, uWf1;   // per-kind ring weights
+uniform float uSize, uLobe, uSpread, uFeather;
+uniform vec4 uSa0, uSa1, uSb0, uSb1, uSc0, uSc1;   // per-kind depth profile
 layout(location = 0) out vec4 oK0;
 layout(location = 1) out vec4 oK1;
 void main(){
@@ -292,24 +303,31 @@ void main(){
   vec2 uv = (vec2(p) + 0.5)*uTexel;
   vec2 dir = texelFetch(uD, p, 0).xy;
   float th = atan(dir.y, dir.x);
-  vec4 n0 = vec4(0.0), n1 = vec4(0.0), m0 = vec4(0.0), m1 = vec4(0.0),
-       f0 = vec4(0.0), f1 = vec4(0.0);
-  float ws = 0.0;
-  for(int j = 0; j < NA; j++){
-    float rel = float(j)*(TAU/float(NA));
-    vec2 dv = vec2(cos(th + rel), sin(th + rel));
-    // The taps sit at angles measured from the heading, so this weight -- a
-    // constant per tap -- is what turns the kernel to face the way the cell is
-    // going. At uFace = 0 it is a plain disc and the heading stops mattering.
-    float w = 1.0 + uFace*cos(rel);
-    ws += w;
-    n0 += w*texture(uF0, uv + dv*uRn*uTexel); n1 += w*texture(uF1, uv + dv*uRn*uTexel);
-    m0 += w*texture(uF0, uv + dv*uRm*uTexel); m1 += w*texture(uF1, uv + dv*uRm*uTexel);
-    f0 += w*texture(uF0, uv + dv*uRf*uTexel); f1 += w*texture(uF1, uv + dv*uRf*uTexel);
+  vec4 k0 = vec4(0.0), k1 = vec4(0.0);
+  float wn = 0.0;
+  for(int t = 0; t < 2; t++){
+    float sgn = t == 0 ? 1.0 : -1.0;
+    // The lobe's own centre, and the frame it is laid out in, both from th.
+    float a = th + sgn*uSpread*0.5;
+    vec2 c = vec2(cos(a), sin(a))*uSize;
+    vec2 e0 = vec2(cos(th), sin(th)), e1 = vec2(-e0.y, e0.x);
+    for(int i = -2; i <= 2; i++)
+      for(int j = -1; j <= 1; j++){
+        vec2 q = vec2(float(j)*0.9, float(i)*0.6);
+        float d = length(q);
+        // A feathered edge: hard disc at feather 0, a long slope at 1.
+        float w = sgn*(1.0 - smoothstep(1.0 - uFeather, 1.0 + uFeather, d));
+        if(w == 0.0) continue;
+        vec2 off = c + (e0*q.x + e1*q.y)*uLobe;
+        vec4 p0 = j < 0 ? uSa0 : (j == 0 ? uSb0 : uSc0);
+        vec4 p1 = j < 0 ? uSa1 : (j == 0 ? uSb1 : uSc1);
+        k0 += w*p0*texture(uF0, uv + off*uTexel);
+        k1 += w*p1*texture(uF1, uv + off*uTexel);
+        wn += abs(w);
+      }
   }
-  float iw = 1.0/ws;
-  oK0 = (uWn0*n0 + uWm0*m0 + uWf0*f0)*iw;
-  oK1 = (uWn1*n1 + uWm1*m1 + uWf1*f1)*iw;
+  float iw = 1.0/max(wn, 1e-6);
+  oK0 = k0*iw; oK1 = k1*iw;
 }`;
 
 /* ----------------------------------------------------------- 2: what it wants
@@ -611,11 +629,11 @@ const P = {
 /* ===================================================================== state */
 const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
-  rn: 3, rm: 8, rf: 16, face: 0.6,
+  size: 9, lobe: 4, spread: 70, feather: 0.65,
   beta: 9, crowd: 1.4, str: 1.0, fill: 0.22, cscale: 1.6, gscale: 40,
   exp: 1.5, floor: 0.05, view: 0, kkind: 0, zoom: 1, panx: 0, pany: 0,
   brush: 26, kind: 0, seed: 1,
-  M: null, wn: null, wm: null, wf: null, ca: null, cv: null,
+  M: null, sa: null, sb: null, sc: null, ca: null, cv: null,
 };
 // The flat page's ring: eight fully saturated hues, evenly spaced.
 function hueRing(t){
@@ -637,14 +655,14 @@ function rollWorld(){
   S.M = new Float32Array(C*C);
   for(let i = 0; i < C*C; i++) S.M[i] = gauss();
   for(let c = 0; c < C; c++) S.M[c*C + c] -= 0.6;      // a little self-restraint
-  // Each kind weighs the three rings its own way -- near negative, far
-  // positive is the shape that gives a hollow shell rather than a blob, so
-  // the draw is biased that way rather than being free.
-  S.wn = new Float32Array(C); S.wm = new Float32Array(C); S.wf = new Float32Array(C);
+  // Each kind's own profile through the depth of the lobe. Biased so the
+  // near shell tends to count against and the far shell for, which is the
+  // shape that gives a shell rather than a blob.
+  S.sa = new Float32Array(C); S.sb = new Float32Array(C); S.sc = new Float32Array(C);
   for(let c = 0; c < C; c++){
-    S.wn[c] = -(0.4 + Math.random()*1.1);
-    S.wm[c] = gauss()*0.5;
-    S.wf[c] = 0.4 + Math.random()*1.1;
+    S.sa[c] = -(0.2 + Math.random()*1.2);
+    S.sb[c] = gauss()*0.7;
+    S.sc[c] = 0.3 + Math.random()*1.2;
   }
 }
 function rollCPPN(){
@@ -726,11 +744,12 @@ function step(){
     const u = use(P.ring); common(u);
     gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
     gl.uniform1i(u.uD, tex(2, G.d));
-    gl.uniform1f(u.uRn, S.rn); gl.uniform1f(u.uRm, S.rm); gl.uniform1f(u.uRf, S.rf);
-    gl.uniform1f(u.uFace, S.face);
-    gl.uniform4f(u.uWn0, ...v4(S.wn, 0)); gl.uniform4f(u.uWn1, ...v4(S.wn, 4));
-    gl.uniform4f(u.uWm0, ...v4(S.wm, 0)); gl.uniform4f(u.uWm1, ...v4(S.wm, 4));
-    gl.uniform4f(u.uWf0, ...v4(S.wf, 0)); gl.uniform4f(u.uWf1, ...v4(S.wf, 4));
+    gl.uniform1f(u.uSize, S.size); gl.uniform1f(u.uLobe, S.lobe);
+    gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
+    gl.uniform1f(u.uFeather, S.feather);
+    gl.uniform4f(u.uSa0, ...v4(S.sa, 0)); gl.uniform4f(u.uSa1, ...v4(S.sa, 4));
+    gl.uniform4f(u.uSb0, ...v4(S.sb, 0)); gl.uniform4f(u.uSb1, ...v4(S.sb, 4));
+    gl.uniform4f(u.uSc0, ...v4(S.sc, 0)); gl.uniform4f(u.uSc1, ...v4(S.sc, 4));
     target([G.k0, G.k1], N, N); drawQuad();
   }
   {
@@ -922,19 +941,29 @@ function drawKernel(){
   const k = $("kern"); if(!k) return;
   const g2 = k.getContext("2d");
   const W = k.width;
-  const R = Math.max(1, Math.ceil(Math.max(S.rn, S.rm, S.rf)) + 1);
-  const side = 2*R + 1, cs = W/side, c = S.kkind;
+  const R = Math.max(2, Math.ceil(S.size + 1.6*S.lobe) + 1);
+  const side = 2*R + 1, cs = W/side;
   const acc = new Float64Array(side*side);
-  const rings = [[S.rn, S.wn[c]], [S.rm, S.wm[c]], [S.rf, S.wf[c]]];
-  for(let j = 0; j < NA; j++){
-    const rel = j*(2*Math.PI/NA), fw = 1 + S.face*Math.cos(rel);
-    for(const [r, rw] of rings){
-      const x = r*Math.cos(rel) + R, y = r*Math.sin(rel) + R;
+  // The same taps the shader takes, built from the angle the same way, at a
+  // heading of zero -- so this is the stencil that actually runs.
+  for(let t = 0; t < 2; t++){
+    const sgn = t === 0 ? 1 : -1;
+    const a = sgn*S.spread*Math.PI/360;
+    const cx = Math.cos(a)*S.size, cy = Math.sin(a)*S.size;
+    for(let i = -2; i <= 2; i++) for(let j = -1; j <= 1; j++){
+      const qx = j*0.9, qy = i*0.6, d = Math.hypot(qx, qy);
+      const lo = 1 - S.feather, hi = 1 + S.feather;
+      let sm = (d - lo)/Math.max(hi - lo, 1e-6);
+      sm = Math.min(1, Math.max(0, sm)); sm = sm*sm*(3 - 2*sm);
+      const prof = j < 0 ? S.sa[S.kkind] : (j === 0 ? S.sb[S.kkind] : S.sc[S.kkind]);
+      const w = sgn*(1 - sm)*prof;
+      if(w === 0) continue;
+      const x = cx + qx*S.lobe + R, y = cy + qy*S.lobe + R;
       const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
       for(let dy = 0; dy < 2; dy++) for(let dx = 0; dx < 2; dx++){
         const xi = x0 + dx, yi = y0 + dy;
         if(xi < 0 || yi < 0 || xi >= side || yi >= side) continue;
-        acc[yi*side + xi] += fw*rw*(dx ? fx : 1 - fx)*(dy ? fy : 1 - fy);
+        acc[yi*side + xi] += w*(dx ? fx : 1 - fx)*(dy ? fy : 1 - fy);
       }
     }
   }
@@ -946,14 +975,19 @@ function drawKernel(){
     const v = acc[y*side + x]/mx;
     if(Math.abs(v) < 2e-3) continue;
     const col = v > 0 ? "255,118,64" : "87,158,255";
-    g2.fillStyle = `rgba(${col},${Math.min(1, Math.abs(v)*0.9 + 0.1)})`;
+    g2.fillStyle = `rgba(${col},${Math.min(1, Math.abs(v)*0.85 + 0.15)})`;
     // y up on screen, the way the field is drawn
     g2.fillRect(Math.floor(x*cs), Math.floor((side - 1 - y)*cs),
                 Math.ceil(cs), Math.ceil(cs));
   }
   const m = Math.max(2, Math.ceil(cs));
-  g2.strokeStyle = "rgba(255,255,255,.6)"; g2.lineWidth = 1;
+  g2.strokeStyle = "rgba(255,255,255,.65)"; g2.lineWidth = 1;
   g2.strokeRect(Math.floor(R*cs) + 0.5, Math.floor(R*cs) + 0.5, m - 1, m - 1);
+  // the heading, so which side is which is never in doubt
+  g2.strokeStyle = "rgba(255,255,255,.30)";
+  g2.beginPath();
+  g2.moveTo(W/2, W/2); g2.lineTo(W/2 + R*cs*0.92, W/2);
+  g2.stroke();
 }
 function buildKernel(){
   const k = document.createElement("canvas");
@@ -976,10 +1010,10 @@ function buildKernel(){
 }
 function buildUI(){
   buildKernel();
-  slider("near", "rn", 1, 20, 0.5, 1, drawKernel);
-  slider("mid", "rm", 1, 40, 0.5, 1, drawKernel);
-  slider("far", "rf", 1, 64, 0.5, 1, drawKernel);
-  slider("facing", "face", 0, 1, 0.01, 2, drawKernel);
+  slider("size", "size", 1, 40, 0.5, 1, drawKernel);
+  slider("lobe", "lobe", 0.5, 20, 0.5, 1, drawKernel);
+  slider("spread", "spread", 0, 180, 1, 0, drawKernel);
+  slider("feather", "feather", 0, 1, 0.01, 2, drawKernel);
 
   group("world");
   slider("beta", "beta", 0.5, 30, 0.5, 1);
