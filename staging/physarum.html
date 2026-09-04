@@ -749,7 +749,11 @@ void main(){
   // The trail is normalised to a mean of one, so without a floor the whole
   // field sits in the middle of the ramp and every palette reads as a wash.
   // Subtracting it is what makes the background background.
-  float s = uView == 1 ? texture(uRho, uv).r*uRn : texture(uT, uv).r*uTn;
+  // Read by index: the trail carries LINEAR because the SENSORS need it at a
+  // fractional distance ahead, but blending it into the picture only smears
+  // the boundary between one cell and the next.
+  ivec2 pc = ivec2(floor(uv*uN));
+  float s = uView == 1 ? texelFetch(uRho, pc, 0).r*uRn : texelFetch(uT, pc, 0).r*uTn;
   oCol = vec4(ramp(1.0 - exp(-max(s - uFloor, 0.0)*uExp)), 1.0);
 }`;
 

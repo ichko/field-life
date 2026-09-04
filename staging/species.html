@@ -63,6 +63,12 @@ h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
 .rack::-webkit-scrollbar{width:6px}
 .rack::-webkit-scrollbar-thumb{background:var(--line)}
 .rack.hid{display:none}
+/* Squares, never interpolated: drawn at a fixed pixel size and stretched by
+   the browser with no smoothing, so a bigger radius makes the cells smaller
+   rather than blurrier. */
+#kern{display:block; width:100%; height:auto; margin:2px 0 3px;
+  border:1px solid var(--line2); background:#06090c;
+  image-rendering:pixelated; image-rendering:crisp-edges}
 .grp{font-size:8px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
   padding:7px 0 3px; border-bottom:1px solid var(--line2); margin-bottom:1px}
 .grp:first-child{padding-top:2px}
@@ -450,6 +456,7 @@ const FS_DRAW = HEAD + `
 uniform sampler2D uRho, uF0, uF1, uD;
 uniform vec2 uRes, uPan;
 uniform float uZoom, uExp, uFloor, uRnorm;
+uniform vec3 uPal[C];
 uniform int uView;
 out vec4 oCol;
 vec3 hue(float h){
@@ -464,15 +471,34 @@ void main(){
     oCol = vec4(mix(vec3(0.016, 0.031, 0.043), vec3(0.16, 0.18, 0.21), edge), 1.0);
     return;
   }
-  float m = texture(uRho, uv).r*uRnorm;
+  // Read by index, not by texture(). The fields carry LINEAR filtering
+  // because the RINGS sample them at a fractional radius and need it -- but
+  // the picture does not, and taking it blends neighbouring cells into each
+  // other, which reads as tubes and smears the one thing worth seeing when
+  // zoomed in: where one cell ends and the next begins.
+  ivec2 c = ivec2(floor(uv*uN));
+  float m = texelFetch(uRho, c, 0).r*uRnorm;
   float v = 1.0 - exp(-max(m - uFloor, 0.0)*uExp);
+  vec4 a4 = texelFetch(uF0, c, 0), b4 = texelFetch(uF1, c, 0);
+  if(uView == 0){
+    // The flat page's blend: every kind is a colour, they are ADDED in
+    // proportion to how much of each is here, and the sum goes through
+    // 1 - exp(-x) so a cell can be full of one kind or of several without
+    // either clipping to white. Brightness is amount, hue is makeup.
+    vec3 add = vec3(0.0);
+    for(int i = 0; i < 4; i++)
+      add += uPal[i]*max(a4[i], 0.0)*uRnorm + uPal[4 + i]*max(b4[i], 0.0)*uRnorm;
+    oCol = vec4(vec3(1.0) - exp(-max(add - uFloor, 0.0)*uExp)
+                + vec3(0.016, 0.024, 0.040), 1.0);
+    return;
+  }
   if(uView == 1){ oCol = vec4(vec3(v), 1.0); return; }
   if(uView == 2){
-    vec2 d = texture(uD, uv).xy;
+    vec2 d = texelFetch(uD, c, 0).xy;
     oCol = vec4(hue(atan(d.y, d.x)/TAU + 0.5)*v, 1.0);
     return;
   }
-  vec4 a = texture(uF0, uv), b = texture(uF1, uv);
+  vec4 a = a4, b = b4;
   float t = dot(a, vec4(1.0)) + dot(b, vec4(1.0));
   if(t < 1e-8){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
   // Eight kinds, eight hues, mixed by how much of each is here. One clean kind
@@ -587,10 +613,20 @@ const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
   rn: 3, rm: 8, rf: 16, face: 0.6,
   beta: 9, crowd: 1.4, str: 1.0, fill: 0.22, cscale: 1.6, gscale: 40,
-  exp: 1.5, floor: 0.15, view: 0, zoom: 1, panx: 0, pany: 0,
+  exp: 1.5, floor: 0.05, view: 0, kkind: 0, zoom: 1, panx: 0, pany: 0,
   brush: 26, kind: 0, seed: 1,
   M: null, wn: null, wm: null, wf: null, ca: null, cv: null,
 };
+// The flat page's ring: eight fully saturated hues, evenly spaced.
+function hueRing(t){
+  const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
+  return [[1,x,0],[x,1,0],[0,1,x],[0,x,1],[x,0,1],[1,0,x]][Math.floor(h) % 6];
+}
+const PAL = new Float32Array(C*3);
+for(let i = 0; i < C; i++){
+  const c = hueRing(i/C);
+  PAL[3*i] = c[0]; PAL[3*i+1] = c[1]; PAL[3*i+2] = c[2];
+}
 function gauss(){
   const u = Math.max(1e-9, Math.random());
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
@@ -756,6 +792,7 @@ function render(){
   gl.uniform2f(u.uPan, S.panx, S.pany);
   gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
   gl.uniform1f(u.uFloor, S.floor); gl.uniform1f(u.uRnorm, rnorm());
+  gl.uniform3fv(u.uPal, PAL);
   gl.uniform1i(u.uView, S.view);
   drawQuad();
 }
@@ -807,7 +844,7 @@ addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
   if(k === " "){ e.preventDefault(); toggleRun(); }
   else if(k === "r") reseed();
-  else if(k === "n"){ rollWorld(); rollCPPN(); reseed(); }
+  else if(k === "n"){ rollWorld(); rollCPPN(); drawKernel(); reseed(); }
   else if(k === "h") $("rack").classList.toggle("hid");
   else if(k === "f") toggleFull();
 });
@@ -874,22 +911,86 @@ function buttons(defs){
   }
   return d;
 }
+/* The kernel as it actually is: the taps land at fractional positions and the
+   GPU splits each one over the four cells around it, so that is what is drawn
+   -- the real discrete stencil, not a smooth picture of the idea of it. Warm
+   is a pull, cool a push, and the outlined cell in the middle is the cell
+   itself, facing right. Squares, never interpolated: the canvas is drawn at a
+   fixed pixel size and stretched by CSS with image-rendering pixelated, so a
+   bigger radius makes the squares smaller rather than blurrier. */
+function drawKernel(){
+  const k = $("kern"); if(!k) return;
+  const g2 = k.getContext("2d");
+  const W = k.width;
+  const R = Math.max(1, Math.ceil(Math.max(S.rn, S.rm, S.rf)) + 1);
+  const side = 2*R + 1, cs = W/side, c = S.kkind;
+  const acc = new Float64Array(side*side);
+  const rings = [[S.rn, S.wn[c]], [S.rm, S.wm[c]], [S.rf, S.wf[c]]];
+  for(let j = 0; j < NA; j++){
+    const rel = j*(2*Math.PI/NA), fw = 1 + S.face*Math.cos(rel);
+    for(const [r, rw] of rings){
+      const x = r*Math.cos(rel) + R, y = r*Math.sin(rel) + R;
+      const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+      for(let dy = 0; dy < 2; dy++) for(let dx = 0; dx < 2; dx++){
+        const xi = x0 + dx, yi = y0 + dy;
+        if(xi < 0 || yi < 0 || xi >= side || yi >= side) continue;
+        acc[yi*side + xi] += fw*rw*(dx ? fx : 1 - fx)*(dy ? fy : 1 - fy);
+      }
+    }
+  }
+  let mx = 0;
+  for(const v of acc) mx = Math.max(mx, Math.abs(v));
+  mx = mx || 1;
+  g2.fillStyle = "#06090c"; g2.fillRect(0, 0, W, W);
+  for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
+    const v = acc[y*side + x]/mx;
+    if(Math.abs(v) < 2e-3) continue;
+    const col = v > 0 ? "255,118,64" : "87,158,255";
+    g2.fillStyle = `rgba(${col},${Math.min(1, Math.abs(v)*0.9 + 0.1)})`;
+    // y up on screen, the way the field is drawn
+    g2.fillRect(Math.floor(x*cs), Math.floor((side - 1 - y)*cs),
+                Math.ceil(cs), Math.ceil(cs));
+  }
+  const m = Math.max(2, Math.ceil(cs));
+  g2.strokeStyle = "rgba(255,255,255,.6)"; g2.lineWidth = 1;
+  g2.strokeRect(Math.floor(R*cs) + 0.5, Math.floor(R*cs) + 0.5, m - 1, m - 1);
+}
+function buildKernel(){
+  const k = document.createElement("canvas");
+  k.id = "kern"; k.width = 320; k.height = 320;
+  rack.appendChild(k);
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = "kernel";
+  rack.insertBefore(d, k);
+  const r = row("kind");
+  const sel = document.createElement("select");
+  for(let i = 0; i < C; i++){
+    const o = document.createElement("option");
+    o.value = String(i); o.textContent = "kind " + (i + 1);
+    sel.appendChild(o);
+  }
+  sel.value = "0";
+  sel.addEventListener("change", () => { S.kkind = parseInt(sel.value); drawKernel(); });
+  r.appendChild(sel);
+  rack.insertBefore(r, k);
+}
 function buildUI(){
-  group("kernel");
-  slider("near", "rn", 1, 20, 0.5, 1);
-  slider("mid", "rm", 1, 40, 0.5, 1);
-  slider("far", "rf", 1, 64, 0.5, 1);
-  slider("facing", "face", 0, 1, 0.01, 2);
+  buildKernel();
+  slider("near", "rn", 1, 20, 0.5, 1, drawKernel);
+  slider("mid", "rm", 1, 40, 0.5, 1, drawKernel);
+  slider("far", "rf", 1, 64, 0.5, 1, drawKernel);
+  slider("facing", "face", 0, 1, 0.01, 2, drawKernel);
 
   group("world");
   slider("beta", "beta", 0.5, 30, 0.5, 1);
   slider("strength", "str", 0, 4, 0.05, 2);
   slider("crowd", "crowd", 0, 8, 0.05, 2);
-  buttons([["new world", () => { rollWorld(); reseed(); }],
+  buttons([["new world", () => { rollWorld(); drawKernel(); reseed(); }],
            ["new field", () => { rollCPPN(); reseed(); }]]);
 
   group("view");
-  picker("show", "view", [{v:0,t:"species"}, {v:1,t:"density"}, {v:2,t:"direction"}]);
+  picker("show", "view", [{v:0,t:"blend"}, {v:3,t:"purity"},
+                          {v:1,t:"density"}, {v:2,t:"direction"}]);
   slider("exposure", "exp", 0.1, 8, 0.05, 2);
   slider("floor", "floor", 0, 2, 0.01, 2);
   slider("brush", "brush", 4, 90, 1, 0);
@@ -903,13 +1004,14 @@ function buildUI(){
   picker("precision", "prec", [{v:16,t:"16-bit"}, {v:32,t:"32-bit exact"}],
          () => { alloc(); reseed(); });
   slider("steps/f", "steps", 1, 8, 1, 0);
-  buttons([["roll", () => { rollWorld(); rollCPPN(); reseed(); }], ["reseed", reseed]]);
+  buttons([["roll", () => { rollWorld(); rollCPPN(); drawKernel(); reseed(); }],
+           ["reseed", reseed]]);
 }
 
 $("play").onclick = toggleRun;
 $("step1").onclick = () => { step(); massDue = true; };
 $("reseed").onclick = reseed;
-$("shuffle").onclick = () => { rollWorld(); rollCPPN(); reseed(); };
+$("shuffle").onclick = () => { rollWorld(); rollCPPN(); drawKernel(); reseed(); };
 $("full").onclick = toggleFull;
 $("hidep").onclick = () => rack.classList.toggle("hid");
 
@@ -953,6 +1055,7 @@ function tick(now){
 
 alloc();
 buildUI();
+drawKernel();
 reseed();
 resize();
 requestAnimationFrame(tick);
