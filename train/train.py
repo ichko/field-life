@@ -759,6 +759,7 @@ def main():
         # Charging for every frame asks for the shape to be STOOD IN, which is
         # what persistence means and what the horizon columns measure.
         kern = model.kern()
+        smudged = None
         # Damage. A smeared state is still the same mass in the same place,
         # just without the structure that was holding it, so asking the world
         # to come back from one is a fair question with a reachable answer.
@@ -768,7 +769,7 @@ def main():
             # the pool detached -- so cloning the batch inside no_grad would
             # sever the one path by which a loss can reach a learned seed, and
             # the seed would sit at its initial value looking trained.
-            hit = int(torch.randint(0, batch.shape[0], (1,)))
+            hit = smudged = int(torch.randint(0, batch.shape[0], (1,)))
             cy = float(torch.randint(0, a.grid, (1,)))
             cx = float(torch.randint(0, a.grid, (1,)))
             # A range of sizes, not one. Trained on a single radius the world
@@ -808,10 +809,23 @@ def main():
 
         with torch.no_grad():
             good = torch.isfinite(out).all(dim=(1, 2, 3))
+            # A state that was smeared this iteration does NOT go back into the
+            # pool. Writing it back makes the wound permanent: the half-repaired
+            # result becomes a pooled state, and a few thousand iterations later
+            # the pool is mostly scar tissue and the world has been trained to
+            # carry on from damage rather than undo it. Repair decayed exactly
+            # as the pool aged, which is what that would look like. Dropping it
+            # keeps the smear a question asked and not a fact inherited.
+            if smudged is not None:
+                good[smudged] = False
+                ages[idx[smudged]] += a.window     # it still lived those steps
             pool[idx[good]] = out[good].detach()
             ages[idx[good]] += a.window
-            pool[idx[~good]] = seed          # a blown-up state poisons the pool
-            ages[idx[~good]] = 0
+            blown = ~good
+            if smudged is not None:
+                blown[smudged] = False             # dropped, not blown up
+            pool[idx[blown]] = seed          # a blown-up state poisons the pool
+            ages[idx[blown]] = 0
 
         best = min(best, loss.item())
         if it % a.ckpt == 0 or it == a.iters - 1:
