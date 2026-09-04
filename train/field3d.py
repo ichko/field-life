@@ -84,6 +84,7 @@ class Field3D(torch.nn.Module):
         # channel, each with its own reach, so the bank holds a kernel that
         # looks two cells out and one that looks across a third of the world.
         self.kern = KernelCPPN(C, K=K, axes=axes, orders=orders) if kernel == "cppn" else None
+        # kept only for reference; every allocation asks a parameter where it is
         self.device, self.dtype = device, dtype
         g = torch.Generator().manual_seed(7)
 
@@ -131,10 +132,12 @@ class Field3D(torch.nn.Module):
     def seed(self, masses):
         """masses: (C,) total mass to place. Returns rho (1,C,N,N,N)."""
         N, C, r = self.N, self.C, self.seed_half
+        masses = masses.to(self.seed_raw.device)
         pat = torch.nn.functional.softplus(self.seed_raw)*self.seed_ball
         pat = pat/pat.sum((1, 2, 3), keepdim=True).clamp_min(1e-9)
         pat = pat*masses.view(C, 1, 1, 1)
-        rho = torch.zeros(1, C, N, N, N, device=self.device, dtype=self.dtype)
+        dev = self.seed_raw.device
+        rho = torch.zeros(1, C, N, N, N, device=dev, dtype=self.seed_raw.dtype)
         c0 = N//2
         rho[0, :, c0-r:c0+r+1, c0-r:c0+r+1, c0-r:c0+r+1] = pat
         return rho

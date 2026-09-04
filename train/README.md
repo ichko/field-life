@@ -120,6 +120,35 @@ python3 train_gecko.py --iters 2400 --N 40 --C 8 --S 5 --T 12 \
     --resume geckoP_best.pt --out geckoQ.json
 ```
 
+## Running it on a GPU
+
+Everything here is device-agnostic now — the model asks its own parameters where
+they live rather than remembering a string, so `.to("cuda")` works:
+
+```
+python3 train_gecko.py --device cuda --iters 20000 --N 48 --C 8 \
+    --kernel cppn --K 7 --steps 44 --warm 30 --lr 3e-3 --wsil 2.0 --blur 0.9 \
+    --resume geckoK2.pt --out geckoG.json
+python3 look.py geckoG.pt 20,34,48 48 8 3 8 out.png
+```
+
+`geckoK2.pt` and `geckoP_best.pt` are committed so a run can pick up where the
+CPU left off rather than start over: the first is the CPPN bank at 170
+iterations, the second the displaced-Gaussian fit it is being measured against.
+
+What the hardware is worth here is not subtle. A step forward and back is about
+330 ms on four CPU cores at 40 cubed with eight channels; the same thing is a
+few tens of milliseconds on a current card, and 48 or 64 cubed becomes
+affordable at the same time. This whole page's worth of conclusions was drawn
+from runs of a few hundred iterations. Fits of this kind normally get tens of
+thousands, and the one thing every result here points at is that the fit has not
+had enough of them.
+
+The next thing to add once there is a GPU to test it on is a **batch**. The pool
+restarts are batch-one, which wastes most of a card; running sixteen pool states
+at once is nearly free there and multiplies the gradient signal per second again.
+It is not written yet because it cannot be tested here.
+
 ## Not on the page yet
 
 Nothing has been added to `staging/volume.html` for this, deliberately. The page

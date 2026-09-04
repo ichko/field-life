@@ -25,7 +25,7 @@ def soften(x, s):
     """A Gaussian blur, wrapping, in cells."""
     if s <= 0: return x
     K = max(1, int(math.ceil(3*s)))
-    xs = torch.arange(-K, K + 1, dtype=x.dtype)
+    xs = torch.arange(-K, K + 1, dtype=x.dtype, device=x.device)
     w = torch.exp(-0.5*(xs/s)**2); w = w/w.sum()
     for ax in (0, 1, 2):
         pad = [0]*6; pad[2*(2 - ax)] = K; pad[2*(2 - ax) + 1] = K
@@ -101,20 +101,24 @@ def main():
     ap.add_argument("--K", type=int, default=7, help="stencil half-width, in half-pitch cells")
     ap.add_argument("--axes", type=int, default=4, help="learned axes for the angular orders")
     ap.add_argument("--orders", type=int, default=3, help="angular orders about each axis")
+    ap.add_argument("--device", default="cpu", help="cpu, or cuda")
     ap.add_argument("--threads", type=int, default=4)
     a = ap.parse_args()
     torch.set_num_threads(a.threads)
     torch.manual_seed(3)
 
+    dev = torch.device(a.device)
     tgt, occ = target_field(a.N, a.blur)
+    tgt, occ = tgt.to(dev), occ.to(dev)
     vis_mass = tgt.sum((0, 2, 3, 4))                      # what the picture weighs
     wmap = 1.0 + 14.0*occ                                 # the animal against the void
     print("target mass per visible channel:", [round(float(v), 1) for v in vis_mass])
 
     m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
                 kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders)
+    m = m.to(dev)
     if a.resume and os.path.exists(a.resume):
-        m.load_state_dict(torch.load(a.resume))
+        m.load_state_dict(torch.load(a.resume, map_location=dev))
         print("resumed from", a.resume)
     # hidden channels start with about as much mass as a visible one. The
     # inverse of softplus overflows the moment its argument is large, which for
@@ -137,7 +141,7 @@ def main():
     # dozen steps later, which is the only way a fixed point gets learned.
     pool = None
     if a.pool > 0:
-        pool = torch.zeros(a.pool, a.C, a.N, a.N, a.N)
+        pool = torch.zeros(a.pool, a.C, a.N, a.N, a.N, device=dev)
         pool_age = torch.zeros(a.pool, dtype=torch.long)
 
     best = float("inf")
