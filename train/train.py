@@ -62,6 +62,10 @@ HORIZONS = [16, 32, 64, 128, 256, 512, 1024]
 # and 0.0078 at step 1024. It builds the animal and then loses it, and every
 # horizon the score could see was on the way up.
 HZ_WEIGHTS = [0.25, 0.5, 1, 2, 3, 4, 5]
+# How much the loss after a smear counts toward "best", when smearing is on.
+# Comparable to the weight on the furthest horizon: repair matters about as
+# much as persistence, and considerably more than early growth.
+REC_WEIGHT = 4.0
 
 
 # ------------------------------------------------------------------ the model
@@ -819,6 +823,17 @@ def main():
                 if a.smudge_every else (float("nan"), [float("nan")] * 2)
             # weighted toward the long horizons: holding the shape is the point
             score = sum(h * w for h, w in zip(hz, HZ_WEIGHTS)) / sum(HZ_WEIGHTS)
+            # ...and toward coming back from damage, when damage is being
+            # trained at all. Leaving repair out of the score does not make it
+            # neutral, it makes it unselected: the score kept crowning the
+            # checkpoint that grew the cleanest, and repair drifted from fully
+            # healing a wound to ending WORSE than the wound while the clean
+            # animal went on improving. A number that is measured, logged, and
+            # then ignored by selection is a number the run will happily
+            # sacrifice.
+            if a.smudge_every and rec[1][-1] == rec[1][-1]:      # not NaN
+                score = (score * sum(HZ_WEIGHTS) + REC_WEIGHT * rec[1][-1]) \
+                    / (sum(HZ_WEIGHTS) + REC_WEIGHT)
             with open(logp, "a", newline="") as fh:
                 csv.writer(fh).writerow([it, f"{loss.item():.6f}", f"{best:.6f}",
                                          f"{lam:.3f}", f"{f:.2f}", f"{b:.3f}",
