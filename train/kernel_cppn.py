@@ -31,7 +31,7 @@ import torch.nn.functional as F
 
 
 class KernelCPPN(nn.Module):
-    def __init__(self, C, K=7, axes=4, orders=3, emb=6, hidden=48, seed=5):
+    def __init__(self, C, K=7, axes=4, orders=3, emb=10, hidden=48, seed=5):
         super().__init__()
         self.C, self.K, self.A, self.MO = C, K, axes, orders
         g = torch.Generator().manual_seed(seed)
@@ -42,7 +42,7 @@ class KernelCPPN(nn.Module):
         self.register_buffer("off", torch.stack([gz, gy, gx], -1).reshape(-1, 3))
 
         self.axis = nn.Parameter(torch.randn(axes, 3, generator=g))
-        self.embed = nn.Parameter(torch.randn(C, emb, generator=g)*0.6)
+        self.embed = nn.Parameter(torch.randn(C, emb, generator=g)*1.4)
         # Reach per channel, as a fraction of the stencil. Spread the starting
         # values across the range so the bank begins with big kernels and small
         # ones rather than C copies of the same middling one.
@@ -52,11 +52,15 @@ class KernelCPPN(nn.Module):
         nin = 2 + 3 + axes*orders + emb
         self.net = nn.Sequential(
             nn.Linear(nin, hidden), nn.Tanh(),
-            nn.Linear(hidden, hidden), nn.Tanh(),
-            nn.Linear(hidden, 1))
-        with torch.no_grad():
-            self.net[-1].weight.mul_(0.5)
-            self.net[-1].bias.zero_()
+            nn.Linear(hidden, hidden), nn.Tanh())
+        # The readout is PER CHANNEL. One shared head with only an embedding to
+        # tell the channels apart starts the bank nearly degenerate -- eight
+        # kernels that are all the same kernel -- and a matrix cannot undo that;
+        # the fit has to spend its early iterations inventing diversity it could
+        # have been given. Independent heads over shared features cost C*hidden
+        # parameters and start the bank varied.
+        self.head = nn.Parameter(torch.randn(C, hidden, generator=g)/math.sqrt(hidden))
+        self.head_b = nn.Parameter(torch.zeros(C))
 
         # the rim taper, and the mask, in units of the stencil
         r = self.off.norm(dim=-1)/K
@@ -87,7 +91,8 @@ class KernelCPPN(nn.Module):
 
         e = self.embed.unsqueeze(1).expand(C, P, -1)
         x = torch.cat([r.unsqueeze(-1), (r*r).unsqueeze(-1), u, ang, e], -1)
-        w = self.net(x.reshape(C*P, -1)).reshape(C, P)
+        h = self.net(x.reshape(C*P, -1)).reshape(C, P, -1)
+        w = torch.einsum("cph,ch->cp", h, self.head) + self.head_b.unsqueeze(1)
 
         # Outside its own reach a channel's kernel is zero; at the rim it is
         # feathered, because a hard cut at the edge of the window prints the
