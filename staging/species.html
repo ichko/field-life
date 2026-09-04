@@ -201,33 +201,38 @@ transported together.</p>
 different things, so they come apart on their own rather than being held apart by force.</p>
 
 <h2>One step</h2>
-<p>&mdash; <b>Look around.</b> Each of the eight fields is read on three rings &mdash; at
-<b>near</b>, <b>mid</b> and <b>far</b> &mdash; six taps to a ring. Every kind weighs those three
-rings differently, so every kind is really looking through its own kernel: one wants a close
-huddle, another wants a shell at arm's length.</p>
-<p>&mdash; <b>Want.</b> The <b>matrix</b> mixes them. <code>M[c][d]</code> is how hard kind
-<i>c</i> is pulled towards what its rings saw of kind <i>d</i>, minus a term for how crowded it
-already is. That leaves one number per cell per kind: how much kind <i>c</i> wants to be there.
-The matrix need not be symmetric, and the asymmetry is where chasing comes from.</p>
-<p>&mdash; <b>Move.</b> Each kind hands its contents to its nine neighbours in shares
-proportional to <code>exp(beta&middot;A)</code> at each of them, scaled to sum to one. Eight kinds,
-eight sets of shares, all independent. Nothing is created and nothing is lost, for each kind
-separately.</p>
-<p>It is written the way the flat page writes it &mdash; <code>E&nbsp;=&nbsp;exp(beta&middot;A)</code>,
-<code>Z&nbsp;=&nbsp;sum of E over the nine</code>, <code>S&nbsp;=&nbsp;rho/Z</code>,
-<code>rho'&nbsp;=&nbsp;E&middot;(sum of S)</code> &mdash; because the share from <i>q</i> to
-<i>p</i> is <code>E<sub>p</sub>/Z<sub>q</sub></code>, which factorises. That is what keeps eight
-independent transports down to one number per cell per kind instead of nine.</p>
+<p>&mdash; <b>Lay it down.</b> Each kind adds to its own scent in proportion to how much of it is
+here, and the scent then blurs and fades. Nothing else the kinds do touches the world. They never
+see each other &mdash; the way an ant does not smell other ants, only what has been left on the
+ground.</p>
+<p>&mdash; <b>Smell.</b> Two lobes, one counting positive and one negative, turned to face the
+cell's heading. What comes back per kind is <i>how much more of that kind's scent lies on my
+positive side than my negative one</i>.</p>
+<p>&mdash; <b>Turn.</b> That reading is already a left-right difference, so it is what a turn
+should be made of. The heading rotates by it, capped at <b>turn</b> degrees. The heading is
+<b>state</b>: it is rotated by an offset and then carried along with the mass, never read back
+out of where the mass happened to go.</p>
+<p>&mdash; <b>Want.</b> The <b>matrix</b> mixes the eight readings. Entry <i>c,d</i> is how hard
+kind <i>c</i> is pulled towards the scent of kind <i>d</i>, less a term for how crowded the cell
+already is. That leaves one appeal number per cell per kind.</p>
+<p>&mdash; <b>Split and hand over.</b> Each kind divides its own contents among its nine
+neighbours in shares proportional to <code>exp(beta&middot;appeal)</code> at each of them, scaled
+to sum to one; every cell then adds up what its nine neighbours sent it. Eight kinds, eight sets
+of shares, all independent. Nothing created and nothing lost, for each kind on its own.</p>
+<p>The scent is the layer that was missing. It is <b>not</b> conserved, which is exactly why it
+can decay &mdash; and decay is what makes a trail a trail rather than a smear that never forgets.
+The kinds are conserved; the scent is not; the two are different things and want different
+rules.</p>
 
-<h2>The rings are turned</h2>
-<p>The three rings are sampled at angles measured <b>from the cell's own heading</b>, and
-<b>facing</b> says how much heavier the front of the ring counts than the back. At zero the
-kernel is a plain disc and this is Field Life with a matrix; wind it up and each cell reads the
-world in front of itself, which is the physarum sensor, and the two behaviours are then the same
-term rather than two terms bolted together.</p>
-<p>The heading is not a rule of its own. It is read back out of the transport &mdash; a cell ends
-up facing whichever way its contents actually went &mdash; so it costs nothing and cannot
-disagree with the motion.</p>
+<h2>The lobes are turned</h2>
+<p>The two lobes are built from the cell's own heading &mdash; their centres are computed from it
+every step, so nothing is a stored stencil being rotated and resampled, and nothing aliases as a
+heading creeps round. Each lobe is a smooth blob, read as a <b>blurred average</b> over its own
+radius rather than as a scatter of point taps: the scent carries a mip chain and one tap at the
+right level is that average. <b>Feather</b> widens it further, which is what keeps a reading from
+jumping as a cell crosses the lobe's edge.</p>
+<p>Every kind weighs three depths of the lobe its own way, at the same taps, so eight different
+kernels cost eight multiplies. <b>Variety</b> at zero collapses them to one shared kernel.</p>
 
 <h2>Reading it</h2>
 <p><b>species</b> gives each kind a hue and mixes them by how much of each is present, so a cell
@@ -286,26 +291,23 @@ float rnd(ivec2 p, int k, int f){
 
 /* ----------------------------------------------------------- 1: the kernel
    Two lobes, one counting POSITIVE and one NEGATIVE, SPREAD degrees apart
-   either side of straight ahead and SIZE cells out. Each lobe is a smooth
-   blob of radius LOBE.
+   either side of straight ahead and SIZE cells out, each a smooth blob of
+   radius LOBE. They read the SCENT, not the kinds: a cell does not see its
+   neighbours, it smells what has been left lying about.
 
-   A blob is NOT a scatter of point taps. Sampling a disc at fifteen places
-   gives fifteen dots, in the picture and in the simulation both -- which is
-   what was wrong here. A Gaussian-weighted average over a disc is a BLURRED
-   READ: the fields carry a mip chain, and one tap at the right level is that
-   average, smooth by construction and cheaper than the dots were. LOBE picks
-   the level and FEATHER softens it further.
+   A blob is not a scatter of point taps. A Gaussian-weighted average over a
+   disc is a BLURRED READ -- the scent carries a mip chain and one tap at the
+   right level is that average, smooth by construction. LOBE picks the level,
+   FEATHER widens it.
 
-   Built from the angle, not rotated: the lobe centres are computed from this
-   cell's own heading, so no stored stencil is turned and resampled.
+   Built from the angle, not rotated: the lobe centres come from this cell's
+   own heading, so no stored stencil is turned and resampled.
 
-   Three shells a lobe, and each kind weighs them its own way -- but with
-   POSITIVE weights only. A signed profile put a negative shell inside the
-   positive lobe, which is why one lobe had a stripe of the other's colour
-   through it. A kind differs by WHERE in depth it looks, not by a lobe
-   changing sign halfway.                                                   */
+   What comes out, per kind, is how much more of that kind's scent lies on the
+   positive side than the negative one. Which is a LEFT-RIGHT DIFFERENCE, and
+   so is exactly the thing a turn should be made of.                        */
 const FS_RING = HEAD + `
-uniform sampler2D uF0, uF1, uD;
+uniform sampler2D uP0, uP1, uD;
 uniform float uSize, uLobe, uSpread, uFeather;
 uniform vec4 uSa0, uSa1, uSb0, uSb1, uSc0, uSc1;   // per-kind depth profile
 layout(location = 0) out vec4 oK0;
@@ -315,8 +317,6 @@ void main(){
   vec2 uv = (vec2(p) + 0.5)*uTexel;
   vec2 dir = texelFetch(uD, p, 0).xy;
   float th = atan(dir.y, dir.x);
-  // The level whose footprint is the lobe. Feather widens it further, which
-  // is what keeps a reading from jumping as a cell crosses the lobe's edge.
   float lod = max(0.0, log2(max(uLobe, 1.0)) + uFeather*1.2);
   const float SH[3] = float[3](0.6, 1.0, 1.5);
   vec4 k0 = vec4(0.0), k1 = vec4(0.0);
@@ -329,8 +329,8 @@ void main(){
       vec2 off = e*(uSize*SH[j])*uTexel;
       vec4 p0 = j == 0 ? uSa0 : (j == 1 ? uSb0 : uSc0);
       vec4 p1 = j == 0 ? uSa1 : (j == 1 ? uSb1 : uSc1);
-      k0 += sgn*p0*textureLod(uF0, uv + off, lod);
-      k1 += sgn*p1*textureLod(uF1, uv + off, lod);
+      k0 += sgn*p0*textureLod(uP0, uv + off, lod);
+      k1 += sgn*p1*textureLod(uP1, uv + off, lod);
       wn += 1.0;
     }
   }
@@ -347,11 +347,12 @@ void main(){
    Ten still spans 1e8 between the coldest cell and the hottest, which is
    winner-take-all several times over, and it leaves room under 65504.      */
 const FS_AFF = HEAD + `
-uniform sampler2D uK0, uK1, uRho;
+uniform sampler2D uK0, uK1, uRho, uF0, uF1, uD;
 uniform float uM[64];
-uniform float uBeta, uCrowd, uStr, uRnorm;
+uniform float uBeta, uCrowd, uStr, uRnorm, uTurn, uSharp;
 layout(location = 0) out vec4 oE0;
 layout(location = 1) out vec4 oE1;
+layout(location = 2) out vec4 oD;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 k0 = texelFetch(uK0, p, 0), k1 = texelFetch(uK1, p, 0);
@@ -359,15 +360,27 @@ void main(){
   k[0]=k0.x; k[1]=k0.y; k[2]=k0.z; k[3]=k0.w;
   k[4]=k1.x; k[5]=k1.y; k[6]=k1.z; k[7]=k1.w;
   float rho = texelFetch(uRho, p, 0).r*uRnorm;
+  vec4 f0 = texelFetch(uF0, p, 0), f1 = texelFetch(uF1, p, 0);
+  float tot = dot(f0, vec4(1.0)) + dot(f1, vec4(1.0));
   vec4 e0, e1;
+  float torque = 0.0;
   for(int c = 0; c < C; c++){
     float a = 0.0;
     for(int d = 0; d < C; d++) a += uM[c*C + d]*k[d];
-    a = uStr*a*uRnorm - uCrowd*rho;
-    float e = exp(clamp(uBeta*a, -10.0, 10.0));
+    a *= uStr*uRnorm;
+    // The readings are already positive-side minus negative-side, so this sum
+    // IS the left-right difference this kind feels. Weighted by how much of
+    // that kind is actually here, it is the cell's turn.
+    torque += a*(c < 4 ? f0[c] : f1[c - 4]);
+    float e = exp(clamp(uBeta*(a - uCrowd*rho), -10.0, 10.0));
     if(c < 4) e0[c] = e; else e1[c - 4] = e;
   }
   oE0 = e0; oE1 = e1;
+  // The direction is STATE. It is not read back out of where the mass went --
+  // it is turned, by an offset, and then carried along with the mass.
+  float th = atan(texelFetch(uD, p, 0).y, texelFetch(uD, p, 0).x);
+  float nth = th + uTurn*tanh(uSharp*torque/max(tot, 1e-5));
+  oD = vec4(cos(nth), sin(nth), 0.0, 1.0);
 }`;
 
 /* ------------------------------------------------------- 3: the share to give
@@ -381,66 +394,73 @@ const FS_SHARE = HEAD + `
 uniform sampler2D uE0, uE1, uF0, uF1;
 layout(location = 0) out vec4 oS0;
 layout(location = 1) out vec4 oS1;
-layout(location = 2) out vec4 oD;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 z0 = vec4(0.0), z1 = vec4(0.0);
-  vec2 flow = vec2(0.0);
-  float ftot = 0.0;
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    vec4 a = texelFetch(uE0, q, 0), b = texelFetch(uE1, q, 0);
-    z0 += a; z1 += b;
-    float e = dot(a, vec4(1.0)) + dot(b, vec4(1.0));
-    flow += vec2(OFF[k])*e; ftot += e;
+    z0 += texelFetch(uE0, q, 0); z1 += texelFetch(uE1, q, 0);
   }
   // Guard 0/0 only. The floor must sit far below the smallest honest Z --
   // nine terms of exp(-10) is about 4e-4 -- or mass is silently deleted.
   oS0 = texelFetch(uF0, p, 0)/max(z0, vec4(1e-30));
   oS1 = texelFetch(uF1, p, 0)/max(z1, vec4(1e-30));
-  vec2 d = ftot > 1e-20 ? flow/ftot : vec2(0.0);
-  float l = length(d);
-  oD = vec4(l > 1e-5 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
 }`;
 
-/* Dissipation. Physarum's decay fades a TRAIL, which is not a thing that
-   exists here -- the eight fields are the creatures, and they are conserved.
-   The honest analogue is a normalised blur: it spreads a structure out and
-   softens it exactly as decay does, but every gram it takes off one cell it
-   puts on another, so it can sit in a conserving model without lying. Turn it
-   up and edges soften and thin arms dissolve; leave it at zero and nothing
-   is ever forgotten. */
-const FS_DIFF = HEAD + `
-uniform sampler2D uF0, uF1;
-uniform float uDiff;
-layout(location = 0) out vec4 oF0;
-layout(location = 1) out vec4 oF1;
+/* ---------------------------------------------------------- 0: the scent
+   What the kinds actually sense. Each kind lays its own scent down in
+   proportion to how much of it is here, and the scent then blurs and fades.
+   This is the layer that was missing: an ant does not smell other ants, it
+   smells what has been left on the ground, and because the scent is NOT
+   conserved it can decay -- which is the thing that makes a trail a trail
+   rather than a smear that never forgets. */
+const FS_SCENT = HEAD + `
+uniform sampler2D uF0, uF1, uP0, uP1;
+uniform float uDep, uDecay, uDiff;
+layout(location = 0) out vec4 oP0;
+layout(location = 1) out vec4 oP1;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 s0 = vec4(0.0), s1 = vec4(0.0);
   for(int dy = -1; dy <= 1; dy++)
     for(int dx = -1; dx <= 1; dx++){
       ivec2 q = wrap(p + ivec2(dx, dy));
-      s0 += texelFetch(uF0, q, 0); s1 += texelFetch(uF1, q, 0);
+      s0 += texelFetch(uP0, q, 0); s1 += texelFetch(uP1, q, 0);
     }
-  oF0 = mix(texelFetch(uF0, p, 0), s0/9.0, uDiff);
-  oF1 = mix(texelFetch(uF1, p, 0), s1/9.0, uDiff);
+  vec4 c0 = texelFetch(uP0, p, 0) + uDep*texelFetch(uF0, p, 0);
+  vec4 c1 = texelFetch(uP1, p, 0) + uDep*texelFetch(uF1, p, 0);
+  // Capped: the scent is float16 and is not conserved, so a cell that gathers
+  // a lot of one kind can drive it past 65504, and an inf reaches the softmax
+  // as exp(inf - inf), which is NaN.
+  oP0 = clamp(uDecay*mix(c0, s0/9.0 + uDep*texelFetch(uF0, p, 0), uDiff), 0.0, 6.0e4);
+  oP1 = clamp(uDecay*mix(c1, s1/9.0 + uDep*texelFetch(uF1, p, 0), uDiff), 0.0, 6.0e4);
 }`;
 
 /* --------------------------------------------------- 4: collect what arrived */
 const FS_MOVE = HEAD + `
-uniform sampler2D uE0, uE1, uS0, uS1;
+uniform sampler2D uE0, uE1, uS0, uS1, uD;
 layout(location = 0) out vec4 oF0;
 layout(location = 1) out vec4 oF1;
+layout(location = 2) out vec4 oD;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0);
   vec4 s0 = vec4(0.0), s1 = vec4(0.0);
+  vec2 acc = vec2(0.0);
+  float wt = 0.0;
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    s0 += texelFetch(uS0, q, 0); s1 += texelFetch(uS1, q, 0);
+    vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0);
+    s0 += a; s1 += b;
+    // What actually arrived here from q is E(p)*S(q), summed over the kinds.
+    // The heading rides along on it: a carried property, not a fresh guess.
+    float m = dot(e0*a, vec4(1.0)) + dot(e1*b, vec4(1.0));
+    acc += m*texelFetch(uD, q, 0).xy; wt += m;
   }
-  oF0 = texelFetch(uE0, p, 0)*s0;
-  oF1 = texelFetch(uE1, p, 0)*s1;
+  oF0 = e0*s0; oF1 = e1*s1;
+  vec2 d = wt > 1e-20 ? acc/wt : texelFetch(uD, p, 0).xy;
+  float l = length(d);
+  oD = vec4(l > 1e-6 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
 }`;
 
 const FS_RHO = HEAD + `
@@ -657,7 +677,7 @@ function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT, mips = fals
 
 const P = {
   ring: program(FS_RING), aff: program(FS_AFF), share: program(FS_SHARE),
-  move: program(FS_MOVE), diff: program(FS_DIFF),
+  move: program(FS_MOVE), scent: program(FS_SCENT),
   rho: program(FS_RHO), seed: program(FS_SEED),
   paint: program(FS_PAINT), draw: program(FS_DRAW), sum: program(FS_SUM),
 };
@@ -666,7 +686,8 @@ const P = {
 const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
   size: 9, lobe: 4, spread: 70, feather: 0.65, variety: 0.6,
-  beta: 9, crowd: 1.4, str: 1.0, diff: 0, fill: 0.22, cscale: 1.6, gscale: 40,
+  beta: 9, crowd: 1.4, str: 1.0,
+  dep: 1, decay: 0.94, diff: 1, turn: 20, sharp: 6, fill: 0.22, cscale: 1.6, gscale: 40,
   exp: 1.5, floor: 0.05, view: 0, kkind: 0, zoom: 1, panx: 0, pany: 0,
   brush: 26, kind: 0, seed: 1,
   M: null, sa: null, sb: null, sc: null, ca: null, cv: null,
@@ -735,8 +756,14 @@ function alloc(){
   // The fields carry a mip chain: one tap on the right level IS the Gaussian
   // average over a lobe, which is what makes the lobes smooth instead of a
   // handful of dots.
-  g.f0 = make2D(N, N, F, LF, gl.REPEAT, true); g.f1 = make2D(N, N, F, LF, gl.REPEAT, true);
-  g.f0b = make2D(N, N, F, LF, gl.REPEAT, true); g.f1b = make2D(N, N, F, LF, gl.REPEAT, true);
+  g.f0 = make2D(N, N, F, LF); g.f1 = make2D(N, N, F, LF);
+  g.f0b = make2D(N, N, F, LF); g.f1b = make2D(N, N, F, LF);
+  // The SCENT is what the lobes read, so the scent is what carries the mip
+  // chain -- one tap at the right level is the Gaussian average over a lobe.
+  g.p0 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.p1 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.p0b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.p1b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
   g.k0 = make2D(N, N, F); g.k1 = make2D(N, N, F);
   // E and S are ALWAYS 32-bit, whatever the precision picker says. They are
   // not state, they are one step's working, and S is the dangerous one: it is
@@ -747,15 +774,15 @@ function alloc(){
   // picker still decides what the FIELDS are kept in, which is what it is for.
   g.e0 = make2D(N, N, gl.RGBA32F); g.e1 = make2D(N, N, gl.RGBA32F);
   g.s0 = make2D(N, N, gl.RGBA32F); g.s1 = make2D(N, N, gl.RGBA32F);
-  g.d = make2D(N, N, RG, LF);
+  g.d = make2D(N, N, RG, LF); g.db = make2D(N, N, RG, LF);
   g.rho = make2D(N, N, R, LF);
   g.pyr = [];
   for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
     g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
     if(n === 1) break;
   }
-  g.all = [g.f0, g.f1, g.f0b, g.f1b, g.k0, g.k1, g.e0, g.e1,
-           g.s0, g.s1, g.d, g.rho, ...g.pyr];
+  g.all = [g.f0, g.f1, g.f0b, g.f1b, g.p0, g.p1, g.p0b, g.p1b,
+           g.k0, g.k1, g.e0, g.e1, g.s0, g.s1, g.d, g.db, g.rho, ...g.pyr];
   G = g;
 }
 function memMB(){
@@ -770,7 +797,7 @@ function common(u){ gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N
 // The blurred copies have to be rebuilt every time the fields change, or the
 // kernel is reading the step before last.
 function remip(){
-  for(const t of [G.f0, G.f1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
+  for(const t of [G.p0, G.p1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
 }
 function makeRho(){
   const u = use(P.rho); common(u);
@@ -784,15 +811,28 @@ function reseed(){
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
   gl.uniform1i(u.uSeed, S.seed);
   target([G.f0, G.f1, G.d], G.N, G.N); drawQuad();
+  for(const t of [G.p0, G.p1, G.p0b, G.p1b]){
+    target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+  }
   remip(); makeRho();
   meanRho = S.fill; S.frame = 0; mass = null; massDue = true;
 }
 const v4 = (a, o) => [a[o], a[o+1], a[o+2], a[o+3]];
 function step(){
   const N = G.N;
-  {
-    const u = use(P.ring); common(u);
+  {                                    // the scent: laid down, blurred, faded
+    const u = use(P.scent); common(u);
     gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
+    gl.uniform1i(u.uP0, tex(2, G.p0)); gl.uniform1i(u.uP1, tex(3, G.p1));
+    gl.uniform1f(u.uDep, S.dep); gl.uniform1f(u.uDecay, S.decay);
+    gl.uniform1f(u.uDiff, S.diff);
+    target([G.p0b, G.p1b], N, N); drawQuad();
+    [G.p0, G.p0b] = [G.p0b, G.p0]; [G.p1, G.p1b] = [G.p1b, G.p1];
+    remip();
+  }
+  {                                    // smell it, through the two lobes
+    const u = use(P.ring); common(u);
+    gl.uniform1i(u.uP0, tex(0, G.p0)); gl.uniform1i(u.uP1, tex(1, G.p1));
     gl.uniform1i(u.uD, tex(2, G.d));
     gl.uniform1f(u.uSize, S.size); gl.uniform1f(u.uLobe, S.lobe);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
@@ -802,39 +842,38 @@ function step(){
     gl.uniform4f(u.uSc0, ...v4(S.sc, 0)); gl.uniform4f(u.uSc1, ...v4(S.sc, 4));
     target([G.k0, G.k1], N, N); drawQuad();
   }
-  {
+  {                                    // what each kind wants, and the turn
     const u = use(P.aff); common(u);
     gl.uniform1i(u.uK0, tex(0, G.k0)); gl.uniform1i(u.uK1, tex(1, G.k1));
     gl.uniform1i(u.uRho, tex(2, G.rho));
+    gl.uniform1i(u.uF0, tex(3, G.f0)); gl.uniform1i(u.uF1, tex(4, G.f1));
+    gl.uniform1i(u.uD, tex(5, G.d));
     gl.uniform1fv(u.uM, S.M);
     gl.uniform1f(u.uBeta, S.beta); gl.uniform1f(u.uCrowd, S.crowd);
     gl.uniform1f(u.uStr, S.str); gl.uniform1f(u.uRnorm, rnorm());
-    target([G.e0, G.e1], N, N); drawQuad();
+    gl.uniform1f(u.uTurn, S.turn*Math.PI/180); gl.uniform1f(u.uSharp, S.sharp);
+    target([G.e0, G.e1, G.db], N, N); drawQuad();
+    [G.d, G.db] = [G.db, G.d];
   }
   {
     const u = use(P.share); common(u);
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
     gl.uniform1i(u.uF0, tex(2, G.f0)); gl.uniform1i(u.uF1, tex(3, G.f1));
-    target([G.s0, G.s1, G.d], N, N); drawQuad();
+    target([G.s0, G.s1], N, N); drawQuad();
   }
   {
     const u = use(P.move); common(u);
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
     gl.uniform1i(u.uS0, tex(2, G.s0)); gl.uniform1i(u.uS1, tex(3, G.s1));
-    target([G.f0b, G.f1b], N, N); drawQuad();
+    gl.uniform1i(u.uD, tex(4, G.d));
+    target([G.f0b, G.f1b, G.db], N, N); drawQuad();
     [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
+    [G.d, G.db] = [G.db, G.d];
   }
-  if(S.diff > 0){
-    const u = use(P.diff); common(u);
-    gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
-    gl.uniform1f(u.uDiff, S.diff);
-    target([G.f0b, G.f1b], N, N); drawQuad();
-    [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
-  }
-  remip();
   makeRho();
   S.frame++;
 }
+
 function paintAt(gx, gy, amount){
   const u = use(P.paint); common(u);
   gl.uniform1i(u.uF0, tex(0, G.f0)); gl.uniform1i(u.uF1, tex(1, G.f1));
@@ -843,7 +882,7 @@ function paintAt(gx, gy, amount){
   gl.uniform1i(u.uKind, S.kind);
   target([G.f0b, G.f1b], G.N, G.N); drawQuad();
   [G.f0, G.f0b] = [G.f0b, G.f0]; [G.f1, G.f1b] = [G.f1b, G.f1];
-  remip(); makeRho();
+  makeRho();
   massDue = true;
 }
 const readback = new Float32Array(4);
@@ -1123,12 +1162,27 @@ function buildUI(){
     "How hard a cell is pushed away from its own density. This is the <b>only "
     + "thing stopping everything collapsing</b> into a handful of cells, since "
     + "nothing here decays. Too low and the field goes black.");
-  slider("dissipate", "diff", 0, 1, 0.01, 2, null,
-    "The nearest thing here to physarum's <b>decay</b>. Decay fades a trail, and "
-    + "there is no trail here &mdash; the eight fields are the creatures and they "
-    + "are conserved. So this is a normalised blur instead: it softens edges and "
-    + "dissolves thin arms exactly as decay would, but every gram it takes off "
-    + "one cell it puts on another.");
+  slider("turn", "turn", 0, 90, 0.5, 1, null,
+    "How far a cell may swing its heading in one step. The heading is <b>state</b>: "
+    + "it is rotated by this offset and then carried along with the mass, never "
+    + "guessed back from where the mass happened to go.");
+  slider("sharp", "sharp", 0, 30, 0.5, 1, null,
+    "How strongly the left-right difference in the scent drives that turn. Low "
+    + "and headings barely respond; high and a cell swings to its limit on the "
+    + "faintest asymmetry.");
+
+  group("scent");
+  slider("deposit", "dep", 0.05, 4, 0.05, 2, null,
+    "How much scent each kind lays down, in proportion to how much of it is "
+    + "here. This is the only thing the kinds do to the world &mdash; they never "
+    + "see each other, only what has been left lying about.");
+  slider("decay", "decay", 0.70, 0.995, 0.001, 3, null,
+    "How much of the scent survives each step. <b>This is the decay that was "
+    + "missing.</b> The scent is not conserved, so it can fade, and fading is "
+    + "what makes a trail a trail instead of a smear that never forgets.");
+  slider("diffuse", "diff", 0, 1, 0.01, 2, null,
+    "How far the scent spreads as it sits. Zero keeps it exactly where it was "
+    + "dropped, which no one else can smell from a distance.");
   tip(buttons([["new world", () => { rollWorld(); drawKernel(); reseed(); }],
                ["new field", () => { rollCPPN(); reseed(); }]]),
     "<b>New world</b> rolls the 8&times;8 matrix and the per-kind profiles &mdash; "
