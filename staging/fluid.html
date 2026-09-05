@@ -1,0 +1,1160 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field Life — Fluid</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.92em'%20font-size='92'%3E%F0%9F%A7%AB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#E8EDEF; --panel:#FFFFFF; --panel2:#EEF3F4; --ink:#0E1A1F; --ink2:#586A70;
+  --line:#D0DBDE; --line2:#E1EAEC; --well:#C4D0D6; --accent:#6246C8; --focus:#7355E0;
+  --screen:#04080B;
+  --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%230E1A1F'%20stroke-opacity='.13'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+  --shadow:2px 2px 0 rgba(15,22,32,.055);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#060C0F; --panel:#0D161A; --panel2:#121C21; --ink:#E1EBEF; --ink2:#87999F;
+    --line:#1D2930; --line2:#161F24; --well:#151F25; --accent:#A78BFA; --focus:#A78BFA;
+    --screen:#04080B;
+    --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%23A78BFA'%20stroke-opacity='.10'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+    --shadow:2px 2px 0 rgba(0,0,0,.34);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); background-color:var(--bg);
+  background-image:var(--gridimg); background-repeat:repeat; background-attachment:fixed;
+  font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1040px; margin:0 auto; padding:22px 20px 90px;
+  display:flex; flex-direction:column; gap:16px}
+header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
+   font-size:clamp(24px,3.2vw,33px); letter-spacing:-.035em; margin:0}
+.tag{color:var(--ink2); font-size:12px; letter-spacing:.02em}
+.tag b{color:var(--ink); font-weight:500}
+.tag a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.tag a:hover{border-bottom-color:var(--accent)}
+
+/* ------------------------------------------------------------- app shell */
+.app{position:relative; width:100%; aspect-ratio:7/5; overflow:hidden;
+  background:var(--screen); border:1px solid var(--line);
+  border-radius:6px 8px 7px 7px; box-shadow:var(--shadow);
+  --panel:#0A0B0D; --panel2:#14171B; --ink:#E9E6E0; --ink2:#6B7076;
+  --line:#23272C; --line2:#181B1F; --accent:#A78BFA; --focus:#A78BFA;
+  --rowh:23px; --lab:52px;}
+@media (pointer:coarse){ .app{ --rowh:31px; --lab:64px; } }
+.app:fullscreen{aspect-ratio:auto; width:100vw; height:100vh; border:0; border-radius:0}
+#cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:none; cursor:grab}
+#cv.painting{cursor:crosshair}
+#cv.dragging{cursor:grabbing}
+
+/* --------------------------------------------------------------- panels */
+.rack{position:absolute; top:8px; right:8px; width:186px; z-index:3;
+  background:color-mix(in srgb, var(--panel) 88%, transparent);
+  border:1px solid var(--line); padding:3px 6px 5px;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+  max-height:calc(100% - 16px); overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+.rack::-webkit-scrollbar{width:6px}
+.rack::-webkit-scrollbar-thumb{background:var(--line)}
+.rack.hid{display:none}
+.grp{font-size:8px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  padding:7px 0 3px; border-bottom:1px solid var(--line2); margin-bottom:1px}
+.grp:first-child{padding-top:2px}
+.row{position:relative; display:grid; grid-template-columns:var(--lab) minmax(0,1fr);
+  align-items:center; gap:5px; min-height:var(--rowh);
+  border-bottom:1px solid var(--line2); padding:0 1px}
+label.lab{font-size:8.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.val{position:absolute; right:4px; top:0; height:100%; z-index:1;
+  display:flex; align-items:center; pointer-events:none;
+  font-variant-numeric:tabular-nums; font-size:9.5px; font-weight:500;
+  color:#fff; -webkit-text-stroke:.5px #000; paint-order:stroke fill; text-shadow:0 0 2px #000}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; min-width:0;
+  height:calc(var(--rowh) - 8px); background:transparent; cursor:ew-resize; margin:0; --p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-moz-range-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:2px;
+  height:calc(var(--rowh) - 8px); background:var(--ink); opacity:.7; border:0}
+input[type=range]::-moz-range-thumb{width:2px; height:calc(var(--rowh) - 8px);
+  background:var(--ink); opacity:.55; border:0}
+input:focus-visible, select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+select{font:inherit; font-size:10.5px; line-height:1.1; color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 13px 0 4px; width:100%; min-width:0; height:calc(var(--rowh) - 3px);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
+                   linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
+  background-position:calc(100% - 9px) center, calc(100% - 5px) center;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat}
+button{font:inherit; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--ink); background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 5px; height:calc(var(--rowh) - 5px); cursor:pointer; white-space:nowrap}
+button:hover{border-color:var(--ink2)}
+button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
+.btns{display:flex; gap:3px; padding:4px 0 1px; flex-wrap:wrap}
+.btns button{flex:1 1 0; min-width:0; padding:0 3px; letter-spacing:.01em;
+  overflow:hidden; text-overflow:ellipsis}
+.seg{display:flex; border:1px solid var(--line2); overflow:hidden}
+.seg button{border:0; border-right:1px solid var(--line2); flex:1 1 0; padding:0 3px}
+.seg button:last-child{border-right:0}
+
+/* bottom-left transport + readout */
+.hud{position:absolute; left:8px; bottom:8px; z-index:3; display:flex; align-items:center;
+  gap:6px; flex-wrap:wrap; max-width:calc(100% - 210px)}
+.hud .box{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  border:1px solid var(--line); padding:2px 6px; font-size:9.5px; color:var(--ink2);
+  letter-spacing:.04em; font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+.hud .box b{color:var(--ink); font-weight:500}
+.hud .seg{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+@media (max-width:560px){ .hud{max-width:calc(100% - 16px)} .hud .box{display:none} }
+#hint{position:absolute; left:8px; top:8px; z-index:3; font-size:9.5px; color:var(--ink2);
+  background:color-mix(in srgb, var(--panel) 84%, transparent); border:1px solid var(--line);
+  padding:3px 7px; letter-spacing:.03em; pointer-events:none; transition:opacity .5s}
+#hint.gone{opacity:0}
+#err{position:absolute; inset:0; display:none; place-items:center; padding:30px;
+  color:#FF9E80; background:#04080B; font-size:11px; line-height:1.6; text-align:center; z-index:9}
+
+/* --------------------------------------------------------------- writing */
+.below{max-width:880px; margin:0 auto; color:var(--ink2);
+  font-family:"IBM Plex Sans", system-ui, sans-serif; font-size:13.5px; line-height:1.65}
+.below h2{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-size:11px;
+  font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  margin:26px 0 10px}
+.below h2:first-child{margin-top:0}
+.below p{margin:0 0 10px}
+.below b{color:var(--ink); font-weight:500}
+.below code{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink)}
+.below a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.below a:hover{border-bottom-color:var(--accent)}
+.below table{width:100%; border-collapse:collapse; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; margin:0 0 12px}
+.below th{text-align:left; font-weight:500; color:var(--ink2); font-size:9px;
+  letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid var(--line);
+  padding:4px 8px 4px 0}
+.below td{padding:3px 8px 3px 0; border-bottom:1px solid var(--line2)}
+.below td:first-child{color:var(--ink)}
+
+/* ---------------------------------------------------------------- matrix */
+.mat{display:grid; grid-template-columns:13px repeat(4, minmax(0,1fr)); gap:2px;
+  padding:5px 0 3px; align-items:stretch}
+.mat .sw{width:9px; height:9px; align-self:center; justify-self:center}
+.mat .cn{font-size:7.5px; color:var(--ink2); text-align:center; align-self:center;
+  letter-spacing:.02em}
+.mat .mc{height:21px; display:flex; align-items:center; justify-content:center;
+  font-size:8.5px; font-variant-numeric:tabular-nums; cursor:ns-resize; user-select:none;
+  -webkit-user-select:none; touch-action:none; border:1px solid var(--line2);
+  color:#fff; text-shadow:0 0 2px #000; background:var(--panel2)}
+.mat .mc:hover{border-color:var(--ink2)}
+.mat .mc.on{border-color:var(--accent)}
+.legend{font-size:8px; color:var(--ink2); padding:0 0 4px; letter-spacing:.03em; line-height:1.4}
+</style>
+
+<div class="page">
+<header>
+  <h1>Field Life &mdash; Fluid</h1>
+  <span class="tag"><b>Four fluids on one grid, and a matrix that says who pushes whom.</b>
+  <a href="index.html">the flat one</a></span>
+</header>
+
+<div class="app" id="app">
+  <canvas id="cv"></canvas>
+  <div id="hint">drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; ctrl-drag to stir &middot; alt-drag to erase</div>
+  <div class="hud">
+    <div class="seg">
+      <button id="play" title="space">pause</button>
+      <button id="step1" title="one step">step</button>
+      <button id="reseed" title="R">reseed</button>
+      <button id="shuffle" title="N">matrix</button>
+      <button id="full" title="F">full</button>
+      <button id="hidep" title="H">ui</button>
+    </div>
+    <div class="box" id="stat">&mdash;</div>
+  </div>
+  <div class="rack" id="rack"></div>
+  <div id="err"></div>
+</div>
+
+<div class="below" id="notes">
+<h2>What a cell is</h2>
+<p><b>Twelve numbers.</b> Four are <b>density</b>: how much of each of four fluids sits in the
+cell. Eight are <b>velocity</b>, a vector for each fluid, because the four do not have to be
+going the same way. <b>Pressure</b> is worked out fresh every step, one number per fluid, and
+is not kept. That is the whole state. Everything a cell learns, it learns from the cell next
+door.</p>
+
+<h2>One step</h2>
+<p>&mdash; <b>Smooth.</b> Each density is blurred by a small binomial stencil, <b>range</b>
+times over. The blurred copy is what the <i>other</i> fluids feel: a few passes of a local
+blur is the same as one wider kernel, so the reach of the interaction is a slider without any
+cell ever reading further than two neighbours out.</p>
+<p>&mdash; <b>Pressure.</b> For fluid <code>c</code> in a cell:
+<code>U<sub>c</sub> = stiff&middot;&rho;<sup>&gamma;</sup> &minus; g&middot;&Sigma;<sub>d</sub> M[c][d]&middot;&rho;&#771;<sub>d</sub></code>.
+The first term is an equation of state on the <i>total</i> density, the same for every fluid
+&mdash; it is what stops anything piling up, and <b>gamma</b> is how hard it says no. The second
+is the matrix: fluid <code>c</code> is pulled towards wherever the smoothed density of
+<code>d</code> is high when <code>M[c][d]</code> is positive, and shoved off it when negative.
+<code>U</code> is high wherever the fluid does not want to be.</p>
+<p>&mdash; <b>Push.</b> Velocity takes <code>&minus;dt&middot;&nabla;U</code>, a central
+difference on the cell's four neighbours. Then the four fluids in a cell drag on one another,
+each relaxing towards the cell's mass-weighted mean by <b>couple</b>; neighbouring cells drag
+by <b>visc</b>; <b>drag</b> bleeds a little off everything; and a cap keeps every speed under
+one cell a step, which is what keeps the next part honest.</p>
+<p>&mdash; <b>Move.</b> This is the MaCE rule. Each fluid in each cell splits its mass among
+its nine neighbours, itself included, giving neighbour <code>k</code> a share proportional to
+<code>exp(A<sub>k</sub>)</code>, where the affinity is</p>
+<p style="text-align:center"><code>A<sub>k</sub> = &minus;|o<sub>k</sub> &minus; v|&sup2; / 2&middot;spread&sup2; &nbsp;&minus;&nbsp; seep&middot;(U<sub>k</sub> &minus; U<sub>here</sub>)</code></p>
+<p>The first term is a Gaussian sat on the cell's own velocity, read off at the nine offsets:
+mass goes where the velocity carries it, spread by <b>spread</b>. The second leans the shares
+towards lower pressure directly, without waiting for the velocity to get there. The nine shares
+are normalised <i>at the source</i>, so they sum to exactly one, so <b>every unit that leaves
+a cell arrives somewhere</b>. The total of each fluid does not change for the life of the run;
+the readout at the bottom measures it on the GPU. The velocity rides along: what a cell holds
+after the move is the mass-weighted mean of what arrived, so momentum is carried, not just
+mass.</p>
+
+<h2>The matrix</h2>
+<p>Row <code>c</code>, column <code>d</code>: how much fluid <code>c</code> wants to be where
+<code>d</code> is. Drag a cell up or down to set it; double-click to zero it. The matrix need
+not be symmetric &mdash; red can chase green while green flees red &mdash; and that is where
+the chasing and the orbiting come from, exactly as in particle life. The diagonal is a fluid's
+opinion of itself: positive and it beads into drops, negative and it spreads thin. Two fluids
+that dislike each other do not mix, and the boundary between them is a real interface, held by
+pressure on one side and the matrix on the other.</p>
+
+<h2>What is kept and what is not</h2>
+<p><b>Mass</b> is exact, per fluid, at 32-bit &mdash; the shares are computed by the same
+arithmetic at every one of the nine cells that use them, so what the destinations add up to is
+what the source had, to the last rounding. At 16-bit the storage rounds and the readout will
+drift in the fourth place. <b>Momentum</b> is not conserved and is not meant to be: drag and
+coupling are there to take it away, and the pressure force does work.</p>
+<p>What this is <b>not</b> is incompressible. There is no projection step, no Poisson solve;
+a stiff equation of state stands in for the constraint, and a hard shove sends a ripple rather
+than an instantaneous rearrangement. And a nine-way softmax is a <b>diffusion</b>: narrow
+<b>spread</b> and the mass stays put until the velocity is a good fraction of a cell, wide
+<b>spread</b> and everything smears. That knob is the whole trade, and it is the same trade as
+on every page here.</p>
+
+<h2>Handling it</h2>
+<p>Drag to pan, wheel to zoom. <b>Shift-drag</b> paints the fluid picked under <i>paint</i>
+(or a random one), <b>ctrl-drag</b> stirs, <b>alt-drag</b> erases; the same three are under
+<i>drag</i> in the panel for a trackpad. Space holds, <b>R</b> reseeds, <b>N</b> rolls a new
+matrix, <b>1</b>&ndash;<b>4</b> pick the fluid to paint, <b>H</b> hides the panel, <b>F</b> is
+fullscreen.</p>
+<p style="margin-top:22px;font-size:12px">A staging page.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cv = $("cv");
+const gl = cv.getContext("webgl2", {antialias:false, alpha:false, depth:false,
+                                    preserveDrawingBuffer:false, powerPreference:"high-performance"});
+function fatal(msg){
+  const e = $("err");
+  e.style.display = "grid"; e.textContent = msg;
+  e.style.whiteSpace = "pre-wrap"; e.style.font = "11px/1.6 monospace";
+  throw new Error(msg);
+}
+if(!gl) fatal("This page needs WebGL2, which this browser did not provide.");
+if(!gl.getExtension("EXT_color_buffer_float"))
+  fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
+
+const NCH = 4;      // fluids: four to a texture, so four
+const NB = 5;       // blobs each fluid starts as
+
+/* ==================================================================== glsl
+   Twelve numbers a cell: four densities (one RGBA), four velocities (an RGBA
+   of x and an RGBA of y). Pressure is one more RGBA, remade every step.
+   Everything is torus-wrapped. The nine offsets are the cell and its eight
+   neighbours, and the only transport in here is the MaCE one: hand your
+   contents to those nine in shares that sum to one.                        */
+
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+uniform float uN;
+const float PI = 3.14159265359;
+const float TAU = 6.28318530718;
+// k = 0 is staying put; 1..8 are the neighbours, anticlockwise from east.
+const ivec2 OFF[9] = ivec2[9](ivec2( 0, 0),
+  ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
+  ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
+const vec3 COL[4] = vec3[4](vec3(1.00, 0.36, 0.22), vec3(0.42, 0.90, 0.46),
+                            vec3(0.30, 0.58, 1.00), vec3(1.00, 0.84, 0.30));
+// Integer % with a negative operand is UNDEFINED in GLSL ES 3.00.
+ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+`;
+
+const HASH = `
+uint hash(uint x){
+  x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+  return x;
+}
+float rnd(ivec2 p, int k, int f){
+  uint h = hash(uint(p.x) * 0x9e3779b9u ^ hash(uint(p.y) * 0x85ebca6bu
+              ^ hash(uint(k) * 0xc2b2ae35u ^ uint(f))));
+  return float(h) * (1.0/4294967296.0) - 0.5;
+}`;
+
+/* ------------------------------------------------------------- 1: smooth
+   A five-tap binomial, one axis at a time. Run once it is the density the
+   pressure reads -- the raw grid decoupled from itself under a central
+   difference, and this closes the odd and even cells back together. Run
+   RANGE times it is the density the other fluids feel from a distance.   */
+const FS_BLUR = HEAD + `
+uniform sampler2D uSrc;
+uniform ivec2 uDir;
+out vec4 o;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  o = (      texelFetch(uSrc, wrap(p - 2*uDir), 0)
+       + 4.0*texelFetch(uSrc, wrap(p -   uDir), 0)
+       + 6.0*texelFetch(uSrc, p, 0)
+       + 4.0*texelFetch(uSrc, wrap(p +   uDir), 0)
+       +     texelFetch(uSrc, wrap(p + 2*uDir), 0))*(1.0/16.0);
+}`;
+
+/* ----------------------------------------------------------- 2: pressure
+   One number a fluid a cell, high where that fluid does not want to be. An
+   equation of state on the TOTAL, shared by all four, minus what the matrix
+   says about the smoothed densities of the four. Densities are read in
+   units of the grid's mean, so the sliders mean the same at any fill.     */
+const FS_PRESS = HEAD + `
+uniform sampler2D uRho1, uRhoS;
+uniform float uStiff, uGamma, uRn, uG;
+uniform mat4 uM;                        // uM*x gives, per fluid c, sum_d M[c][d] x_d
+out vec4 oU;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 r  = texelFetch(uRho1, p, 0)*uRn;
+  vec4 rs = texelFetch(uRhoS, p, 0)*uRn;
+  float tot = max(dot(r, vec4(1.0)), 0.0);
+  float press = uStiff*pow(tot, uGamma);
+  oU = vec4(press) - uG*(uM*rs);
+}`;
+
+/* --------------------------------------------------------------- 3: push
+   Velocity takes the pressure gradient, then loses some of itself three
+   ways: to the other fluids in the cell (they relax towards the cell's
+   mass-weighted mean, which leaves the cell's momentum alone), to the
+   neighbours (a mass-weighted blur), and to drag. The cap at the end is
+   what makes the move step's Gaussian land on a neighbour and not past it. */
+const FS_FORCE = HEAD + `
+uniform sampler2D uU, uRho, uVx, uVy;
+uniform float uDt, uCouple, uVisc, uDrag, uVmax;
+layout(location = 0) out vec4 oVx;
+layout(location = 1) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 gx = 0.5*(texelFetch(uU, wrap(p + OFF[1]), 0) - texelFetch(uU, wrap(p + OFF[5]), 0));
+  vec4 gy = 0.5*(texelFetch(uU, wrap(p + OFF[3]), 0) - texelFetch(uU, wrap(p + OFF[7]), 0));
+  vec4 vx = texelFetch(uVx, p, 0) - uDt*gx;
+  vec4 vy = texelFetch(uVy, p, 0) - uDt*gy;
+  vec4 r = texelFetch(uRho, p, 0);
+  float tot = dot(r, vec4(1.0));
+  if(uCouple > 0.0 && tot > 1e-9){
+    float mx = dot(r, vx)/tot, my = dot(r, vy)/tot;
+    vx = mix(vx, vec4(mx), uCouple); vy = mix(vy, vec4(my), uCouple);
+  }
+  if(uVisc > 0.0){
+    vec4 sx = vec4(0.0), sy = vec4(0.0), sw = vec4(0.0);
+    for(int dy = -1; dy <= 1; dy++)
+      for(int dx = -1; dx <= 1; dx++){
+        float w = float((2 - abs(dx))*(2 - abs(dy)));
+        ivec2 q = wrap(p + ivec2(dx, dy));
+        vec4 rq = w*texelFetch(uRho, q, 0);
+        sx += rq*texelFetch(uVx, q, 0); sy += rq*texelFetch(uVy, q, 0); sw += rq;
+      }
+    // A fluid with nothing around it has no neighbour to be dragged by.
+    vec4 has = step(1e-9, sw);
+    sw = max(sw, 1e-9);
+    vx = mix(vx, sx/sw, uVisc*has); vy = mix(vy, sy/sw, uVisc*has);
+  }
+  vx *= 1.0 - uDrag; vy *= 1.0 - uDrag;
+  vec4 sp = sqrt(vx*vx + vy*vy);
+  vec4 sc = min(vec4(1.0), uVmax/max(sp, 1e-9));
+  oVx = vx*sc; oVy = vy*sc;
+}`;
+
+/* --------------------------------------------------------------- 4: move
+   A gather. Each cell collects what its nine neighbours are sending it. For
+   each source the NINE affinities are worked out here, in full, and the
+   share is one of them over their sum: the same fetches and the same
+   arithmetic at every destination, so the nine destinations of one source
+   agree on its normaliser to the bit, and what they add up to is what the
+   source had. Nothing is stored between the source and the destination
+   that could have been rounded differently on the way.
+   The velocity rides with the mass: the destination's new velocity is the
+   momentum that arrived over the mass that arrived.                        */
+const FS_MOVE = HEAD + `
+uniform sampler2D uRho, uVx, uVy, uU;
+uniform float uInvS2, uSeep;
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 m = vec4(0.0), mx = vec4(0.0), my = vec4(0.0);
+  for(int k = 0; k < 9; k++){
+    ivec2 q = wrap(p - OFF[k]);
+    vec4 rq = texelFetch(uRho, q, 0);
+    vec4 vx = texelFetch(uVx, q, 0), vy = texelFetch(uVy, q, 0);
+    vec4 Uq = texelFetch(uU, q, 0);
+    vec4 l[9];
+    vec4 top = vec4(-1.0e30);
+    for(int j = 0; j < 9; j++){
+      vec2 o = vec2(OFF[j]);
+      // The Gaussian's |v|^2 is the same for all nine and drops out.
+      vec4 a = (o.x*vx + o.y*vy - 0.5*dot(o, o))*uInvS2
+             - uSeep*(texelFetch(uU, wrap(q + OFF[j]), 0) - Uq);
+      a = clamp(a, -60.0, 60.0);
+      l[j] = a; top = max(top, a);
+    }
+    vec4 z = vec4(0.0);
+    for(int j = 0; j < 9; j++) z += exp(l[j] - top);
+    vec4 w = exp(l[k] - top)/z;
+    vec4 got = w*rq;
+    m += got; mx += got*vx; my += got*vy;
+  }
+  oRho = m;
+  // A cell that received nothing keeps the velocity it had rather than
+  // taking zero over zero.
+  vec4 has = step(1e-20, m);
+  vec4 inv = 1.0/max(m, 1e-20);
+  oVx = mix(texelFetch(uVx, p, 0), mx*inv, has);
+  oVy = mix(texelFetch(uVy, p, 0), my*inv, has);
+}`;
+
+/* ------------------------------------------------------------ 5: seed/paint */
+const FS_SEED = HEAD + HASH + `
+uniform int uMode, uSeed;
+uniform float uAmt, uRad, uFill;
+uniform float uBlob[NCH*NB*2];
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 x = vec2(p) + 0.5;
+  vec4 r = vec4(0.0);
+  if(uMode == 0){                                  // blobs
+    for(int c = 0; c < NCH; c++)
+      for(int b = 0; b < NB; b++){
+        vec2 ctr = vec2(uBlob[(c*NB + b)*2], uBlob[(c*NB + b)*2 + 1])*uN;
+        vec2 d = x - ctr;
+        d -= uN*floor(d/uN + 0.5);                 // shortest way round the torus
+        r[c] += exp(-0.5*dot(d, d)/(uRad*uRad));
+      }
+    r *= uAmt;
+  } else if(uMode == 1){                           // noise
+    for(int c = 0; c < NCH; c++)
+      r[c] = (rnd(p, c, uSeed) + 0.5) < uFill ? uAmt : 0.0;
+  } else if(uMode == 2){                           // quarters
+    vec2 f = x/uN;
+    int c = (f.x < 0.5 ? 0 : 1) + (f.y < 0.5 ? 0 : 2);
+    r[c] = uAmt;
+  } else {                                         // bands
+    int c = int(floor(x.y/uN*8.0)) % NCH;
+    r[c] = uAmt;
+  }
+  // A little grain, or an even mixture is a symmetry nothing ever breaks
+  // and it sits there grey instead of unmixing.
+  for(int c = 0; c < NCH; c++) r[c] *= 1.0 + 0.08*rnd(p, 7 + c, uSeed);
+  oRho = r; oVx = vec4(0.0); oVy = vec4(0.0);
+}`;
+
+const FS_PAINT = HEAD + `
+uniform sampler2D uRho, uVx, uVy;
+uniform vec2 uAt, uPush;
+uniform float uRad, uAmt, uVmax;
+uniform int uMode, uChan;
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 r = texelFetch(uRho, p, 0), vx = texelFetch(uVx, p, 0), vy = texelFetch(uVy, p, 0);
+  vec2 d = vec2(p) + 0.5 - uAt;
+  d -= uN*floor(d/uN + 0.5);
+  float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
+  if(t > 0.0){
+    if(uMode == 0) r[uChan] += uAmt*t;
+    else if(uMode == 1) r *= 1.0 - t;
+    else {
+      vx += uPush.x*t; vy += uPush.y*t;
+      vec4 sp = sqrt(vx*vx + vy*vy);
+      vec4 sc = min(vec4(1.0), uVmax/max(sp, 1e-9));
+      vx *= sc; vy *= sc;
+    }
+  }
+  oRho = r; oVx = vx; oVy = vy;
+}`;
+
+/* ----------------------------------------------------------- 6: the picture */
+const FS_DRAW = HEAD + `
+uniform sampler2D uRho, uU, uVx, uVy;
+uniform vec2 uRes, uPan;
+uniform float uZoom, uExp, uRn, uVmax;
+uniform int uView, uPal, uChan;
+out vec4 oCol;
+vec3 ramp(float t){
+  t = clamp(t, 0.0, 1.0);
+  if(uPal == 0) return vec3(t);
+  if(uPal == 1) return clamp(vec3(1.35*t + 0.10*t*t, 1.30*t*t - 0.05, 2.4*t*t*t*t - 0.02), 0.0, 1.0);
+  if(uPal == 2) return clamp(vec3(1.5*t*t*t, 0.85*t*t + 0.22*t, 0.55*t + 0.55*t*t), 0.0, 1.0);
+  return clamp(vec3(0.5 + 0.5*cos(TAU*(t*0.85 + 0.00)),
+                    0.5 + 0.5*cos(TAU*(t*0.85 + 0.28)),
+                    0.5 + 0.5*cos(TAU*(t*0.85 + 0.58))), 0.0, 1.0)*smoothstep(0.0, 0.12, t);
+}
+vec3 hue(float h){
+  return clamp(abs(mod(h*6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+void main(){
+  // The simulation wraps; the picture does not.
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/(uZoom*uRes.y) + uPan/uN + 0.5;
+  if(uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0){
+    vec2 e = max(abs(uv - 0.5) - 0.5, 0.0)*uZoom*uRes.y;
+    float edge = 1.0 - smoothstep(0.0, 1.5, max(e.x, e.y));
+    oCol = vec4(mix(vec3(0.016, 0.031, 0.043), vec3(0.16, 0.18, 0.21), edge), 1.0);
+    return;
+  }
+  ivec2 pc = ivec2(floor(uv*uN));
+  vec4 r = texelFetch(uRho, pc, 0)*uRn;
+  float tot = dot(r, vec4(1.0));
+  float here = uChan < 0 ? tot : r[uChan];
+  vec3 bg = vec3(0.03, 0.035, 0.045);
+  if(uView == 0){
+    // Four fluids, four colours, mixed by how much of each is here. All one
+    // fluid comes out saturated; an even blend of the four comes out grey.
+    if(tot < 1e-6){ oCol = vec4(bg, 1.0); return; }
+    vec3 col; float v;
+    if(uChan < 0){
+      vec4 f = r/tot;
+      col = COL[0]*f.x + COL[1]*f.y + COL[2]*f.z + COL[3]*f.w;
+      float best = max(max(f.x, f.y), max(f.z, f.w));
+      float sat = clamp((best*4.0 - 1.0)/3.0, 0.0, 1.0);
+      col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
+      v = 1.0 - exp(-tot*uExp);
+    } else {
+      col = COL[uChan]; v = 1.0 - exp(-here*uExp);
+    }
+    oCol = vec4(clamp(mix(bg, col*1.15, v), 0.0, 1.0), 1.0);
+    return;
+  }
+  if(uView == 1){                                  // density
+    oCol = vec4(ramp(1.0 - exp(-here*uExp)), 1.0);
+    return;
+  }
+  if(uView == 2){                                  // pressure, diverging
+    vec4 U = texelFetch(uU, pc, 0);
+    float u = uChan < 0 ? dot(U, vec4(0.25)) : U[uChan];
+    float t = tanh(u*uExp*0.35);
+    vec3 warm = vec3(1.00, 0.46, 0.25), cool = vec3(0.30, 0.60, 1.00);
+    oCol = vec4(t > 0.0 ? mix(bg, warm, t) : mix(bg, cool, -t), 1.0);
+    return;
+  }
+  vec4 vx = texelFetch(uVx, pc, 0), vy = texelFetch(uVy, pc, 0);
+  vec2 v = uChan < 0 ? vec2(dot(r, vx), dot(r, vy))/max(tot, 1e-9) : vec2(vx[uChan], vy[uChan]);
+  // Speeds run well under the cap most of the time, so the picture is
+  // exposed for a tenth of it and the slider takes it from there.
+  float sp = 1.0 - exp(-length(v)/uVmax*10.0*uExp);
+  float presence = 1.0 - exp(-here*4.0);          // an empty cell's velocity is nobody's
+  if(uView == 3){                                  // which way it is going
+    oCol = vec4(hue(atan(v.y, v.x)/TAU + 0.5)*sp*presence + bg, 1.0);
+    return;
+  }
+  oCol = vec4(ramp(sp*presence), 1.0);
+}`;
+
+/* Four channels summed at once, so the readout has each fluid's mass. */
+const FS_SUM = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform int uSrcN;
+out vec4 oS;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy)*4;
+  vec4 s = vec4(0.0);
+  for(int dy = 0; dy < 4; dy++)
+    for(int dx = 0; dx < 4; dx++){
+      ivec2 q = p + ivec2(dx, dy);
+      if(q.x < uSrcN && q.y < uSrcN) s += texelFetch(uSrc, q, 0);
+    }
+  oS = s;
+}`;
+
+/* ================================================================== plumbing */
+function compile(src, type){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    const n = /ERROR: \d+:(\d+)/.exec(log);
+    const ctx = n ? src.split("\n").slice(Math.max(0, n[1] - 3), +n[1] + 2).join("\n") : "";
+    fatal("Shader would not compile:\n\n" + log + "\n" + ctx);
+  }
+  return sh;
+}
+function program(fs){
+  const defs = `#define NCH ${NCH}\n#define NB ${NB}\n`;
+  const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(put(fs), gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, "a");
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal("Link failed:\n" + gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < n; i++){
+    const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, "");
+    u[nm] = gl.getUniformLocation(p, nm);
+  }
+  p.u = u;
+  return p;
+}
+let curP = null;
+function use(p){ if(curP !== p){ gl.useProgram(p); curP = p; } return p.u; }
+function tex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); return unit; }
+
+const quadVAO = gl.createVertexArray();
+{
+  gl.bindVertexArray(quadVAO);
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+}
+const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+
+const fbo = gl.createFramebuffer();
+const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
+if(MAXBUF < 3)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers.\nThe move pass writes three at once: the densities and\nthe two halves of the velocities.");
+const BUFS = [];
+for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
+function target(list, w, h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  const a = Array.isArray(list) ? list : [list];
+  for(let i = 0; i < MAXBUF; i++)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D,
+                            i < a.length ? a[i] : null, 0);
+  gl.drawBuffers(BUFS[a.length - 1]);
+  gl.viewport(0, 0, w, h);
+}
+function make2D(w, h, ifmt, wrapMode = gl.REPEAT){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, ifmt, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+  t.w = w; t.h = h;
+  return t;
+}
+
+const P = {
+  blur: program(FS_BLUR), press: program(FS_PRESS), force: program(FS_FORCE),
+  move: program(FS_MOVE), seed: program(FS_SEED), paint: program(FS_PAINT),
+  draw: program(FS_DRAW), sum: program(FS_SUM),
+};
+
+/* ===================================================================== state */
+const S = {
+  N: 512, steps: 1, running: true, frame: 0, prec: 32,
+  g: 1.2, range: 6, stiff: 1.0, gamma: 2, dt: 0.12, drag: 0.02, visc: 0.15, couple: 0.1,
+  vmax: 0.9, spread: 0.45, seep: 0.15,
+  seedMode: 0, amt: 2.0, rad: 24, fill: 0.3,
+  view: 0, pal: 1, chan: -1, exp: 1.0, brush: 24, tool: 0, pchan: -1, stir: 0.35,
+  zoom: 1, panx: 0, pany: 0, seed: 1,
+  M: new Float32Array(NCH*NCH), blob: new Float32Array(NCH*NB*2),
+};
+const CSS_COL = ["#FF5C38", "#6BE676", "#4D94FF", "#FFD64D"];
+
+/* The matrix. Row c, column d: how much fluid c wants to be where d is. A
+   handful of hand-made ones, and the rest are rolled. */
+function matrixOf(fn){
+  const M = new Float32Array(NCH*NCH);
+  for(let c = 0; c < NCH; c++) for(let d = 0; d < NCH; d++) M[c*NCH + d] = fn(c, d);
+  return M;
+}
+const PRESETS = {
+  droplets: {M: matrixOf((c, d) => c === d ? 0.7 : -0.5),
+             g: 1.2, range: 6, stiff: 1.0, spread: 0.45, seep: 0.15},
+  chase:    {M: matrixOf((c, d) => c === d ? 0.6 : d === (c + 1) % NCH ? 0.8
+                                 : c === (d + 1) % NCH ? -0.8 : -0.3),
+             g: 1.4, range: 8, stiff: 0.8, spread: 0.45, seep: 0.1},
+  pairs:    {M: matrixOf((c, d) => (c >> 1) === (d >> 1) ? (c === d ? 0.4 : 0.8) : -0.6),
+             g: 1.2, range: 6, stiff: 1.0, spread: 0.45, seep: 0.15},
+  hunter:   {M: matrixOf((c, d) => c === 0 ? (d === 0 ? 0.2 : 0.9)
+                                 : d === 0 ? -0.9 : c === d ? 0.5 : -0.2),
+             g: 1.4, range: 8, stiff: 0.8, spread: 0.45, seep: 0.1},
+  mixer:    {M: matrixOf((c, d) => c === d ? -0.3 : 0.4),
+             g: 1.0, range: 5, stiff: 1.2, spread: 0.5, seep: 0.2},
+};
+S.M.set(PRESETS.droplets.M);
+function rollMatrix(){
+  for(let i = 0; i < S.M.length; i++) S.M[i] = +(Math.random()*2 - 1).toFixed(2);
+  paintMatrix();
+}
+function rollBlobs(){
+  for(let i = 0; i < S.blob.length; i++) S.blob[i] = Math.random();
+}
+// GLSL wants columns: uM[d][c] = M[c][d], so uM*x is sum_d M[c][d] x_d.
+function matrixColumns(){
+  const a = new Float32Array(NCH*NCH);
+  for(let c = 0; c < NCH; c++) for(let d = 0; d < NCH; d++) a[d*NCH + c] = S.M[c*NCH + d];
+  return a;
+}
+
+let G = {};
+function alloc(){
+  for(const t of (G.all || [])) gl.deleteTexture(t);
+  const N = S.N, wide = S.prec === 32;
+  const F = wide ? gl.RGBA32F : gl.RGBA16F;
+  const g = {N};
+  g.rho = make2D(N, N, F); g.rhoB = make2D(N, N, F);
+  g.vx = make2D(N, N, F);  g.vxB = make2D(N, N, F);
+  g.vy = make2D(N, N, F);  g.vyB = make2D(N, N, F);
+  g.r1 = make2D(N, N, F); g.sA = make2D(N, N, F); g.sB = make2D(N, N, F);
+  g.tmp = make2D(N, N, F); g.U = make2D(N, N, F);
+  g.rs = g.r1;
+  g.pyr = [];
+  for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
+    g.pyr.push(make2D(n, n, gl.RGBA32F, gl.CLAMP_TO_EDGE));
+    if(n === 1) break;
+  }
+  g.all = [g.rho, g.rhoB, g.vx, g.vxB, g.vy, g.vyB, g.r1, g.sA, g.sB, g.tmp, g.U, ...g.pyr];
+  G = g;
+}
+function memMB(){
+  const N = G.N, w = S.prec === 32 ? 2 : 1;
+  return (11*N*N*8*w + G.pyr.reduce((a, t) => a + t.w*t.h*16, 0))/1048576;
+}
+
+let meanRho = 1, mass = null, massAt = -1e9, massDue = false;
+const invRho = () => 1/Math.max(1e-6, meanRho);
+function common(u){ gl.uniform1f(u.uN, G.N); }
+
+const readback = new Float32Array(4);
+function sumTexture(src0){
+  const u = use(P.sum);
+  let src = src0, srcN = G.N;
+  for(const dst of G.pyr){
+    gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform1i(u.uSrcN, srcN);
+    target(dst, dst.w, dst.h); drawQuad();
+    src = dst; srcN = dst.w;
+  }
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, readback);
+  return Array.from(readback);
+}
+function measure(){
+  const m = sumTexture(G.rho);
+  const t = m[0] + m[1] + m[2] + m[3];
+  if(isFinite(t)){ mass = m; meanRho = Math.max(t/(G.N*G.N), 1e-6); }
+  massAt = S.frame; massDue = false;
+}
+
+function blur(src, dst){
+  const u = use(P.blur); common(u);
+  gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform2i(u.uDir, 1, 0);
+  target(G.tmp, G.N, G.N); drawQuad();
+  gl.uniform1i(u.uSrc, tex(0, G.tmp)); gl.uniform2i(u.uDir, 0, 1);
+  target(dst, G.N, G.N); drawQuad();
+}
+/* Smooth and take the pressure. Split off from the step because the picture
+   and the seep both want a pressure that matches the density on screen. */
+function field(){
+  blur(G.rho, G.r1);
+  let s = G.r1;
+  for(let i = 1; i < S.range; i++){ const d = s === G.sA ? G.sB : G.sA; blur(s, d); s = d; }
+  G.rs = s;
+  const u = use(P.press); common(u);
+  gl.uniform1i(u.uRho1, tex(0, G.r1)); gl.uniform1i(u.uRhoS, tex(1, G.rs));
+  gl.uniform1f(u.uStiff, S.stiff); gl.uniform1f(u.uGamma, S.gamma);
+  gl.uniform1f(u.uRn, invRho()); gl.uniform1f(u.uG, S.g);
+  gl.uniformMatrix4fv(u.uM, false, matrixColumns());
+  target(G.U, G.N, G.N); drawQuad();
+}
+function reseed(){
+  S.seed = (Math.random()*1e9) | 0;
+  rollBlobs();
+  const u = use(P.seed); common(u);
+  gl.uniform1i(u.uMode, S.seedMode); gl.uniform1i(u.uSeed, S.seed);
+  gl.uniform1f(u.uAmt, S.amt); gl.uniform1f(u.uRad, S.rad); gl.uniform1f(u.uFill, S.fill);
+  gl.uniform1fv(u.uBlob, S.blob);
+  target([G.rho, G.vx, G.vy], G.N, G.N); drawQuad();
+  S.frame = 0;
+  measure();
+  field();
+}
+
+function step(){
+  const N = G.N;
+  field();                             // smooth, then pressure
+  {                                    // push
+    const u = use(P.force); common(u);
+    gl.uniform1i(u.uU, tex(0, G.U)); gl.uniform1i(u.uRho, tex(1, G.rho));
+    gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
+    gl.uniform1f(u.uDt, S.dt); gl.uniform1f(u.uCouple, S.couple);
+    gl.uniform1f(u.uVisc, S.visc); gl.uniform1f(u.uDrag, S.drag);
+    gl.uniform1f(u.uVmax, S.vmax);
+    target([G.vxB, G.vyB], N, N); drawQuad();
+    [G.vx, G.vxB] = [G.vxB, G.vx]; [G.vy, G.vyB] = [G.vyB, G.vy];
+  }
+  {                                    // move
+    const u = use(P.move); common(u);
+    gl.uniform1i(u.uRho, tex(0, G.rho)); gl.uniform1i(u.uU, tex(1, G.U));
+    gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
+    gl.uniform1f(u.uInvS2, 1/(S.spread*S.spread)); gl.uniform1f(u.uSeep, S.seep);
+    target([G.rhoB, G.vxB, G.vyB], N, N); drawQuad();
+    [G.rho, G.rhoB] = [G.rhoB, G.rho];
+    [G.vx, G.vxB] = [G.vxB, G.vx]; [G.vy, G.vyB] = [G.vyB, G.vy];
+  }
+  S.frame++;
+}
+
+/* mode 0 adds the fluid CHAN, 1 erases all four, 2 pushes all four by PUSH. */
+function paintAt(gx, gy, mode, chan, push){
+  const u = use(P.paint); common(u);
+  gl.uniform1i(u.uRho, tex(0, G.rho));
+  gl.uniform1i(u.uVx, tex(1, G.vx)); gl.uniform1i(u.uVy, tex(2, G.vy));
+  gl.uniform2f(u.uAt, gx, gy);
+  gl.uniform2f(u.uPush, push ? push[0] : 0, push ? push[1] : 0);
+  gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, 0.5*meanRho); gl.uniform1f(u.uVmax, S.vmax);
+  gl.uniform1i(u.uMode, mode); gl.uniform1i(u.uChan, chan);
+  target([G.rhoB, G.vxB, G.vyB], G.N, G.N); drawQuad();
+  [G.rho, G.rhoB] = [G.rhoB, G.rho];
+  [G.vx, G.vxB] = [G.vxB, G.vx]; [G.vy, G.vyB] = [G.vyB, G.vy];
+  if(mode !== 2) massDue = true;
+}
+
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height);
+  const u = use(P.draw); common(u);
+  gl.uniform1i(u.uRho, tex(0, G.rho)); gl.uniform1i(u.uU, tex(1, G.U));
+  gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
+  gl.uniform2f(u.uRes, cv.width, cv.height);
+  gl.uniform2f(u.uPan, S.panx, S.pany);
+  gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
+  gl.uniform1f(u.uRn, invRho()); gl.uniform1f(u.uVmax, S.vmax);
+  gl.uniform1i(u.uView, S.view); gl.uniform1i(u.uPal, S.pal);
+  gl.uniform1i(u.uChan, S.chan);
+  drawQuad();
+}
+
+/* ================================================================== pointer */
+function gridAt(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left)/r.width*cv.width;
+  const py = (1 - (e.clientY - r.top)/r.height)*cv.height;
+  const ux = (px - 0.5*cv.width)/(S.zoom*cv.height) + S.panx/G.N + 0.5;
+  const uy = (py - 0.5*cv.height)/(S.zoom*cv.height) + S.pany/G.N + 0.5;
+  return [ux*G.N, uy*G.N];
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  $("hint").classList.add("gone");
+  const mode = e.altKey ? 1 : e.shiftKey ? 0 : (e.ctrlKey || e.metaKey) ? 2
+             : S.tool === 1 ? 0 : S.tool === 2 ? 2 : S.tool === 3 ? 1 : -1;
+  if(mode >= 0){
+    const [x, y] = gridAt(e);
+    const chan = S.pchan >= 0 ? S.pchan : (Math.random()*NCH) | 0;
+    drag = {mode, chan, x, y};
+    cv.classList.add("painting");
+    if(mode !== 2) paintAt(x, y, mode, chan);
+  } else {
+    drag = {mode:-1, x:e.clientX, y:e.clientY};
+    cv.classList.add("dragging");
+  }
+});
+cv.addEventListener("pointermove", e => {
+  if(!drag) return;
+  if(drag.mode >= 0){
+    const [x, y] = gridAt(e);
+    if(drag.mode === 2){
+      // The push is the drag itself, in cells, scaled and capped.
+      let px = (x - drag.x)*S.stir, py = (y - drag.y)*S.stir;
+      const l = Math.hypot(px, py);
+      if(l > S.vmax){ px *= S.vmax/l; py *= S.vmax/l; }
+      paintAt(x, y, 2, drag.chan, [px, py]);
+    } else paintAt(x, y, drag.mode, drag.chan);
+    drag.x = x; drag.y = y;
+  } else {
+    const r = cv.getBoundingClientRect();
+    const k = G.N/(S.zoom*cv.height)*(cv.width/r.width), lim = G.N*0.75;
+    S.panx = Math.max(-lim, Math.min(lim, S.panx - (e.clientX - drag.x)*k));
+    S.pany = Math.max(-lim, Math.min(lim, S.pany + (e.clientY - drag.y)*k));
+    drag.x = e.clientX; drag.y = e.clientY;
+  }
+});
+function endDrag(){ drag = null; cv.classList.remove("painting", "dragging"); }
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  S.zoom = Math.min(16, Math.max(0.25, S.zoom*Math.exp(-e.deltaY*0.0015)));
+}, {passive:false});
+addEventListener("keydown", e => {
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k === " "){ e.preventDefault(); toggleRun(); }
+  else if(k === "r") reseed();
+  else if(k === "n") rollMatrix();
+  else if(k === "h") $("rack").classList.toggle("hid");
+  else if(k === "f") toggleFull();
+  else if(k >= "1" && k <= "4"){ S.pchan = +k - 1; UI.pchan.value = String(S.pchan); }
+});
+function toggleRun(){ S.running = !S.running; $("play").textContent = S.running ? "pause" : "play"; }
+function toggleFull(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else $("app").requestFullscreen && $("app").requestFullscreen();
+}
+
+/* ======================================================================= ui */
+const rack = $("rack");
+const UI = {};
+function group(name){
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = name; rack.appendChild(d);
+}
+function row(label){
+  const d = document.createElement("div");
+  d.className = "row";
+  const l = document.createElement("label");
+  l.className = "lab"; l.textContent = label;
+  d.appendChild(l); rack.appendChild(d);
+  return d;
+}
+const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
+function slider(label, key, min, max, stp, dp, after){
+  const d = row(label);
+  const wrap = document.createElement("div");
+  wrap.style.position = "relative"; wrap.style.minWidth = "0";
+  const r = document.createElement("input");
+  r.type = "range"; r.min = min; r.max = max; r.step = stp; r.value = S[key];
+  const v = document.createElement("span");
+  v.className = "val"; v.textContent = fmt(S[key], dp);
+  const paint = () => r.style.setProperty("--p", ((S[key] - min)/(max - min)*100) + "%");
+  r.addEventListener("input", () => {
+    S[key] = parseFloat(r.value); v.textContent = fmt(S[key], dp); paint(); if(after) after();
+  });
+  paint();
+  wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
+  return UI[key] = {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
+}
+function picker(label, key, opts, after){
+  const d = row(label);
+  const s = document.createElement("select");
+  for(const o of opts){
+    const e = document.createElement("option");
+    e.value = String(o.v); e.textContent = o.t; s.appendChild(e);
+  }
+  s.value = String(S[key]);
+  s.addEventListener("change", () => {
+    const n = parseFloat(s.value);
+    S[key] = isNaN(n) ? s.value : n;
+    if(after) after();
+  });
+  d.appendChild(s);
+  return UI[key] = s;
+}
+function buttons(defs){
+  const d = document.createElement("div");
+  d.className = "btns"; rack.appendChild(d);
+  for(const [t, fn] of defs){
+    const b = document.createElement("button");
+    b.textContent = t; b.onclick = fn; d.appendChild(b);
+  }
+  return d;
+}
+
+/* The matrix as a grid you drag on. Up is more, down is less, a double
+   click is nought. */
+const cells = [];
+function fmtM(v){ return (v < 0 ? "−" : "+") + Math.abs(v).toFixed(2).slice(1); }
+function paintMatrix(){
+  for(let i = 0; i < cells.length; i++){
+    const v = S.M[i], a = 0.10 + 0.90*Math.min(1, Math.abs(v));
+    cells[i].textContent = fmtM(v);
+    cells[i].style.background = v >= 0 ? `rgba(84, 196, 122, ${a})` : `rgba(226, 84, 96, ${a})`;
+  }
+  if(UI.preset) UI.preset.value = "custom";
+}
+function buildMatrix(){
+  const m = document.createElement("div");
+  m.className = "mat"; rack.appendChild(m);
+  const corner = document.createElement("div");
+  corner.className = "cn"; corner.textContent = "↓←"; corner.title = "row is pulled towards column";
+  m.appendChild(corner);
+  for(let d = 0; d < NCH; d++){
+    const s = document.createElement("div");
+    s.className = "sw"; s.style.background = CSS_COL[d]; m.appendChild(s);
+  }
+  for(let c = 0; c < NCH; c++){
+    const s = document.createElement("div");
+    s.className = "sw"; s.style.background = CSS_COL[c]; m.appendChild(s);
+    for(let d = 0; d < NCH; d++){
+      const i = c*NCH + d;
+      const e = document.createElement("div");
+      e.className = "mc"; e.title = `fluid ${c + 1} towards fluid ${d + 1}`;
+      let hold = null;
+      e.addEventListener("pointerdown", ev => {
+        e.setPointerCapture(ev.pointerId); hold = {y:ev.clientY, v:S.M[i]}; e.classList.add("on");
+      });
+      e.addEventListener("pointermove", ev => {
+        if(!hold) return;
+        S.M[i] = Math.max(-1, Math.min(1, hold.v + (hold.y - ev.clientY)*0.01));
+        paintMatrix();
+      });
+      const done = () => { hold = null; e.classList.remove("on"); };
+      e.addEventListener("pointerup", done); e.addEventListener("pointercancel", done);
+      e.addEventListener("dblclick", () => { S.M[i] = 0; paintMatrix(); });
+      m.appendChild(e); cells.push(e);
+    }
+  }
+  paintMatrix();
+}
+function applyPreset(name){
+  const p = PRESETS[name];
+  if(!p) return;
+  S.M.set(p.M); paintMatrix();
+  for(const k of ["g", "range", "stiff", "spread", "seep"]) if(k in p) UI[k].set(p[k]);
+  UI.preset.value = name;
+}
+function roll(){
+  const r = (a, b) => a + Math.random()*(b - a);
+  rollMatrix();
+  UI.g.set(+r(0.6, 2.0).toFixed(2));
+  UI.range.set(Math.round(r(3, 12)));
+  UI.stiff.set(+r(0.5, 1.6).toFixed(2));
+  UI.gamma.set(+r(1.2, 3).toFixed(2));
+  UI.spread.set(+r(0.35, 0.6).toFixed(2));
+  UI.seep.set(+r(0, 0.4).toFixed(2));
+  UI.drag.set(+r(0.005, 0.05).toFixed(3));
+  reseed();
+}
+function buildUI(){
+  group("matrix");
+  buildMatrix();
+  picker("preset", "preset", [{v:"custom",t:"custom"}, ...Object.keys(PRESETS).map(k => ({v:k, t:k}))],
+         () => applyPreset(S.preset));
+  buttons([["random", rollMatrix],
+           ["flip", () => { for(let i = 0; i < S.M.length; i++) S.M[i] = -S.M[i]; paintMatrix(); }],
+           ["mirror", () => { for(let c = 0; c < NCH; c++) for(let d = c + 1; d < NCH; d++)
+                                S.M[d*NCH + c] = S.M[c*NCH + d]; paintMatrix(); }],
+           ["zero", () => { S.M.fill(0); paintMatrix(); }]]);
+
+  group("forces");
+  slider("interact", "g", 0, 4, 0.05, 2);
+  slider("range", "range", 1, 24, 1, 0);
+  slider("stiff", "stiff", 0, 4, 0.05, 2);
+  slider("gamma", "gamma", 1, 4, 0.05, 2);
+  slider("dt", "dt", 0.01, 0.5, 0.005, 3);
+  slider("drag", "drag", 0, 0.2, 0.001, 3);
+  slider("visc", "visc", 0, 1, 0.01, 2);
+  slider("couple", "couple", 0, 1, 0.01, 2);
+  slider("cap", "vmax", 0.1, 1, 0.01, 2);
+
+  group("move");
+  slider("spread", "spread", 0.2, 1.2, 0.01, 2);
+  slider("seep", "seep", 0, 2, 0.01, 2);
+
+  group("seed");
+  picker("start", "seedMode", [{v:0,t:"blobs"}, {v:1,t:"noise"}, {v:2,t:"quarters"}, {v:3,t:"bands"}], reseed);
+  slider("amount", "amt", 0.2, 6, 0.1, 1);
+  slider("blob", "rad", 4, 80, 1, 0);
+  slider("fill", "fill", 0.02, 1, 0.01, 2);
+
+  group("view");
+  picker("show", "view", [{v:0,t:"fluids"}, {v:1,t:"density"}, {v:2,t:"pressure"},
+                          {v:3,t:"direction"}, {v:4,t:"speed"}]);
+  picker("of", "chan", [{v:-1,t:"all four"}, {v:0,t:"fluid 1"}, {v:1,t:"fluid 2"},
+                        {v:2,t:"fluid 3"}, {v:3,t:"fluid 4"}]);
+  picker("palette", "pal", [{v:0,t:"mono"}, {v:1,t:"ember"}, {v:2,t:"ice"}, {v:3,t:"spectral"}]);
+  slider("exposure", "exp", 0.1, 8, 0.05, 2);
+
+  group("hand");
+  picker("drag", "tool", [{v:0,t:"pan"}, {v:1,t:"paint"}, {v:2,t:"stir"}, {v:3,t:"erase"}]);
+  picker("paint", "pchan", [{v:-1,t:"random"}, {v:0,t:"fluid 1"}, {v:1,t:"fluid 2"},
+                            {v:2,t:"fluid 3"}, {v:3,t:"fluid 4"}]);
+  slider("brush", "brush", 4, 90, 1, 0);
+  slider("stir", "stir", 0.05, 1, 0.01, 2);
+
+  group("run");
+  picker("grid", "N", [{v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
+                       {v:1024,t:"1024"}, {v:1536,t:"1536"}, {v:2048,t:"2048"}],
+         () => { alloc(); reseed(); });
+  picker("precision", "prec", [{v:32,t:"32-bit exact"}, {v:16,t:"16-bit"}],
+         () => { alloc(); reseed(); });
+  slider("steps/f", "steps", 1, 8, 1, 0);
+  buttons([["roll", roll], ["reseed", reseed]]);
+  UI.preset.value = "droplets";
+}
+
+$("play").onclick = toggleRun;
+$("step1").onclick = () => { step(); massDue = true; };
+$("reseed").onclick = reseed;
+$("shuffle").onclick = rollMatrix;
+$("full").onclick = toggleFull;
+$("hidep").onclick = () => rack.classList.toggle("hid");
+
+/* ===================================================================== loop */
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(cv.clientWidth*dpr));
+  const h = Math.max(1, Math.round(cv.clientHeight*dpr));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+new ResizeObserver(resize).observe(cv);
+
+let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0;
+function tick(now){
+  requestAnimationFrame(tick);
+  const dt = now - tPrev; tPrev = now;
+  resize();
+  if(S.running) for(let i = 0; i < S.steps; i++) step();
+  render();
+  if(dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
+  if(S.frame - massAt >= 120 || massDue){ measure(); tPrev = performance.now(); }
+  if(now - shown > 420){
+    shown = now;
+    const fps = fpsN ? 1000/(fpsAcc/fpsN) : 0;
+    fpsAcc = 0; fpsN = 0;
+    const cells = G.N*G.N;
+    const tot = mass ? mass[0] + mass[1] + mass[2] + mass[3] : 0;
+    $("stat").innerHTML =
+      `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
+      `<b>${G.N}&sup2;</b> &middot; ` +
+      `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema, 1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
+      `${memMB().toFixed(0)} MB` +
+      (mass ? ` &middot; mass <b>${(tot/cells).toFixed(6)}</b> ` +
+              `<span style="opacity:.7">(${mass.map(m => (m/cells).toFixed(3)).join(" ")})</span>` : "");
+  }
+}
+
+alloc();
+buildUI();
+reseed();
+resize();
+requestAnimationFrame(tick);
+</script>
