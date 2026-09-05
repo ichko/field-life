@@ -205,10 +205,18 @@ so what comes out is a <b>perception vector</b>. How many readings depends on th
 setting: <i>both eyes</i> keeps each side separate for sixteen numbers, <i>opposed eyes</i> hands
 over only right minus left for eight, and <i>eyes and centre</i> adds the cell's own ground negated
 for twenty-four. Nine species facing nine ways means nine readings of the same ground.</p>
-<p>&mdash; <b>Think.</b> Each species has a <b>brain</b> &mdash; a small network, sampled at
-random for now. Each brain reads its own perception vector and answers with three things: an
-<b>orientation offset</b>, an <b>affinity</b>, and a <b>matter offset</b>, one number per matter
-channel. Nine species, nine brains, nine answers.</p>
+<p>&mdash; <b>Think.</b> Each species has a <b>brain</b>, and it is <a
+href="https://fluoddity.com/">Fluoddity</a>'s: not a network with layers but a sum of <b>ten random
+sinusoids</b>. Each of the ten turns the whole perception into one phase and hands every output a
+different basis function of it &mdash; the fundamental and its first harmonic, in sine and cosine.
+Each brain reads its own perception vector and answers with three things: an <b>orientation
+offset</b>, an <b>affinity</b>, and a <b>matter offset</b>, one number per matter channel. Nine
+species, nine brains, nine answers.</p>
+<p>Every centre draws its <b>own frequency scale</b>, biased low, so one brain comes out smooth and
+the next one jagged. That is the whole reason for the shape: a two-layer net with a fixed input
+scale gives every draw the same character however different its numbers are, which is exactly what
+resampling used to look like here. <b>Gain</b> dilates the phase &mdash; how many oscillations a
+perception travels through &mdash; and is the one knob that changes a run most.</p>
 <p>&mdash; <b>Combine.</b> Now those answers have to become one cell.</p>
 <p>The <b>orientation offsets</b> are not averaged. Each species carries its <b>own heading</b>,
 and its own offset turns only that heading &mdash; damped by how much of that species is standing
@@ -259,7 +267,7 @@ if(!gl.getExtension("EXT_color_buffer_float"))
 
 const K = 8;                 // matter channels
 const NS = 9;                // species, and so brains -- 3x3 on the grid start
-const HID = 6;               // hidden units in a brain
+const NC = 10;               // Fourier centres in a brain, Fluoddity's number
 const NIN = 3*K + 1;         // up to three readings per matter channel, and a bias
 const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
 const ND = (NS + 1) >> 1;    // direction textures -- two species to a vec4
@@ -339,17 +347,14 @@ ${decl("uD", ND)}
 uniform float uDist, uSize, uSpread, uFeather;
 uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
-// per element, so 1424 weights ask for 1424 vectors against a limit of 1024
-// and the link fails; as vec4 they ask for 356.
-uniform vec4 uW1[(NS*HID*NIN + 3)/4];
-uniform vec4 uB1[(NS*HID + 3)/4];
-uniform vec4 uW2[(NS*NOUT*HID + 3)/4];
-uniform vec4 uB2[(NS*NOUT + 3)/4];
-#define W1(i) uW1[(i) >> 2][(i) & 3]
-#define B1(i) uB1[(i) >> 2][(i) & 3]
-#define W2(i) uW2[(i) >> 2][(i) & 3]
-#define B2(i) uB2[(i) >> 2][(i) & 3]
-uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd;
+// per element, so 3150 loose floats ask for 3150 vectors against a limit of
+// 1024 and the link fails; as vec4 they ask for 788.
+uniform vec4 uFRQ[(NS*NC*NIN + 3)/4];    // a frequency over the inputs, per centre
+uniform vec4 uAMP[(NS*NC*NOUT + 3)/4];   // an amplitude over the outputs, per centre
+#define FRQ(i) uFRQ[(i) >> 2][(i) & 3]
+#define AMP(i) uAMP[(i) >> 2][(i) & 3]
+uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd, uGain;
+uniform int uMirror;
 layout(location = 0) out vec4 oE0;      // exp(beta*affinity), species 0..3
 layout(location = 1) out vec4 oE1;      //                     species 4..7
 layout(location = 2) out vec4 oE2;      //                     species 8
@@ -422,17 +427,58 @@ void main(){
     }
     x[3*K] = 1.0;
 
-    float h[HID];
-    for(int i = 0; i < HID; i++){
-      float a = B1(s*HID + i);
-      for(int j = 0; j < NIN; j++) a += W1((s*HID + i)*NIN + j)*x[j];
-      h[i] = sin(a);
-    }
+    // ---- the brain, which is Fluoddity's: no hidden layer and no squashing,
+    // just a sum of NC random sinusoids. Each centre turns the whole
+    // perception into ONE phase and hands every output a different basis
+    // function of it, so a brain is a band-limited random function rather
+    // than a squashed two-layer net. GAIN dilates the phase -- it decides how
+    // many oscillations a perception travels through, which is Fluoddity's
+    // sensor_gain and the single most consequential knob in here.
+    //
+    // MIRROR runs it twice, the second time with the eyes swapped, and
+    // averages: the turn antisymmetrically (a mirrored world should turn the
+    // other way) and everything else symmetrically. Without it a brain has an
+    // arbitrary handedness baked in at seeding and every one of its cells
+    // spirals the same way for ever. Fluoddity does this by default and calls
+    // it keeping entities from displaying clockwise/counterclockwise bias;
+    // there it is a sum, here a mean, so the output scale does not move.
     float o[NOUT];
-    for(int i = 0; i < NOUT; i++){
-      float a = B2(s*NOUT + i);
-      for(int j = 0; j < HID; j++) a += W2((s*NOUT + i)*HID + j)*h[j];
-      o[i] = a;
+    for(int i = 0; i < NOUT; i++) o[i] = 0.0;
+    for(int m = 0; m < 2; m++){
+      if(m == 1 && uMirror == 0) break;
+      float y[NIN];
+      if(m == 0){ for(int j = 0; j < NIN; j++) y[j] = x[j]; }
+      else if(uShape == 0){
+        // One reading, and it IS right minus left, so mirroring negates it.
+        for(int j = 0; j < NIN; j++) y[j] = -x[j];
+        y[3*K] = 1.0;
+      } else {
+        for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];   // eyes swapped
+        for(int j = 2*K; j < NIN; j++) y[j] = x[j];               // centre, bias
+      }
+      float t[NOUT];
+      for(int i = 0; i < NOUT; i++) t[i] = 0.0;
+      for(int c = 0; c < NC; c++){
+        int fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
+        float ph = 0.0;
+        for(int j = 0; j < NIN; j++) ph += FRQ(fb + j)*y[j];
+        ph *= uGain;
+        // A per-centre phase offset, so the centres do not all agree at the
+        // origin and a brain has something to say about an empty world.
+        float off = 2.0*float(c)*0.6283 + AMP(ab + NOUT - 1)*PI;
+        // Four basis shapes -- the fundamental and its first harmonic, in
+        // sine and cosine, each at its own fraction of the offset. Only four
+        // are distinct, so they are computed once and shared by every output
+        // that lands on them.
+        vec4 b = vec4(sin(ph + off), cos(ph + off*0.7),
+                      sin(ph*2.0 + off*1.3), cos(ph*2.0 + off*0.5));
+        for(int i = 0; i < NOUT; i++) t[i] += AMP(ab + i)*b[i & 3];
+      }
+      if(m == 0){ for(int i = 0; i < NOUT; i++) o[i] = t[i]; }
+      else {
+        o[0] = (o[0] - t[0])*0.5;                                  // the turn flips
+        for(int i = 1; i < NOUT; i++) o[i] = (o[i] + t[i])*0.5;    // the rest does not
+      }
     }
     // ---- combine, one answer at a time
     // The turn is NOT averaged any more. It belongs to the species that asked
@@ -586,13 +632,14 @@ void main(){
      1  a ball each, laid out on a grid, so they begin apart and have to meet
      2  one ball in the middle, but shaped inside by a CPPN
      3  scattered over the whole grid, shaped by a CPPN
+     4  many small balls thrown thin across the whole world, one species each
 
    The amount is scaled by the area actually filled, so FILL means the same
    total however small the ball is.                                         */
 const FS_SEED = HEAD + HASH + `
 uniform float uAmp, uRad, uCScale;
 uniform float uCA[24], uCV[64];
-uniform int uSeed, uMode, uUse;
+uniform int uSeed, uMode, uUse, uSpots;
 uniform ivec2 uGrid;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
@@ -627,6 +674,29 @@ void main(){
       d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
       if(length(d) < uRad){
         if(s < 4) c0[s] = uAmp; else if(s < 8) c1[s - 4] = uAmp; else c2[s - 8] = uAmp;
+      }
+    }
+  } else if(uMode == 4){
+    // Many small balls thrown thin. The sites sit on a lattice with their
+    // centres jittered well off it, so it scatters rather than reading as a
+    // grid, and the lattice is what makes it cheap: a cell only looks at the
+    // nine sites nearest it instead of at every ball in the world. Most of
+    // the world is left empty in between, which is the point -- a species has
+    // to build something out of a speck before it meets anybody.
+    float sp = uN/float(uSpots);
+    ivec2 home = ivec2(floor(fp/sp));
+    for(int k = 0; k < 9; k++){
+      ivec2 g = home + OFF[k];
+      // The hash is taken on the WRAPPED site so the pattern closes on the
+      // torus; the centre is built from the unwrapped one so it lands near
+      // this cell rather than on the far side of the world.
+      ivec2 gw = ivec2(mod(vec2(g), vec2(float(uSpots))));
+      vec2 mid = (vec2(g) + 0.5)*sp + vec2(rnd(gw, 1, uSeed), rnd(gw, 2, uSeed))*sp*0.7;
+      vec2 d = fp - mid;
+      d -= uN*floor(d/uN + 0.5);
+      if(length(d) < uRad){
+        int sd = min(int((rnd(gw, 3, uSeed) + 0.5)*float(uUse)), uUse - 1);
+        if(sd < 4) c0[sd] += uAmp; else if(sd < 8) c1[sd - 4] += uAmp; else c2[sd - 8] += uAmp;
       }
     }
   } else if(uMode == 3){
@@ -805,7 +875,7 @@ function compile(src, type){
   return sh;
 }
 function program(fs){
-  const defs = `#define K ${K}\n#define NS ${NS}\n#define HID ${HID}\n` +
+  const defs = `#define K ${K}\n#define NS ${NS}\n#define NC ${NC}\n` +
                `#define NIN ${NIN}\n#define NOUT ${NOUT}\n` +
                `#define ND ${ND}\n#define NT ${NT}\n`;
   const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
@@ -881,18 +951,28 @@ const P = {
 
 /* ===================================================================== state */
 const S = {
-  // Jones 2010's numbers, which is where the physarum rule comes from: the
-  // sensors nine cells out and forty-five degrees apart, a point sensor, a
-  // forty-five degree turn cap, trail persistence 0.9 with a full 3x3 blur,
-  // and a tenth of the grid populated. Beta has no analogue there -- Jones
-  // takes a hard three-way argmax -- so it sits where this rule reads crisp.
+  // Fluoddity's shipped defaults wherever one carries over, since the brain
+  // is now its brain:
+  //   sensor_angle 0.45, applied BOTH ways, so 162 degrees between the eyes
+  //   sensor_distance 1.0, which works out at 2.56 cells whatever the world
+  //     size -- the 1/sqrt(world) in its formula cancels the canvas scaling
+  //   trail_persistence 0.938, trail_diffusion 1.0
+  //   disable_symmetry false, so the mirrored evaluation is on
+  // What does not carry: its forces, drag and strafe belong to particles with
+  // momentum and we transport by affinity instead; its sensor_gain is in
+  // units of a velocity field scaled by 38.855*sqrt(world) and ours is a
+  // normalised concentration, so GAIN starts at the median of its presets
+  // rather than at its default. BETA has no analogue at all -- Fluoddity has
+  // no softmax over neighbours -- so it stays where this rule reads crisp.
+  // SIZE and FEATHER stay too: Fluoddity's sensor is a bare point, and a
+  // point tap at any distance aliases into dots as a heading creeps round.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
-  dist: 9, size: 1, spread: 45, feather: 0.2, shape: 1,
-  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.9, diff: 1,
+  dist: 2.5, size: 1, spread: 162, feather: 0.2, shape: 1, mirror: 1,
+  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.938, diff: 1, gain: 1.55,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
-  w1: null, b1: null, w2: null, b2: null, ca: null, cv: null,
+  frq: null, amp: null, ca: null, cv: null,
 };
 function hueRing(t){
   const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
@@ -908,19 +988,31 @@ function gauss(){
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
 }
 const pad4 = n => new Float32Array(Math.ceil(n/4)*4);   // whole vec4s
+// Fluoddity's seeding, verbatim where it matters. Amplitudes are UNIFORM on
+// [-1, 1], not Gaussian, and every centre draws its OWN frequency scale --
+// biased low by squaring, so most centres are smooth and a few are sharp.
+// That last part is the bit that was missing: with one fixed input scale
+// every draw has the same frequency content, which is why resampling used to
+// give the same character every time however different the numbers were.
+//   (Fluoddity reuses one hash for both the scale and the first frequency
+//   component, which correlates them; that looks like a slip rather than a
+//   choice, so the draws here are independent.)
 function rollBrains(){
-  S.w1 = pad4(NS*HID*NIN); S.b1 = pad4(NS*HID);
-  S.w2 = pad4(NS*NOUT*HID); S.b2 = pad4(NS*NOUT);
-  // 1/sqrt(fan-in), so the sine units land across their range instead of
-  // saturating -- with this many inputs a fixed scale pins them all at +-1
-  // and every brain answers the same thing. Unused readings are fed zero, so
-  // a narrower kernel simply leaves part of the first layer idle.
-  const s1 = 1.7/Math.sqrt(NIN), s2 = 1.4/Math.sqrt(HID);
-  for(let i = 0; i < NS*HID*NIN; i++) S.w1[i] = gauss()*s1*Math.sqrt(NIN)*0.55;
-  for(let i = 0; i < NS*HID; i++) S.b1[i] = gauss()*1.5;
-  for(let i = 0; i < NS*NOUT*HID; i++) S.w2[i] = gauss()*s2*Math.sqrt(HID)*0.55;
-  for(let i = 0; i < NS*NOUT; i++) S.b2[i] = gauss()*0.4;
+  S.frq = pad4(NS*NC*NIN); S.amp = pad4(NS*NC*NOUT);
+  for(let s = 0; s < NS; s++) for(let c = 0; c < NC; c++){
+    const scale = 1 + 2*Math.random()**2;
+    const fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
+    for(let j = 0; j < NIN; j++) S.frq[fb + j] = (Math.random()*2 - 1)*scale;
+    for(let j = 0; j < NOUT; j++) S.amp[ab + j] = Math.random()*2 - 1;
+  }
 }
+// Ten uniform amplitudes against four basis shapes put an output's spread at
+// about 1.3, which is where the old net sat -- so BETA and TURN still mean
+// what they meant. The phase, though, grows with how many inputs there are,
+// and Fluoddity has four: divide it back down so GAIN reads the same at any
+// kernel shape.
+const active = () => S.shape === 0 ? K + 1 : (S.shape === 2 ? 3*K + 1 : 2*K + 1);
+const gain = () => S.gain*2.0/Math.sqrt(active());
 function rollCPPN(){
   const f = Math.max(1, Math.round(S.N/Math.max(4, S.gscale)));
   S.ca = new Float32Array(24); S.cv = new Float32Array(64);
@@ -1029,8 +1121,15 @@ function reseed(){
   }
   // The amount is set from the area actually covered, so FILL means the same
   // total mass whether it is one small ball or the whole grid.
+  // How thin the scatter is: sites a spacing apart, balls a fraction of that
+  // spacing wide, so the gaps grow as BALL shrinks.
+  const spots = Math.max(1, Math.round(N/Math.max(4, S.gscale)));
   let rad, amp;
   if(S.mode === 3){ rad = S.fill; amp = 1; }
+  else if(S.mode === 4){
+    rad = Math.max(0.75, S.ball*(N/spots)*0.5);
+    amp = S.fill*N*N/Math.max(Math.PI*rad*rad*spots*spots, 1);
+  }
   else {
     rad = S.ball*N*(S.mode === 1 ? 0.5/Math.max(gw, gh) : 0.5);
     const area = Math.PI*rad*rad*(S.mode === 1 ? S.use : 1);
@@ -1041,7 +1140,7 @@ function reseed(){
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
   gl.uniform1i(u.uSeed, S.seed);
   gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
-  gl.uniform1i(u.uUse, S.use);
+  gl.uniform1i(u.uUse, S.use); gl.uniform1i(u.uSpots, spots);
   target([G.c0, G.c1, G.c2, ...G.d], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
@@ -1059,13 +1158,13 @@ function step(){
     gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
-    gl.uniform1i(u.uShape, S.shape);
+    gl.uniform1i(u.uShape, S.shape); gl.uniform1i(u.uMirror, S.mirror);
     gl.uniform1f(u.uBeta, S.beta);
     gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
     gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
-    gl.uniform4fv(u.uW1, S.w1); gl.uniform4fv(u.uB1, S.b1);
-    gl.uniform4fv(u.uW2, S.w2); gl.uniform4fv(u.uB2, S.b2);
+    gl.uniform1f(u.uGain, gain());
+    gl.uniform4fv(u.uFRQ, S.frq); gl.uniform4fv(u.uAMP, S.amp);
     target([G.e0, G.e1, G.e2, G.p0, G.p1, ...G.t], N, N); drawQuad();
   }
   {                                     // each species' own nine shares
@@ -1371,6 +1470,22 @@ function buildUI(){
     + "has no analogue &mdash; his sensors are points.");
 
   group("brains");
+  picker("symmetry", "mirror", [{v:1,t:"mirrored"}, {v:0,t:"handed"}], null,
+    "<b>mirrored</b> runs each brain twice, the second time with its eyes "
+    + "swapped, and averages &mdash; the turn the other way round, everything "
+    + "else the same. A brain then has no handedness of its own, so it cannot "
+    + "spiral one way for ever just because that is how it was drawn. It is "
+    + "Fluoddity's default and it <b>doubles the cost of thinking</b>; "
+    + "<b>handed</b> turns it off and lets the bias stand.");
+  slider("gain", "gain", 0.05, 6, 0.05, 2, null,
+    "How far a perception travels through the brain's sinusoids &mdash; "
+    + "Fluoddity's <b>sensor_gain</b>, and the knob that changes a run most. "
+    + "Low, and every brain is riding the flat part of its own function, so "
+    + "they all behave much the same and the field is smooth. High, and a "
+    + "small change in what is smelled swings the answer right across, which "
+    + "is where the sharp, fussy structure comes from. Fluoddity's presets sit "
+    + "around <b>1.5</b>. It costs nothing to move &mdash; it does not reroll "
+    + "the brains, so the same nine rules can be run soft or savage.");
   slider("beta", "beta", 0.5, 30, 0.5, 1, null,
     "How <b>decisively</b> a species commits to its affinity. Low and it hands "
     + "its concentration to all nine neighbours in nearly equal shares, which is "
@@ -1433,23 +1548,31 @@ function buildUI(){
     + "watch a single brain on its own, which is the only way to see what one "
     + "rule does without seven others averaging into its turn.");
   picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
+                           {v:4,t:"many small balls"},
                            {v:2,t:"one ball, cppn"}, {v:3,t:"scattered"}],
          reseed,
     "How a run begins. The <b>matter always starts empty</b> &mdash; the ground "
     + "has to be written before it can be read. <b>A ball each</b> puts every "
     + "species alone on its own square of a grid, so they begin apart and have "
-    + "to travel to meet, which is the only way to watch who wins a border.");
+    + "to travel to meet, which is the only way to watch who wins a border. "
+    + "<b>Many small balls</b> throws specks of single species thin across the "
+    + "whole world instead &mdash; <b>patch</b> sets how far apart they land "
+    + "and <b>ball</b> how small they are, so a low ball leaves most of the "
+    + "world empty and everything has to be grown from a speck.");
   slider("ball", "ball", 0.05, 1, 0.01, 2, reseed,
-    "How big the starting ball is, as a fraction of the space it has. Does "
-    + "nothing when the start is <b>scattered</b>.");
+    "How big the starting ball is, as a fraction of the space it has &mdash; "
+    + "of its square under <b>a ball each</b>, of the spacing between specks "
+    + "under <b>many small balls</b>, where it is what makes the scatter "
+    + "sparse. Does nothing when the start is <b>scattered</b>.");
   slider("fill", "fill", 0.02, 1, 0.01, 2, null,
     "How much is laid down at a reseed. It is <b>conserved from then on</b>, so "
     + "this is the one setting really about the whole run rather than the next "
     + "step.");
-  slider("patch", "gscale", 4, 200, 1, 0, rollCPPN,
+  slider("patch", "gscale", 4, 200, 1, 0, () => { rollCPPN(); reseed(); },
     "How coarse the starting layout is. Big patches give regions that share a "
     + "species and are wide enough to build something before they meet a region "
-    + "that does not.");
+    + "that does not. Under <b>many small balls</b> it is the spacing between "
+    + "specks, in cells.");
   picker("grid", "N", [{v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
                        {v:1024,t:"1024"}, {v:1536,t:"1536"}],
          () => { alloc(); rollCPPN(); reseed(); },
