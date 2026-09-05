@@ -300,7 +300,17 @@ float rnd(ivec2 p, int k, int f){
 const FS_BRAIN = HEAD + `
 uniform sampler2D uM0, uM1, uC0, uC1, uD;
 uniform float uSize, uLobe, uSpread, uFeather;
-uniform float uW1[NS*HID*NIN], uB1[NS*HID], uW2[NS*NOUT*HID], uB2[NS*NOUT];
+// Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
+// per element, so 1424 weights ask for 1424 vectors against a limit of 1024
+// and the link fails; as vec4 they ask for 356.
+uniform vec4 uW1[(NS*HID*NIN + 3)/4];
+uniform vec4 uB1[(NS*HID + 3)/4];
+uniform vec4 uW2[(NS*NOUT*HID + 3)/4];
+uniform vec4 uB2[(NS*NOUT + 3)/4];
+#define W1(i) uW1[(i) >> 2][(i) & 3]
+#define B1(i) uB1[(i) >> 2][(i) & 3]
+#define W2(i) uW2[(i) >> 2][(i) & 3]
+#define B2(i) uB2[(i) >> 2][(i) & 3]
 uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm;
 layout(location = 0) out vec4 oE0;      // exp(beta*affinity), species 0..3
 layout(location = 1) out vec4 oE1;      //                     species 4..7
@@ -348,14 +358,14 @@ void main(){
     float conc = s < 4 ? c0[s] : c1[s - 4];
     float h[HID];
     for(int i = 0; i < HID; i++){
-      float a = uB1[s*HID + i];
-      for(int j = 0; j < NIN; j++) a += uW1[(s*HID + i)*NIN + j]*x[j];
+      float a = B1(s*HID + i);
+      for(int j = 0; j < NIN; j++) a += W1((s*HID + i)*NIN + j)*x[j];
       h[i] = sin(a);
     }
     float o[NOUT];
     for(int i = 0; i < NOUT; i++){
-      float a = uB2[s*NOUT + i];
-      for(int j = 0; j < HID; j++) a += uW2[(s*NOUT + i)*HID + j]*h[j];
+      float a = B2(s*NOUT + i);
+      for(int j = 0; j < HID; j++) a += W2((s*NOUT + i)*HID + j)*h[j];
       o[i] = a;
     }
     // ---- combine, one answer at a time
@@ -467,22 +477,27 @@ void main(){
   oRho = vec4(dot(texelFetch(uC0, p, 0), vec4(1.0)) + dot(texelFetch(uC1, p, 0), vec4(1.0)));
 }`;
 
+/* How a run starts. The matter always starts at NOTHING -- the ground has to
+   be written before it can be read, and starting it full is starting with a
+   history nobody laid down. Only the species are placed, four ways:
+
+     0  one ball in the middle, every species evenly mixed inside it
+     1  a ball each, laid out on a grid, so they begin apart and have to meet
+     2  one ball in the middle, but shaped inside by a CPPN
+     3  scattered over the whole grid, shaped by a CPPN
+
+   The amount is scaled by the area actually filled, so FILL means the same
+   total however small the ball is.                                         */
 const FS_SEED = HEAD + HASH + `
-uniform float uFill, uCScale;
+uniform float uAmp, uRad, uCScale;
 uniform float uCA[24], uCV[64];
-uniform int uSeed;
+uniform int uSeed, uMode, uGridN;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
 layout(location = 2) out vec4 oD;
-void main(){
-  ivec2 p = ivec2(gl_FragCoord.xy);
-  float on = (rnd(p, 0, uSeed) + 0.5) < uFill ? 1.0 : 0.0;
-  // A CPPN rather than noise: plane waves at whole numbers of cycles across
-  // the grid, so the field closes on the torus with no seam, and neighbouring
-  // patches start out belonging to different species instead of every cell
-  // holding a mixture that averages to grey before anything moves.
-  vec2 q = (vec2(p) + 0.5)/uN*TAU;
-  vec4 g0 = vec4(0.0), g1 = vec4(0.0);
+
+void cppnAt(vec2 q, out vec4 g0, out vec4 g1){
+  g0 = vec4(0.0); g1 = vec4(0.0);
   for(int i = 0; i < 8; i++){
     float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
     g0 += vec4(uCV[8*i], uCV[8*i+1], uCV[8*i+2], uCV[8*i+3])*z;
@@ -490,7 +505,38 @@ void main(){
   }
   g0 = exp(g0*uCScale); g1 = exp(g1*uCScale);
   float t = dot(g0, vec4(1.0)) + dot(g1, vec4(1.0));
-  oC0 = g0/t*on; oC1 = g1/t*on;
+  g0 /= t; g1 /= t;
+}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 fp = vec2(p) + 0.5;
+  vec4 c0 = vec4(0.0), c1 = vec4(0.0);
+
+  if(uMode == 1){
+    // A ball each, on a grid. Every species starts alone and has to travel to
+    // meet anybody, which is the only way to see who wins a border.
+    float g = float(uGridN), cell = uN/g;
+    for(int s = 0; s < NS; s++){
+      vec2 mid = (vec2(float(s - (s/uGridN)*uGridN), float(s/uGridN)) + 0.5)*cell;
+      vec2 d = fp - mid;
+      d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
+      if(length(d) < uRad){
+        if(s < 4) c0[s] = uAmp; else c1[s - 4] = uAmp;
+      }
+    }
+  } else if(uMode == 3){
+    vec2 d = vec2(0.0);
+    cppnAt(fp/uN*TAU, c0, c1);
+    float on = (rnd(p, 0, uSeed) + 0.5) < uRad ? 1.0 : 0.0;   // uRad is fill here
+    c0 *= uAmp*on; c1 *= uAmp*on;
+  } else {
+    vec2 d = fp - vec2(uN*0.5);
+    if(length(d) < uRad){
+      if(uMode == 2){ cppnAt(fp/uN*TAU, c0, c1); c0 *= uAmp*8.0; c1 *= uAmp*8.0; }
+      else { c0 = vec4(uAmp); c1 = vec4(uAmp); }
+    }
+  }
+  oC0 = c0; oC1 = c1;
   float a = (rnd(p, 3, uSeed) + 0.5)*TAU;
   oD = vec4(cos(a), sin(a), 0.0, 1.0);
 }`;
@@ -688,7 +734,7 @@ const S = {
   N: 512, steps: 1, running: true, frame: 0, prec: 16,
   size: 9, lobe: 4, spread: 70, feather: 0.65,
   beta: 8, turn: 25, moff: 1, decay: 0.94, diff: 1,
-  fill: 0.22, cscale: 1.6, gscale: 40,
+  fill: 0.22, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55,
   exp: 1.5, floor: 0.05, view: 0, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
   w1: null, b1: null, w2: null, b2: null, ca: null, cv: null,
@@ -706,17 +752,18 @@ function gauss(){
   const u = Math.max(1e-9, Math.random());
   return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
 }
+const pad4 = n => new Float32Array(Math.ceil(n/4)*4);   // whole vec4s
 function rollBrains(){
-  S.w1 = new Float32Array(NS*HID*NIN); S.b1 = new Float32Array(NS*HID);
-  S.w2 = new Float32Array(NS*NOUT*HID); S.b2 = new Float32Array(NS*NOUT);
+  S.w1 = pad4(NS*HID*NIN); S.b1 = pad4(NS*HID);
+  S.w2 = pad4(NS*NOUT*HID); S.b2 = pad4(NS*NOUT);
   // 1/sqrt(fan-in), so the sine units land across their range instead of
   // saturating -- with seventeen inputs a fixed scale pins them all at +-1
   // and every brain answers the same thing.
   const s1 = 1.7/Math.sqrt(NIN), s2 = 1.4/Math.sqrt(HID);
-  for(let i = 0; i < S.w1.length; i++) S.w1[i] = gauss()*s1*Math.sqrt(NIN)*0.55;
-  for(let i = 0; i < S.b1.length; i++) S.b1[i] = gauss()*1.5;
-  for(let i = 0; i < S.w2.length; i++) S.w2[i] = gauss()*s2*Math.sqrt(HID)*0.55;
-  for(let i = 0; i < S.b2.length; i++) S.b2[i] = gauss()*0.4;
+  for(let i = 0; i < NS*HID*NIN; i++) S.w1[i] = gauss()*s1*Math.sqrt(NIN)*0.55;
+  for(let i = 0; i < NS*HID; i++) S.b1[i] = gauss()*1.5;
+  for(let i = 0; i < NS*NOUT*HID; i++) S.w2[i] = gauss()*s2*Math.sqrt(HID)*0.55;
+  for(let i = 0; i < NS*NOUT; i++) S.b2[i] = gauss()*0.4;
 }
 function rollCPPN(){
   const f = Math.max(1, Math.round(S.N/Math.max(4, S.gscale)));
@@ -789,9 +836,21 @@ function makeRho(){
 function reseed(){
   S.seed = (Math.random()*1e9) | 0;
   const u = use(P.seed); common(u);
-  gl.uniform1f(u.uFill, S.fill); gl.uniform1f(u.uCScale, S.cscale);
+  const N = G.N, gN = Math.ceil(Math.sqrt(NS));
+  // The amount is set from the area actually covered, so FILL means the same
+  // total mass whether it is one small ball or the whole grid.
+  let rad, amp;
+  if(S.mode === 3){ rad = S.fill; amp = 1; }
+  else {
+    rad = S.ball*N*(S.mode === 1 ? 0.5/gN : 0.5);
+    const area = Math.PI*rad*rad*(S.mode === 1 ? NS : 1);
+    amp = S.fill*N*N/Math.max(area, 1)/(S.mode === 1 ? 1 : NS);
+  }
+  gl.uniform1f(u.uAmp, amp); gl.uniform1f(u.uRad, rad);
+  gl.uniform1f(u.uCScale, S.cscale);
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
   gl.uniform1i(u.uSeed, S.seed);
+  gl.uniform1i(u.uMode, S.mode); gl.uniform1i(u.uGridN, gN);
   target([G.c0, G.c1, G.d], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
@@ -813,8 +872,8 @@ function step(){
     gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
     gl.uniform1f(u.uMoff, S.moff);
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
-    gl.uniform1fv(u.uW1, S.w1); gl.uniform1fv(u.uB1, S.b1);
-    gl.uniform1fv(u.uW2, S.w2); gl.uniform1fv(u.uB2, S.b2);
+    gl.uniform4fv(u.uW1, S.w1); gl.uniform4fv(u.uB1, S.b1);
+    gl.uniform4fv(u.uW2, S.w2); gl.uniform4fv(u.uB2, S.b2);
     target([G.e0, G.e1, G.p0, G.p1, G.db], N, N); drawQuad();
     [G.d, G.db] = [G.db, G.d];
   }
@@ -1132,6 +1191,16 @@ function buildUI(){
     + "<b>alt-drag</b> takes away.");
 
   group("run");
+  picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
+                           {v:2,t:"one ball, cppn"}, {v:3,t:"scattered"}],
+         reseed,
+    "How a run begins. The <b>matter always starts empty</b> &mdash; the ground "
+    + "has to be written before it can be read. <b>A ball each</b> puts every "
+    + "species alone on its own square of a grid, so they begin apart and have "
+    + "to travel to meet, which is the only way to watch who wins a border.");
+  slider("ball", "ball", 0.05, 1, 0.01, 2, reseed,
+    "How big the starting ball is, as a fraction of the space it has. Does "
+    + "nothing when the start is <b>scattered</b>.");
   slider("fill", "fill", 0.02, 1, 0.01, 2, null,
     "How much is laid down at a reseed. It is <b>conserved from then on</b>, so "
     + "this is the one setting really about the whole run rather than the next "
