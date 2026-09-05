@@ -60,7 +60,7 @@ def thumb(M, mnorm, floor=0.05, expo=1.5):
     w = a * a
     hue = w @ PAL
     tot, wsum = a.sum(-1), w.sum(-1)
-    al = 1 - np.exp(-np.maximum(tot - floor, 0) * expo)
+    al = 1 - np.exp(-np.maximum(tot / a.shape[-1] - floor, 0) * expo)
     col = hue / np.maximum(wsum, 1e-12)[..., None] * al[..., None] + np.array([.016, .024, .04], np.float32)
     return (np.clip(col, 0, 1) * 255).astype(np.uint8)
 
@@ -71,11 +71,11 @@ def sample(rng):
         N=N_GRID, seed=int(rng.integers(1e9)),
         shape=int(rng.integers(0, 3)), mirror=int(rng.integers(0, 2)),
         gain=round(lg(0.2, 5.0), 3), speed=round(float(rng.uniform(0, 5)), 2),
-        beta=round(lg(0.5, 20.0), 2), turn=round(float(rng.uniform(3, 90)), 1),
+        beta=round(lg(3.0, 30.0), 2), turn=round(float(rng.uniform(3, 90)), 1),
         dist=round(lg(1.0, 16.0), 2), spread=round(float(rng.uniform(8, 178)), 0),
         size=round(lg(1.0, 7.0), 2), feather=round(float(rng.uniform(0, 1)), 2),
         decay=round(float(rng.uniform(0.80, 0.99)), 3),
-        diff=round(float(rng.uniform(0, 1)), 2),
+        diff=round(float(rng.uniform(0, 0.5)), 2),
         moff=round(lg(0.2, 3.0), 2), crowd=round(float(rng.choice([0, 0, 0, rng.uniform(0, 3)])), 2),
         fill=0.1, ball=0.55)
 

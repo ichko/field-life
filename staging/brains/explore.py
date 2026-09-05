@@ -30,18 +30,22 @@ def mulberry32(seed):
 
 
 def _h32(x):
+    old = np.seterr(over="ignore")
     x = x.astype(np.uint32)
     x ^= x >> np.uint32(16); x *= np.uint32(0x7feb352d)
     x ^= x >> np.uint32(15); x *= np.uint32(0x846ca68b)
     x ^= x >> np.uint32(16)
+    np.seterr(**old)
     return x
 
 
 def glsl_rnd(px, py, k, f):
+    old = np.seterr(over="ignore")
     """The seed shader's hash, ported exactly, so an initial field replays too."""
     inner = _h32(np.uint32(k) * np.uint32(0xc2b2ae35) ^ np.uint32(f & 0xFFFFFFFF))
     mid = _h32(px.astype(np.uint32) * np.uint32(0x85ebca6b) ^ inner)
     h = _h32(py.astype(np.uint32) * np.uint32(0x9e3779b9) ^ mid)
+    np.seterr(**old)
     return h.astype(np.float64) * (1.0 / 4294967296.0) - 0.5
 
 

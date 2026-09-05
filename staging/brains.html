@@ -837,7 +837,13 @@ void main(){
       wsum += a*a + b*b;
       hue += uPal[i]*a*a + uPal[4 + i]*b*b;
     }
-    float al = 1.0 - exp(-max(tot - uFloor, 0.0)*uExp);
+    // Averaged over the channels, not summed. MNORM puts a typical CHANNEL at
+    // about one, so the sum of eight of them sat near four and the exposure
+    // curve saturated: measured, 73 per cent of cells came out above 0.99 and
+    // the whole field rendered at full brightness, which threw away every bit
+    // of contrast the matter had. Dividing by the channel count makes EXPOSURE
+    // mean the same thing here as it does in the species view.
+    float al = 1.0 - exp(-max(tot/float(K) - uFloor, 0.0)*uExp);
     oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
     return;
   }
