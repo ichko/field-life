@@ -1584,9 +1584,24 @@ function buildKernel(){
    than blobs or boiling -- then the survivors were judged by eye off a contact
    sheet. Each carries the seeds it was found with, and the page's generator is
    the search's generator, so a preset replays rather than merely rhymes.     */
-const PRESETS = [];   // stale: the flow inputs changed how many numbers a
-                      // brain seed draws, so every old seed now names a
-                      // different brain. Re-searched rather than patched.
+const PRESETS = [
+  {name: "veins", brain: 474614178, world: 893909377,
+   p: {shape: 0, mirror: 1, dist: 5.3, size: 1, spread: 161, feather: 0.95, gain: 0.38, sweep: 0, speed: 4.3, beta: 12.05, turn: 35, moff: 0.85, crowd: 0, decay: 0.978, diff: 0.01, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "colony", brain: 493251245, world: 419869570,
+   p: {shape: 2, mirror: 0, dist: 5.5, size: 1.5, spread: 16, feather: 0.06, gain: 0.38, sweep: 0, speed: 0.1, beta: 4.95, turn: 78, moff: 1.65, crowd: 0, decay: 0.932, diff: 0.16, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "web", brain: 984634179, world: 885171492,
+   p: {shape: 1, mirror: 0, dist: 2, size: 2, spread: 139, feather: 0.94, gain: 0.82, sweep: 0, speed: 4.9, beta: 6.05, turn: 44.5, moff: 0.4, crowd: 0, decay: 0.897, diff: 0.13, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "vesicles", brain: 323400531, world: 377809936,
+   p: {shape: 2, mirror: 0, dist: 2.5, size: 1.5, spread: 65, feather: 0.95, gain: 0.38, sweep: 0, speed: 4.55, beta: 17.35, turn: 27.5, moff: 0.9, crowd: 0, decay: 0.981, diff: 0.09, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "brushwork", brain: 776844949, world: 323396976,
+   p: {shape: 0, mirror: 1, dist: 3, size: 1.5, spread: 17, feather: 0.31, gain: 1.28, sweep: 0, speed: 4.2, beta: 4.25, turn: 28.5, moff: 2.55, crowd: 2.4, decay: 0.863, diff: 0.11, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "current", brain: 569772742, world: 272659978,
+   p: {shape: 1, mirror: 1, dist: 8.5, size: 3.5, spread: 48, feather: 0.58, gain: 0.23, sweep: 0, speed: 3, beta: 6.9, turn: 9.5, moff: 0.5, crowd: 2.85, decay: 0.898, diff: 0.07, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "coral", brain: 378913789, world: 984397022,
+   p: {shape: 0, mirror: 0, dist: 6, size: 3.5, spread: 35, feather: 0.2, gain: 0.67, sweep: 0, speed: 3.5, beta: 6.95, turn: 51, moff: 1.9, crowd: 0, decay: 0.928, diff: 0.3, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "spawn", brain: 999525171, world: 335855842,
+   p: {shape: 2, mirror: 1, dist: 2, size: 1, spread: 126, feather: 0.15, gain: 0.37, sweep: 0, speed: 4, beta: 12.25, turn: 24, moff: 1, crowd: 0, decay: 0.977, diff: 0.44, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+];
 function applyPreset(i){
   const P = PRESETS[i]; if(!P) return;
   for(const k in P.p){
