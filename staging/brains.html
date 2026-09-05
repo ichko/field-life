@@ -1014,7 +1014,7 @@ const S = {
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
-  frq: null, amp: null, ca: null, cv: null,
+  frq: null, amp: null, ca: null, cv: null, brain: 1,
 };
 function hueRing(t){
   const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
@@ -1039,15 +1039,28 @@ const pad4 = n => new Float32Array(Math.ceil(n/4)*4);   // whole vec4s
 //   (Fluoddity reuses one hash for both the scale and the first frequency
 //   component, which correlates them; that looks like a slip rather than a
 //   choice, so the draws here are independent.)
-function rollBrains(){
+// Seeded, so a run is a NUMBER and not a lucky afternoon: a preset that names
+// its brain seed replays exactly, here and in the offline search that found it.
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0)/4294967296;
+  };
+}
+function rollBrains(seed){
+  if(seed !== undefined) S.brain = seed >>> 0;
+  const r = mulberry32(S.brain);
   S.frq = pad4(NS*NC*NIN); S.amp = pad4(NS*NC*NOUT);
   for(let s = 0; s < NS; s++) for(let c = 0; c < NC; c++){
-    const scale = 1 + 2*Math.random()**2;
+    const scale = 1 + 2*r()**2;
     const fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
-    for(let j = 0; j < NIN; j++) S.frq[fb + j] = (Math.random()*2 - 1)*scale;
-    for(let j = 0; j < NOUT; j++) S.amp[ab + j] = Math.random()*2 - 1;
+    for(let j = 0; j < NIN; j++) S.frq[fb + j] = (r()*2 - 1)*scale;
+    for(let j = 0; j < NOUT; j++) S.amp[ab + j] = r()*2 - 1;
   }
 }
+function newBrains(){ rollBrains((Math.random()*4294967296) >>> 0); }
 // Ten uniform amplitudes against four basis shapes put an output's spread at
 // about 1.3, which is where the old net sat -- so BETA and TURN still mean
 // what they meant. The phase, though, grows with how many inputs there are,
@@ -1146,8 +1159,8 @@ function makeRho(){
   gl.uniform1i(u.uC2, tex(2, G.c2));
   target(G.rho, G.N, G.N); drawQuad();
 }
-function reseed(){
-  S.seed = (Math.random()*1e9) | 0;
+function reseed(seed){
+  S.seed = seed === undefined ? (Math.random()*1e9) | 0 : seed | 0;
   const u = use(P.seed); common(u);
   const N = G.N;
   // A layout with no hole in it: eight species on a 3x3 leaves the last square
@@ -1334,7 +1347,7 @@ addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
   if(k === " "){ e.preventDefault(); toggleRun(); }
   else if(k === "r") reseed();
-  else if(k === "n") rollBrains();     // brains only; the world carries on
+  else if(k === "n") newBrains();      // brains only; the world carries on
   else if(k === "h") $("rack").classList.toggle("hid");
   else if(k === "f") toggleFull();
 });
@@ -1346,7 +1359,7 @@ function toggleFull(){
 
 /* ======================================================================= ui */
 const rack = $("rack");
-const UI = {};
+const UI = {}, SEL = {};
 const tipEl = document.createElement("div");
 tipEl.id = "tip"; $("app").appendChild(tipEl);
 function tip(el, html){
@@ -1404,6 +1417,9 @@ function picker(label, key, opts, after, help){
     if(after) after();
   });
   d.appendChild(s);
+  // Registered so a preset can move it. Setting it does NOT fire the change
+  // handler: applying a preset would otherwise reseed once per control.
+  SEL[key] = s;
   return s;
 }
 function buttons(defs){
@@ -1481,8 +1497,55 @@ function buildKernel(){
   d.className = "grp"; d.textContent = "the kernel";
   rack.insertBefore(d, k);
 }
+/* -------------------------------------------------------------- presets
+   Found by search, not by hand: staging/brains/sweep.py runs the same rule on
+   the CPU over a few hundred random parameter draws and scores each on whether
+   its matter ends up in COHERENT DIRECTIONAL structure -- filaments rather
+   than blobs or boiling -- then the survivors were judged by eye off a contact
+   sheet. Each carries the seeds it was found with, and the page's generator is
+   the search's generator, so a preset replays rather than merely rhymes.     */
+const PRESETS = [];
+function applyPreset(i){
+  const P = PRESETS[i]; if(!P) return;
+  for(const k in P.p){
+    S[k] = P.p[k];
+    if(UI[k]) UI[k].set(P.p[k]);
+    else if(SEL[k]) SEL[k].value = String(P.p[k]);
+  }
+  rollBrains(P.brain);
+  rollCPPN();
+  reseed(P.world);
+  drawKernel();
+}
 function buildUI(){
   buildKernel();
+  if(PRESETS.length){
+    group("presets");
+    const d = tip(row("load"),
+      "Parameter sets found by <b>search</b>, not by hand: the same rule runs "
+      + "on the CPU over a few hundred random draws, each scored on whether "
+      + "its matter ends up in coherent directional structure &mdash; "
+      + "filaments rather than blobs or boiling &mdash; and the survivors were "
+      + "picked off a contact sheet by eye. Each carries the seeds it was "
+      + "found with, so loading one <b>replays it exactly</b>. Move anything "
+      + "afterwards and you are off the preset and on your own.");
+    const sel = document.createElement("select");
+    for(const [i, P] of PRESETS.entries()){
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = P.name; sel.appendChild(o);
+    }
+    sel.value = "";
+    const blank = document.createElement("option");
+    blank.value = "-1"; blank.textContent = "\u2014"; sel.insertBefore(blank, sel.firstChild);
+    sel.value = "-1";
+    sel.addEventListener("change", () => applyPreset(parseInt(sel.value, 10)));
+    d.appendChild(sel);
+    tip(buttons([["again", () => { const i = parseInt(sel.value, 10);
+                                   if(i >= 0) applyPreset(i); }]]),
+      "Reloads the preset in the box, throwing away whatever you have moved "
+      + "since. The seeds are part of it, so you get the same run back.");
+  }
+
   group("perception");
   picker("kernel", "shape", [{v:1, t:"both eyes"}, {v:0, t:"opposed eyes"},
                              {v:2, t:"eyes and centre"}], drawKernel,
@@ -1572,7 +1635,7 @@ function buildUI(){
   slider("deposit", "moff", 0, 4, 0.05, 2, null,
     "How much the brains' matter offsets actually lay down. At 0 nothing is "
     + "written to the ground, nobody can smell anything, and the field freezes.");
-  tip(buttons([["new brains", rollBrains],
+  tip(buttons([["new brains", newBrains],
                ["new field", () => { rollCPPN(); reseed(); }]]),
     "<b>New brains</b> resamples the networks and <b>nothing else</b> &mdash; "
     + "the matter and the species stay exactly where they are, so the same "
@@ -1644,14 +1707,14 @@ function buildUI(){
     "What the species channels are kept in. The working textures are 32-bit "
     + "either way &mdash; at 16-bit they lost mass.");
   slider("steps/f", "steps", 1, 8, 1, 0, null, "Simulation steps per drawn frame.");
-  tip(buttons([["roll", () => { rollBrains(); rollCPPN(); reseed(); }], ["reseed", reseed]]),
+  tip(buttons([["roll", () => { newBrains(); rollCPPN(); reseed(); }], ["reseed", () => reseed()]]),
     "<b>Roll</b> is new brains and a new start. <b>Reseed</b> keeps the brains.");
 }
 
 $("play").onclick = toggleRun;
 $("step1").onclick = () => { step(); massDue = true; };
 $("reseed").onclick = reseed;
-$("shuffle").onclick = rollBrains;
+$("shuffle").onclick = newBrains;
 $("full").onclick = toggleFull;
 $("hidep").onclick = () => rack.classList.toggle("hid");
 
