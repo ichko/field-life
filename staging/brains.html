@@ -225,7 +225,11 @@ Nine headings a cell, nine independent turns.</p>
 <p>The <b>affinities</b> are not averaged. Each one belongs to its own species, and each species
 redistributes <i>its own</i> concentration according to <i>its own</i> affinity &mdash; its
 contents split among the nine neighbours in shares proportional to
-<code>exp(beta&middot;affinity)</code> at each of them, scaled to sum to one. Nine species, nine
+<code>exp(beta&middot;affinity + speed&middot;heading&middot;offset)</code> at each of them, scaled
+to sum to one. That second term is the <b>forward step</b>, the thing an ant does after it turns:
+the neighbour straight ahead is favoured and the one behind is not, so a heading stops being
+decoration and starts being momentum. Without it every move is a fresh decision about what is
+smelled right now and nothing ever keeps going straight. Nine species, nine
 independent transports, and not one of them creates or destroys anything. This is the reason they
 can stay distinct: a species is never carried by somebody else's decision.</p>
 <p>The <b>matter offsets</b> are summed, weighted by concentration, and added to the ground. Then
@@ -294,6 +298,8 @@ ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
 // cell: two to a vec4, five textures, the last half of the last one unused.
 // A local array can be indexed by a running variable where a sampler array
 // cannot, so the taps are always unrolled into one of these first.
+#define SETSP(a, b, c, s, v) { if((s) < 4) (a)[(s)] = (v); \
+  else if((s) < 8) (b)[(s) - 4] = (v); else (c)[(s) - 8] = (v); }
 vec2 getdir(vec4 d[ND], int s){ return (s & 1) == 0 ? d[s >> 1].xy : d[s >> 1].zw; }
 void setdir(inout vec4 d[ND], int s, vec2 v){
   if((s & 1) == 0){ d[s >> 1].xy = v; } else { d[s >> 1].zw = v; }
@@ -353,7 +359,7 @@ uniform vec4 uFRQ[(NS*NC*NIN + 3)/4];    // a frequency over the inputs, per cen
 uniform vec4 uAMP[(NS*NC*NOUT + 3)/4];   // an amplitude over the outputs, per centre
 #define FRQ(i) uFRQ[(i) >> 2][(i) & 3]
 #define AMP(i) uAMP[(i) >> 2][(i) & 3]
-uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd, uGain;
+uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd, uGain, uSweep;
 uniform int uMirror;
 layout(location = 0) out vec4 oE0;      // exp(beta*affinity), species 0..3
 layout(location = 1) out vec4 oE1;      //                     species 4..7
@@ -383,6 +389,11 @@ void main(){
   float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
   vec4 ctr0 = textureLod(uM0, uv, lod);
   vec4 ctr1 = textureLod(uM1, uv, lod);
+  // SWEEP runs the gain across the world instead of holding it fixed, the way
+  // Fluoddity sweeps a parameter over its canvas. One frame then shows a
+  // whole gradient of behaviour under one set of rules -- smooth on one edge,
+  // frantic on the other -- rather than a single point sampled from it.
+  float gain = uGain*exp(uSweep*(uv.x - 0.5)*2.0);
 
   vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
   float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0)) + dot(c2, vec4(1.0));
@@ -412,16 +423,23 @@ void main(){
     //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
     float x[NIN];
     for(int i = 0; i < NIN; i++) x[i] = 0.0;
+    // CENTRED on the typical reading, so a lobe hands over how much more or
+    // less there is than usual rather than a number that can only be
+    // positive. Matter is floored at zero, so uncentred readings live in one
+    // orthant and a random sinusoid over them only ever sees a cone of its
+    // own input space -- which is a very small, very self-similar family of
+    // functions. Fluoddity senses a signed velocity field and gets this for
+    // free; here it costs a subtraction.
     for(int i = 0; i < 4; i++){
-      float r0 = rgt0[i]*uMnorm, r1 = rgt1[i]*uMnorm;
-      float l0 = lft0[i]*uMnorm, l1 = lft1[i]*uMnorm;
+      float r0 = rgt0[i]*uMnorm - 1.0, r1 = rgt1[i]*uMnorm - 1.0;
+      float l0 = lft0[i]*uMnorm - 1.0, l1 = lft1[i]*uMnorm - 1.0;
       if(uShape == 0){
         x[i] = r0 - l0;  x[4 + i] = r1 - l1;
       } else {
         x[i]      = r0;  x[4 + i]  = r1;
         x[8 + i]  = l0;  x[12 + i] = l1;
         if(uShape == 2){
-          x[16 + i] = -ctr0[i]*uMnorm;  x[20 + i] = -ctr1[i]*uMnorm;
+          x[16 + i] = 1.0 - ctr0[i]*uMnorm;  x[20 + i] = 1.0 - ctr1[i]*uMnorm;
         }
       }
     }
@@ -462,7 +480,7 @@ void main(){
         int fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
         float ph = 0.0;
         for(int j = 0; j < NIN; j++) ph += FRQ(fb + j)*y[j];
-        ph *= uGain;
+        ph *= gain;
         // A per-centre phase offset, so the centres do not all agree at the
         // origin and a brain has something to say about an empty world.
         float off = 2.0*float(c)*0.6283 + AMP(ab + NOUT - 1)*PI;
@@ -518,21 +536,39 @@ void main(){
    them. That is not rounding, it is a leak.                                */
 const FS_SHARE = HEAD + `
 uniform sampler2D uE0, uE1, uE2, uC0, uC1, uC2;
+${decl("uD", ND)}
+uniform float uSpeed;
 layout(location = 0) out vec4 oS0;
 layout(location = 1) out vec4 oS1;
 layout(location = 2) out vec4 oS2;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 z0 = vec4(0.0), z1 = vec4(0.0), z2 = vec4(0.0);
+  vec4 dv[ND];
+  ${reads("dv", "D", ND, "p")}
+  // A share now weighs where a species is FACING as well as what it wants:
+  // the nine weights are exp(beta*affinity) times exp(SPEED*dot(heading,
+  // offset)), so the neighbour straight ahead is favoured and the one behind
+  // is not. That is the forward step, and without it the heading only ever
+  // aimed the kernel -- every move was a fresh softmax over what was smelled,
+  // with no memory of where anything was already going. Conservation is
+  // untouched: whatever weights are used here, they are the ones divided out.
+  float z[NS];
+  for(int i = 0; i < NS; i++) z[i] = 0.0;
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    z0 += texelFetch(uE0, q, 0); z1 += texelFetch(uE1, q, 0); z2 += texelFetch(uE2, q, 0);
+    vec4 a = texelFetch(uE0, q, 0), b = texelFetch(uE1, q, 0), c = texelFetch(uE2, q, 0);
+    vec2 o = vec2(OFF[k]);
+    for(int i = 0; i < NS; i++) z[i] += SP(a, b, c, i)*exp(uSpeed*dot(getdir(dv, i), o));
   }
+  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
   // Guard 0/0 only. The floor must sit far below the smallest honest Z or
   // mass is silently deleted.
-  oS0 = texelFetch(uC0, p, 0)/max(z0, vec4(1e-30));
-  oS1 = texelFetch(uC1, p, 0)/max(z1, vec4(1e-30));
-  oS2 = texelFetch(uC2, p, 0)/max(z2, vec4(1e-30));
+  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
+  for(int i = 0; i < NS; i++){
+    float v = SP(c0, c1, c2, i)/max(z[i], 1e-30);
+    SETSP(s0, s1, s2, i, v)
+  }
+  oS0 = s0; oS1 = s1; oS2 = s2;
 }`;
 
 /* -------------------------------- 3: collect, and carry each species' heading
@@ -546,6 +582,7 @@ const FS_MOVE = HEAD + `
 uniform sampler2D uE0, uE1, uE2, uS0, uS1, uS2;
 ${decl("uD", ND)}
 ${decl("uT", NT)}
+uniform float uSpeed;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
 layout(location = 2) out vec4 oC2;
@@ -553,22 +590,26 @@ ${outs("D", ND, 3)}
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0), e2 = texelFetch(uE2, p, 0);
-  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
   vec2 acc[NS];
-  float wt[NS];
-  for(int i = 0; i < NS; i++){ acc[i] = vec2(0.0); wt[i] = 0.0; }
+  float wt[NS], got[NS];
+  for(int i = 0; i < NS; i++){ acc[i] = vec2(0.0); wt[i] = 0.0; got[i] = 0.0; }
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
     vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0), c = texelFetch(uS2, q, 0);
-    s0 += a; s1 += b; s2 += c;
     vec4 dq[ND];
     ${reads("dq", "D", ND, "q")}
-    vec4 m0 = e0*a, m1 = e1*b, m2 = e2*c;
+    // q sent to p, so the offset q measured its forward step by is p - q.
+    vec2 o = -vec2(OFF[k]);
     for(int i = 0; i < NS; i++){
-      float m = SP(m0, m1, m2, i);
-      acc[i] += m*getdir(dq, i); wt[i] += m;
+      vec2 dqi = getdir(dq, i);
+      float w = SP(a, b, c, i)*exp(uSpeed*dot(dqi, o));
+      got[i] += w;
+      float m = SP(e0, e1, e2, i)*w;
+      acc[i] += m*dqi; wt[i] += m;
     }
   }
+  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
+  for(int i = 0; i < NS; i++) SETSP(s0, s1, s2, i, got[i])
   oC0 = e0*s0; oC1 = e1*s1; oC2 = e2*s2;
 
   vec4 dp[ND];
@@ -968,7 +1009,8 @@ const S = {
   // point tap at any distance aliases into dots as a heading creeps round.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
   dist: 2.5, size: 1, spread: 162, feather: 0.2, shape: 1, mirror: 1,
-  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.938, diff: 1, gain: 1.55,
+  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.938, diff: 1,
+  gain: 1.55, sweep: 0, speed: 2,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
@@ -1163,7 +1205,7 @@ function step(){
     gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
     gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
-    gl.uniform1f(u.uGain, gain());
+    gl.uniform1f(u.uGain, gain()); gl.uniform1f(u.uSweep, S.sweep);
     gl.uniform4fv(u.uFRQ, S.frq); gl.uniform4fv(u.uAMP, S.amp);
     target([G.e0, G.e1, G.e2, G.p0, G.p1, ...G.t], N, N); drawQuad();
   }
@@ -1172,7 +1214,8 @@ function step(){
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
     gl.uniform1i(u.uE2, tex(2, G.e2));
     gl.uniform1i(u.uC0, tex(3, G.c0)); gl.uniform1i(u.uC1, tex(4, G.c1));
-    gl.uniform1i(u.uC2, tex(5, G.c2));
+    gl.uniform1i(u.uC2, tex(5, G.c2)); bindRun(u, "uD", G.d, 6);
+    gl.uniform1f(u.uSpeed, S.speed);
     target([G.s0, G.s1, G.s2], N, N); drawQuad();
   }
   {                                     // collect, and carry the heading
@@ -1182,6 +1225,7 @@ function step(){
     gl.uniform1i(u.uS0, tex(3, G.s0)); gl.uniform1i(u.uS1, tex(4, G.s1));
     gl.uniform1i(u.uS2, tex(5, G.s2));
     bindRun(u, "uT", G.t, bindRun(u, "uD", G.d, 6));
+    gl.uniform1f(u.uSpeed, S.speed);
     target([G.c0b, G.c1b, G.c2b, ...G.db], N, N); drawQuad();
     [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
     [G.c2, G.c2b] = [G.c2b, G.c2];
@@ -1486,6 +1530,23 @@ function buildUI(){
     + "is where the sharp, fussy structure comes from. Fluoddity's presets sit "
     + "around <b>1.5</b>. It costs nothing to move &mdash; it does not reroll "
     + "the brains, so the same nine rules can be run soft or savage.");
+  slider("speed", "speed", 0, 6, 0.05, 2, null,
+    "How strongly a species is carried <b>along its own heading</b>, on top "
+    + "of wherever its affinity wants it. This is the <b>forward step</b> "
+    + "&mdash; the thing an ant does after it turns. At <b>0</b> the heading "
+    + "only aims the kernel and every move is a fresh decision about what is "
+    + "smelled right now, with no memory of where anything was already going; "
+    + "trails cannot form because nothing keeps going straight. Turning it up "
+    + "gives the field <b>momentum</b>: a heading is state, it turns slowly, "
+    + "and now it drives motion, which is what makes filaments instead of "
+    + "blobs. Mass is conserved at any value.");
+  slider("sweep", "sweep", 0, 2.5, 0.05, 2, null,
+    "Runs <b>gain</b> across the world from left to right instead of holding "
+    + "it fixed, the way Fluoddity sweeps a parameter over its canvas. At "
+    + "<b>2</b> the left edge is about a seventh of the gain of the middle "
+    + "and the right edge seven times it, so one frame shows a whole gradient "
+    + "of behaviour under one set of rules rather than a single point sampled "
+    + "from it. The fastest way to find out what a set of brains can do.");
   slider("beta", "beta", 0.5, 30, 0.5, 1, null,
     "How <b>decisively</b> a species commits to its affinity. Low and it hands "
     + "its concentration to all nine neighbours in nearly equal shares, which is "
