@@ -12,6 +12,16 @@ import numpy as np
 K, NS, NC = 8, 9, 10
 NOUT = 2 + K
 OFF = [(0, 0), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
+# Unit offsets and one over their lengths. Scoring the forward step on the RAW
+# offset gives the diagonals a root-two head start inside the exponent, which
+# drags the drift onto multiples of 45 degrees; on the unit offset, divided by
+# the length, the mean displacement is an average of unit vectors over eight
+# evenly spaced directions and tracks the heading to a fraction of a degree.
+_LEN = [1.0] + [(1.0 if (a == 0 or b == 0) else 2.0 ** 0.5) for a, b in OFF[1:]]
+UOFF = [(a / l, b / l) for (a, b), l in zip(OFF, _LEN)]
+ILEN = [1.0 / l for l in _LEN]
+# binomial 1-2-1, which is far closer to isotropic than a flat 3x3 box
+BW = [(2.0 if a == 0 else 1.0) * (2.0 if b == 0 else 1.0) for a, b in OFF]
 
 
 def mulberry32(seed):
@@ -207,14 +217,16 @@ class Brains:
         sp = np.float32(P["speed"])
         Dx, Dy = self.D[..., 0], self.D[..., 1]
         z = np.zeros_like(E)
-        fwd = [np.exp(sp * (Dx * o0 + Dy * o1)) for o0, o1 in OFF]
+        fwd = [np.exp(sp * (Dx * o0 + Dy * o1)) * np.float32(il)
+               for (o0, o1), il in zip(UOFF, ILEN)]
         for k, off in enumerate(OFF):
             z += roll_at(E, off) * fwd[k]
         S = self.C / np.maximum(z, 1e-30)
         got = np.zeros_like(E)
         acc = np.zeros_like(self.D)
         for k, off in enumerate(OFF):
-            w = roll_at(S / fwd[k], off)          # exp(sp*d.(-off)) = 1/exp(sp*d.off)
+            # exp(sp*d.(-u))*il == il*il / (exp(sp*d.u)*il)
+            w = roll_at(S / fwd[k], off) * np.float32(ILEN[k] * ILEN[k])
             got += w
             acc += w[..., None] * roll_at(self.D, off)
         wt = got
@@ -229,11 +241,11 @@ class Brains:
 
         # ---- the ground, matter and flow alike
         c = self.M + dep
-        s9 = sum(roll_at(c, off) for off in OFF) / np.float32(9.0)
+        s9 = sum(np.float32(w) * roll_at(c, off) for w, off in zip(BW, OFF)) / np.float32(16.0)
         self.M = np.clip(P["decay"] * (c * (1 - P["diff"]) + s9 * P["diff"]),
                          0, 6e4).astype(np.float32)
         cf = self.F + (self.C[..., None] * self.D).sum(2) * np.float32(cnorm)
-        f9 = sum(roll_at(cf, off) for off in OFF) / np.float32(9.0)
+        f9 = sum(np.float32(w) * roll_at(cf, off) for w, off in zip(BW, OFF)) / np.float32(16.0)
         self.F = np.clip(P["decay"] * (cf * (1 - P["diff"]) + f9 * P["diff"]),
                          -6e4, 6e4).astype(np.float32)
 
