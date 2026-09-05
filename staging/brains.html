@@ -200,9 +200,11 @@ each one on its own.</p>
 
 <h2>The step</h2>
 <p>&mdash; <b>Perceive.</b> The kernel is turned to face the cell's own direction and convolved
-across all eight matter channels. Each of its two lobes gives a reading per channel, so what comes
-out is a <b>perception vector</b> of sixteen numbers. One kernel, one perception, shared by
-everybody in the cell.</p>
+across all eight matter channels. Its lobes give a reading per channel, so what comes out is a
+<b>perception vector</b>. How many readings depends on the <b>kernel</b> setting: <i>both eyes</i>
+keeps each side separate for sixteen numbers, <i>opposed eyes</i> hands over only right minus left
+for eight, and <i>eyes and centre</i> adds the cell's own ground negated for twenty-four. One
+kernel, one perception, shared by everybody in the cell.</p>
 <p>&mdash; <b>Think.</b> Each species has a <b>brain</b> &mdash; a small network, sampled at
 random for now. Every brain reads the same perception vector and answers with three things: an
 <b>orientation offset</b>, an <b>affinity</b>, and a <b>matter offset</b>, one number per matter
@@ -255,7 +257,7 @@ if(!gl.getExtension("EXT_color_buffer_float"))
 const K = 8;                 // matter channels
 const NS = 9;                // species, and so brains -- 3x3 on the grid start
 const HID = 6;               // hidden units in a brain
-const NIN = 2*K + 1;         // both lobes per matter channel, and a bias
+const NIN = 3*K + 1;         // up to three readings per matter channel, and a bias
 const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
 
 const VS = `#version 300 es
@@ -304,6 +306,7 @@ float rnd(ivec2 p, int k, int f){
 const FS_BRAIN = HEAD + `
 uniform sampler2D uM0, uM1, uC0, uC1, uC2, uD;
 uniform float uDist, uSize, uSpread, uFeather;
+uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
 // per element, so 1424 weights ask for 1424 vectors against a limit of 1024
 // and the link fails; as vec4 they ask for 356.
@@ -336,19 +339,36 @@ void main(){
   float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
   vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
   vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
-  vec4 pos0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
-  vec4 pos1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
-  vec4 neg0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
-  vec4 neg1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
-  // Both lobes go in whole rather than as their difference: a brain can form
-  // the difference itself if it wants one, and it can also tell "plenty
-  // everywhere" from "plenty on one side", which a difference throws away.
+  vec4 rgt0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
+  vec4 rgt1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
+  vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
+  vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
+  vec4 ctr0 = textureLod(uM0, uv, lod);
+  vec4 ctr1 = textureLod(uM1, uv, lod);
+  // The SHAPE decides how those taps become readings. Taps that share a
+  // reading are summed with their sign, so a shape with one reading per
+  // channel is genuinely a different function than one with two: a brain can
+  // build a difference out of two separate eyes, but it can never pull two
+  // separate eyes back out of a difference.
+  //   0 opposed      right minus left            -- one reading  (K + 1 inputs)
+  //   1 both eyes    right and left kept apart   -- two readings (2K + 1)
+  //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
   float x[NIN];
+  for(int i = 0; i < NIN; i++) x[i] = 0.0;
   for(int i = 0; i < 4; i++){
-    x[i]       = pos0[i]*uMnorm;  x[4 + i]  = pos1[i]*uMnorm;
-    x[8 + i]   = neg0[i]*uMnorm;  x[12 + i] = neg1[i]*uMnorm;
+    float r0 = rgt0[i]*uMnorm, r1 = rgt1[i]*uMnorm;
+    float l0 = lft0[i]*uMnorm, l1 = lft1[i]*uMnorm;
+    if(uShape == 0){
+      x[i] = r0 - l0;  x[4 + i] = r1 - l1;
+    } else {
+      x[i]      = r0;  x[4 + i]  = r1;
+      x[8 + i]  = l0;  x[12 + i] = l1;
+      if(uShape == 2){
+        x[16 + i] = -ctr0[i]*uMnorm;  x[20 + i] = -ctr1[i]*uMnorm;
+      }
+    }
   }
-  x[2*K] = 1.0;
+  x[3*K] = 1.0;
 
   vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
   float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0)) + dot(c2, vec4(1.0));
@@ -776,7 +796,7 @@ const S = {
   // and a tenth of the grid populated. Beta has no analogue there -- Jones
   // takes a hard three-way argmax -- so it sits where this rule reads crisp.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
-  dist: 9, size: 1, spread: 45, feather: 0.2,
+  dist: 9, size: 1, spread: 45, feather: 0.2, shape: 1,
   beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.9, diff: 1,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
@@ -801,8 +821,9 @@ function rollBrains(){
   S.w1 = pad4(NS*HID*NIN); S.b1 = pad4(NS*HID);
   S.w2 = pad4(NS*NOUT*HID); S.b2 = pad4(NS*NOUT);
   // 1/sqrt(fan-in), so the sine units land across their range instead of
-  // saturating -- with seventeen inputs a fixed scale pins them all at +-1
-  // and every brain answers the same thing.
+  // saturating -- with this many inputs a fixed scale pins them all at +-1
+  // and every brain answers the same thing. Unused readings are fed zero, so
+  // a narrower kernel simply leaves part of the first layer idle.
   const s1 = 1.7/Math.sqrt(NIN), s2 = 1.4/Math.sqrt(HID);
   for(let i = 0; i < NS*HID*NIN; i++) S.w1[i] = gauss()*s1*Math.sqrt(NIN)*0.55;
   for(let i = 0; i < NS*HID; i++) S.b1[i] = gauss()*1.5;
@@ -936,6 +957,7 @@ function step(){
     gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
+    gl.uniform1i(u.uShape, S.shape);
     gl.uniform1f(u.uBeta, S.beta);
     gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
     gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
@@ -1148,9 +1170,20 @@ function buttons(defs){
   }
   return d;
 }
+/* The taps a kernel is made of: [x, y, weight], the cell facing +x. This is
+   the SAME list the shader works from, so the picture below the controls is
+   the kernel the brains are actually smelling through, sign and all. */
+function kernelTaps(){
+  const a = S.spread*Math.PI/360;
+  const rgt = [Math.cos(a)*S.dist,  Math.sin(a)*S.dist];
+  const lft = [Math.cos(a)*S.dist, -Math.sin(a)*S.dist];
+  if(S.shape === 0) return [[rgt[0], rgt[1], 1], [lft[0], lft[1], -1]];
+  if(S.shape === 2) return [[rgt[0], rgt[1], 1], [lft[0], lft[1], 1], [0, 0, -1]];
+  return [[rgt[0], rgt[1], 1], [lft[0], lft[1], 1]];
+}
 /* The kernel, drawn as it is: a continuous function of position sampled on
-   the grid, so smooth blobs shown as squares. Warm is the lobe that counts
-   positive, cool the one that counts negative, and the cell faces right. */
+   the grid, so smooth blobs shown as squares. Warm counts positive, cool
+   negative, and the cell faces right. */
 function drawKernel(){
   const k = $("kern"); if(!k) return;
   const g2 = k.getContext("2d");
@@ -1165,11 +1198,7 @@ function drawKernel(){
   const side = 2*R + 1, cs = W/side;
   const acc = new Float64Array(side*side);
   const sig = sigD;
-  const lobes = [];
-  for(const sgn of [1, -1]){
-    const a = sgn*S.spread*Math.PI/360;
-    lobes.push([Math.cos(a)*S.dist, Math.sin(a)*S.dist, sgn]);
-  }
+  const lobes = kernelTaps();
   for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
     let v = 0;
     for(const [cx, cy, w] of lobes){
@@ -1210,6 +1239,18 @@ function buildKernel(){
 function buildUI(){
   buildKernel();
   group("perception");
+  picker("kernel", "shape", [{v:1, t:"both eyes"}, {v:0, t:"opposed eyes"},
+                             {v:2, t:"eyes and centre"}], drawKernel,
+    "What the kernel is made of, and so what a brain gets to smell. "
+    + "<b>both eyes</b> gives each side as its own reading, so a brain can "
+    + "tell \"plenty everywhere\" from \"plenty on one side\". "
+    + "<b>opposed eyes</b> hands over only right minus left &mdash; the "
+    + "classic slime-mold difference, half the inputs, and blind to how much "
+    + "there is in total. <b>eyes and centre</b> adds a third reading: the "
+    + "cell's own ground, negated, so a brain sees the two sides <i>and</i> "
+    + "how much better they are than where it is standing. "
+    + "Changing this changes what the first layer is wired to, so a brain "
+    + "behaves differently under each &mdash; it is not just a picture.");
   slider("distance", "dist", 1, 60, 0.5, 1, drawKernel,
     "How far out the two lobes sit, in cells. The <b>scale of everything</b> "
     + "&mdash; the size of the structures that form is set here more than by "
