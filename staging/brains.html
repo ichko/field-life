@@ -613,14 +613,23 @@ void main(){
   float tot = dot(a4, vec4(1.0)) + dot(b4, vec4(1.0)) + dot(d4, vec4(1.0));
   float v = 1.0 - exp(-max(tot*uCnorm - uFloor, 0.0)*uExp);
 
-  if(uView == 1){                                   // the matter, blended
-    // Eight channels each normalised to about one add up to about eight, which
-    // is white everywhere. Scaled by the channel count so the view has range.
-    vec3 add = vec3(0.0);
-    for(int i = 0; i < 4; i++)
-      add += (uPal[i]*max(m0[i], 0.0) + uPal[4 + i]*max(m1[i], 0.0))*uMnorm/float(K);
-    oCol = vec4(vec3(1.0) - exp(-max(add - uFloor, 0.0)*uExp)
-                + vec3(0.016, 0.024, 0.040), 1.0);
+  if(uView == 1){                                   // the matter
+    // The flat page's blend, not an additive one. Colour is the WEIGHTED MEAN
+    // of the channels' hues, weighted by the square of how much of each is
+    // there, and brightness is a separate curve on the total. Adding the hues
+    // instead drives everything to white as soon as two channels overlap, and
+    // then all the information about which is which is gone. This keeps hue
+    // saying what is there and brightness saying how much.
+    vec3 hue = vec3(0.0);
+    float tot = 0.0, wsum = 0.0;
+    for(int i = 0; i < 4; i++){
+      float a = max(m0[i], 0.0)*uMnorm, b = max(m1[i], 0.0)*uMnorm;
+      tot += a + b;
+      wsum += a*a + b*b;
+      hue += uPal[i]*a*a + uPal[4 + i]*b*b;
+    }
+    float al = 1.0 - exp(-max(tot - uFloor, 0.0)*uExp);
+    oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
     return;
   }
   if(uView == 2){ oCol = vec4(vec3(v), 1.0); return; }
@@ -647,13 +656,19 @@ void main(){
     oCol = vec4(clamp(col*(0.22 + 0.78*v)*1.7, 0.0, 1.0), 1.0);
     return;
   }
-  vec3 add = vec3(0.0);                             // the species, blended
+  vec3 hue = vec3(0.0);                             // the species, same blend
+  float sum = 0.0, wsum = 0.0;
   for(int i = 0; i < 4; i++){
-    add += (uPal[i]*max(a4[i], 0.0) + uPal[4 + i]*max(b4[i], 0.0))*uCnorm;
-    if(8 + i < NS) add += uPal[8 + i]*max(d4[i], 0.0)*uCnorm;
+    float a = max(a4[i], 0.0)*uCnorm, b = max(b4[i], 0.0)*uCnorm;
+    sum += a + b; wsum += a*a + b*b;
+    hue += uPal[i]*a*a + uPal[4 + i]*b*b;
+    if(8 + i < NS){
+      float c2 = max(d4[i], 0.0)*uCnorm;
+      sum += c2; wsum += c2*c2; hue += uPal[8 + i]*c2*c2;
+    }
   }
-  oCol = vec4(vec3(1.0) - exp(-max(add - uFloor, 0.0)*uExp)
-              + vec3(0.016, 0.024, 0.040), 1.0);
+  float al = 1.0 - exp(-max(sum - uFloor, 0.0)*uExp);
+  oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
 }`;
 
 const FS_SUM = `#version 300 es
@@ -762,7 +777,7 @@ const S = {
   // takes a hard three-way argmax -- so it sits where this rule reads crisp.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
   dist: 9, size: 1, spread: 45, feather: 0.2,
-  beta: 8, turn: 45, moff: 1, crowd: 1.2, decay: 0.9, diff: 1,
+  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.9, diff: 1,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
@@ -1228,8 +1243,10 @@ function buildUI(){
     + "<b>Nothing else in here pushes back on crowding</b>, and without it the "
     + "thing runs away: a brain that likes where it already is piles up, what "
     + "it lays down is proportional to how much of it is there, and what it "
-    + "lays down is what attracted it. Turning decay up cannot fix that, "
-    + "because the source is growing faster than the ground can forget.");
+    + "lays down is what attracted it. Measured, though, that runaway does "
+    + "<b>not</b> happen: peak concentration falls over time with this at zero, "
+    + "which is where it now starts. It is a knob for pushing species apart, "
+    + "not a fix &mdash; and it costs contrast, so turn it up on purpose.");
   slider("deposit", "moff", 0, 4, 0.05, 2, null,
     "How much the brains' matter offsets actually lay down. At 0 nothing is "
     + "written to the ground, nobody can smell anything, and the field freezes.");
