@@ -49,7 +49,7 @@ def metrics(hist, C):
 
 
 PAL = np.array([[1,.35,0],[1,.85,0],[.35,1,0],[0,1,.55],[0,.85,1],[.3,.4,1],
-                [.7,.25,1],[1,.15,.7],[1,.55,.35]], np.float32)[:8]
+                [.7,.25,1],[1,.15,.7]], np.float32)
 
 
 def thumb(M, mnorm, floor=0.05, expo=1.5):
@@ -71,7 +71,11 @@ def sample(rng):
         N=N_GRID, seed=int(rng.integers(1e9)),
         shape=int(rng.integers(0, 3)), mirror=int(rng.integers(0, 2)),
         gain=round(lg(0.2, 5.0), 3), speed=round(float(rng.uniform(0, 5)), 2),
-        beta=round(lg(3.0, 35.0), 2), turn=round(float(rng.uniform(3, 90)), 1),
+        beta=round(lg(3.0, 35.0), 2),
+        drag=round(float(rng.uniform(0.05, 0.95)), 3),
+        force=round(float(rng.uniform(0, 1.5)), 3),
+        swerve=round(float(rng.uniform(0, 1.5)), 3),
+        strafe=round(float(rng.uniform(0, 0.8)), 3),
         dist=round(lg(1.0, 16.0), 2), spread=round(float(rng.uniform(8, 178)), 0),
         size=round(lg(1.0, 4.0), 2), feather=round(float(rng.uniform(0, 1)), 2),
         decay=round(float(rng.uniform(0.80, 0.99)), 3),

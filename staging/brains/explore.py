@@ -9,8 +9,8 @@ bilinear-sampled. Regimes transfer; exact pixels do not.
 """
 import numpy as np
 
-K, NS, NC = 8, 9, 10
-NOUT = 2 + K
+K, NS, NC = 8, 4, 10
+NOUT = 4 + 1 + K      # force, strafe, affinity, matter offsets
 OFF = [(0, 0), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
 # Unit offsets and one over their lengths. Scoring the forward step on the RAW
 # offset gives the diagonals a root-two head start inside the exponent, which
@@ -60,6 +60,13 @@ def glsl_rnd(px, py, k, f):
 
 
 NIN = 3 * K + 5      # three readings a matter channel, the flow, and a bias
+
+
+def cap(v, m=16.0):
+    """Velocity accumulates; a 3x3 stencil can never use more than a few cells a
+    step, so past this the number only threatens to overflow."""
+    L = np.hypot(v[..., 0], v[..., 1])[..., None]
+    return np.where(L > m, v * (m / np.maximum(L, 1e-12)), v)
 
 
 def roll_at(a, off):
@@ -155,7 +162,7 @@ class Brains:
         # each species faces its own way -- the seed shader's own hash
         a = np.stack([(glsl_rnd(xx, yy, 16 + s, P["seed"]) + 0.5) * 2 * np.pi
                       for s in range(NS)], -1).astype(np.float32)
-        self.D = np.stack([np.cos(a), np.sin(a)], -1).astype(np.float32)      # (N,N,NS,2)
+        self.D = (np.stack([np.cos(a), np.sin(a)], -1) * 0.25).astype(np.float32)
         yy, xx = np.mgrid[0:N, 0:N]
         self.px = (xx + 0.5).astype(np.float32)
         self.py = (yy + 0.5).astype(np.float32)
@@ -171,10 +178,13 @@ class Brains:
         Mb = blur(self.M, 0.42 * (2.0 ** lod))
         Mf = Mb.reshape(N * N, K)
         Fb = blur(self.F, 0.42 * (2.0 ** lod)).reshape(N * N, 2)
-        fnorm = np.float32(1 - P["decay"])
+        fnorm = np.float32((1 - P["decay"]) * P.get("flow", 1.0))
         ctr = (Mb * mnorm - 1.0)[:, :, None, :]              # (N,N,1,K), shared
 
-        th = np.arctan2(self.D[..., 1], self.D[..., 0])      # (N,N,NS)
+        sp_ = np.hypot(self.D[..., 0], self.D[..., 1])       # speed is STATE now
+        fw = np.where(sp_[..., None] > 1e-6, self.D / np.maximum(sp_, 1e-12)[..., None],
+                      np.array([1.0, 0.0], np.float32))
+        th = np.arctan2(fw[..., 1], fw[..., 0])              # (N,N,NS)
         hs = np.float32(np.radians(P["spread"]) * 0.5)
         rgt = self._tap(Mf, th + hs) * mnorm - 1.0           # (N,N,NS,K)
         lft = self._tap(Mf, th - hs) * mnorm - 1.0
@@ -182,8 +192,8 @@ class Brains:
         Z = np.zeros((N, N, NS, K), np.float32)
         ctrb = np.broadcast_to(ctr, (N, N, NS, K))
         # the flow at each lobe, turned into the reading species' own frame
-        fwd = np.stack([np.cos(th), np.sin(th)], -1)
-        lat = np.stack([-np.sin(th), np.cos(th)], -1)
+        fwd = fw
+        lat = np.stack([-fw[..., 1], fw[..., 0]], -1)
         fr = self._tap(Fb, th + hs, 2) * fnorm
         fl = self._tap(Fb, th - hs, 2) * fnorm
         F = np.stack([(fr * fwd).sum(-1), (fr * lat).sum(-1),
@@ -207,36 +217,34 @@ class Brains:
                                 (o[..., 1:] + om[..., 1:]) * 0.5], -1)
 
         tot = self.C.sum(-1)
-        turn = (np.float32(np.radians(P["turn"])) * np.tanh(o[..., 0])
-                * np.minimum(1.0, self.C * cnorm))                       # (N,N,NS)
-        E = np.exp(np.clip(P["beta"] * o[..., 1]
+        here = np.minimum(1.0, self.C * cnorm)[..., None]
+        # velocity += force, under drag; strafe pushes this step and is dropped
+        force = (fwd * o[..., 0:1] * P["force"] + lat * o[..., 1:2] * P["swerve"]) * here
+        self.D = cap(self.D * np.float32(1 - P["drag"]) + force)
+        strafe = cap((fwd * o[..., 2:3] + lat * o[..., 3:4]) * np.float32(P["strafe"]) * here)
+        E = np.exp(np.clip(P["beta"] * o[..., 4]
                            - P["crowd"] * tot[..., None] * cnorm, -40, 40))
-        dep = (self.C[..., None] * np.tanh(o[..., 2:])).sum(2) * np.float32(P["moff"] * cnorm)
+        dep = (self.C[..., None] * np.tanh(o[..., 5:])).sum(2) * np.float32(P["moff"] * cnorm)
 
         # ---- transport: exp(beta*affinity + speed*heading.offset), per species
         sp = np.float32(P["speed"])
-        Dx, Dy = self.D[..., 0], self.D[..., 1]
+        bias = self.D + strafe                    # position += velocity + strafe
+        Bx, By = bias[..., 0], bias[..., 1]
         z = np.zeros_like(E)
-        fwd = [np.exp(sp * (Dx * o0 + Dy * o1)) * np.float32(il)
-               for (o0, o1), il in zip(UOFF, ILEN)]
+        g = [np.exp(np.clip(sp * (Bx * o0 + By * o1), -40, 40)) * np.float32(il)
+             for (o0, o1), il in zip(UOFF, ILEN)]
         for k, off in enumerate(OFF):
-            z += roll_at(E, off) * fwd[k]
+            z += roll_at(E, off) * g[k]
         S = self.C / np.maximum(z, 1e-30)
         got = np.zeros_like(E)
         acc = np.zeros_like(self.D)
         for k, off in enumerate(OFF):
-            # exp(sp*d.(-u))*il == il*il / (exp(sp*d.u)*il)
-            w = roll_at(S / fwd[k], off) * np.float32(ILEN[k] * ILEN[k])
+            w = roll_at(S / g[k], off) * np.float32(ILEN[k] * ILEN[k])
             got += w
             acc += w[..., None] * roll_at(self.D, off)
-        wt = got
-        d = np.where(wt[..., None] > 1e-20, acc / np.maximum(wt, 1e-30)[..., None], self.D)
-        L = np.hypot(d[..., 0], d[..., 1])[..., None]
-        d = np.where(L > 1e-6, d / np.maximum(L, 1e-12),
-                     np.array([1.0, 0.0], np.float32))
-        ct, st = np.cos(turn), np.sin(turn)
-        self.D = np.stack([d[..., 0] * ct - d[..., 1] * st,
-                           d[..., 0] * st + d[..., 1] * ct], -1)
+        # carried, NOT renormalised: the length is the species' speed
+        self.D = np.where(got[..., None] > 1e-20,
+                          acc / np.maximum(got, 1e-30)[..., None], self.D)
         self.C = E * got
 
         # ---- the ground, matter and flow alike

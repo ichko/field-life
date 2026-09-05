@@ -270,12 +270,16 @@ if(!gl.getExtension("EXT_color_buffer_float"))
   fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
 
 const K = 8;                 // matter channels
-const NS = 9;                // species, and so brains -- 3x3 on the grid start
+// FOUR species, and four is a ceiling rather than a taste: the thinking pass
+// has to emit an affinity, a matter offset per channel, a velocity and a
+// strafe for every species at once, and past four that will not fit in the
+// eight render targets a GPU offers. Four also means the species field is one
+// vec4, which is why there is no packing anywhere below.
+const NS = 4;
 const NC = 10;               // Fourier centres in a brain, Fluoddity's number
 const NIN = 3*K + 5;         // three readings a matter channel, the flow, and a bias
-const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
-const ND = (NS + 1) >> 1;    // direction textures -- two species to a vec4
-const NT = (NS + 3) >> 2;    // turn textures -- four species to a vec4
+const NOUT = 4 + 1 + K;      // force, strafe, affinity, a matter offset per channel
+const ND = (NS + 1) >> 1;    // vector fields -- two species to a vec4
 
 const VS = `#version 300 es
 in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
@@ -290,6 +294,17 @@ const ivec2 OFF[9] = ivec2[9](ivec2( 0, 0),
   ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
   ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
 ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+// Velocity is state and accumulates, so a low drag and a strong force can run
+// it away; a 3x3 stencil cannot move mass more than one cell a step, so past a
+// few cells per step the number means nothing and only threatens to overflow.
+// Capped well above anything useful, purely so nothing becomes an inf.
+vec2 cap(vec2 v){
+  float m = length(v);
+  return m > 16.0 ? v*(16.0/m) : v;
+}
+// exp of the transport exponent, on the same reasoning as the affinity's rail:
+// only differences matter, and an inf here becomes exp(inf - inf) = NaN.
+float wexp(float a){ return exp(clamp(a, -40.0, 40.0)); }
 // The same nine offsets as DIRECTIONS, and one over their lengths. The forward
 // step scores a neighbour on exp(speed * heading . offset), and using the RAW
 // offset there hands the diagonals a factor of root two inside the exponent --
@@ -306,18 +321,12 @@ const vec2 UOFF[9] = vec2[9](vec2( 0.0, 0.0),
   vec2( 0.0,-1.0), vec2( 0.70710678,-0.70710678));
 const float ILEN[9] = float[9](1.0, 1.0, 0.70710678, 1.0, 0.70710678,
                                1.0, 0.70710678, 1.0, 0.70710678);
-// Nine species across three vec4s. The last three slots of the third are
-// unused, which costs a little memory and saves indexing three textures by
-// hand everywhere.
-#define SP(a, b, c, s) ((s) < 4 ? (a)[(s)] : ((s) < 8 ? (b)[(s) - 4] : (c)[(s) - 8]))
-// Every species carries its OWN heading, so a direction field is nine vec2s a
-// cell: two to a vec4, five textures, the last half of the last one unused.
-// A local array can be indexed by a running variable where a sampler array
-// cannot, so the taps are always unrolled into one of these first.
-#define SETSP(a, b, c, s, v) { if((s) < 4) (a)[(s)] = (v); \
-  else if((s) < 8) (b)[(s) - 4] = (v); else (c)[(s) - 8] = (v); }
-vec2 getdir(vec4 d[ND], int s){ return (s & 1) == 0 ? d[s >> 1].xy : d[s >> 1].zw; }
-void setdir(inout vec4 d[ND], int s, vec2 v){
+// A species field is ONE vec4: with four species there is nothing to pack, so
+// SP and its friends are gone and a concentration is just c[s].
+// The vector fields -- velocity and strafe -- are still two species to a vec4,
+// so they get the local-array treatment a sampler array cannot have.
+vec2 getvec(vec4 d[ND], int s){ return (s & 1) == 0 ? d[s >> 1].xy : d[s >> 1].zw; }
+void setvec(inout vec4 d[ND], int s, vec2 v){
   if((s & 1) == 0){ d[s >> 1].xy = v; } else { d[s >> 1].zw = v; }
 }
 vec2 rot(vec2 v, float a){
@@ -350,80 +359,79 @@ float rnd(ivec2 p, int k, int f){
   return float(h) * (1.0/4294967296.0) - 0.5;
 }`;
 
-/* ------------------------------------------------- 1: perceive, think, combine
+/* ------------------------------------------------- 1: perceive, think, move
    The one pass that does the thinking. It smells the ground through a kernel
-   turned to face this cell, runs every species' brain on that one perception,
-   and writes out the three things the rest of the step needs: the exponent of
-   each species' affinity, the matter each cell is about to lay down, and where
-   the cell now faces.
+   turned to face where each species is HEADING, runs that species' brain on
+   what it found, and writes what the rest of the step needs.
 
-   The kernel is BUILT from the angle. Its lobe centres are computed from this
-   cell's heading every step, so no stored stencil is turned and resampled and
-   nothing aliases as a heading creeps round. Each lobe is a smooth blob read
-   as a BLURRED AVERAGE -- the matter carries a mip chain and one tap at the
-   right level is that average -- which is what makes a lobe a lobe rather than
-   a scatter of point taps.                                                  */
+   The dynamics are Fluoddity's, as its author states them:
+       velocity += force;
+       position += velocity + strafe;
+   So a brain emits a FORCE, which accumulates into a velocity that persists
+   under drag, and a STRAFE, which pushes this step only and is forgotten. Both
+   come out in the species' own frame -- along its nose and across it -- and are
+   turned into the world here. Speed is state, not a setting: a species that has
+   been pushed the same way for a while is moving faster than one that has not.
+
+   The kernel is BUILT from the angle. Its lobe centres come from this species'
+   own heading every step, so no stored stencil is turned and resampled and
+   nothing aliases as a heading creeps round.                                */
 const FS_BRAIN = HEAD + `
-uniform sampler2D uM0, uM1, uC0, uC1, uC2, uF;
-${decl("uD", ND)}
+uniform sampler2D uM0, uM1, uC, uF;
+${decl("uV", ND)}
 uniform float uFnorm;
 uniform float uDist, uSize, uSpread, uFeather;
 uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
-// per element, so 3150 loose floats ask for 3150 vectors against a limit of
-// 1024 and the link fails; as vec4 they ask for 788.
+// per element, so 1160 loose floats ask for 1160 vectors against a limit of
+// 1024 and the link fails; as vec4 they ask for 290.
 uniform vec4 uFRQ[(NS*NC*NIN + 3)/4];    // a frequency over the inputs, per centre
 uniform vec4 uAMP[(NS*NC*NOUT + 3)/4];   // an amplitude over the outputs, per centre
 #define FRQ(i) uFRQ[(i) >> 2][(i) & 3]
 #define AMP(i) uAMP[(i) >> 2][(i) & 3]
-uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd, uGain, uSweep;
+uniform float uBeta, uMoff, uMnorm, uCnorm, uCrowd, uGain, uSweep;
+uniform float uDrag, uForce, uSwerve, uStrafe;
 uniform int uMirror;
-layout(location = 0) out vec4 oE0;      // exp(beta*affinity), species 0..3
-layout(location = 1) out vec4 oE1;      //                     species 4..7
-layout(location = 2) out vec4 oE2;      //                     species 8
-layout(location = 3) out vec4 oP0;      // matter to lay down, channels 0..3
-layout(location = 4) out vec4 oP1;      //                     channels 4..7
-// oT: how far each species turns, four to a vector. The turn is written out
-// rather than applied because the headings are ND textures and this pass has
-// no room left for them; the move pass, which has to touch every heading
-// anyway to carry it, does the turning.
-${outs("T", NT, 5)}
+layout(location = 0) out vec4 oE;       // exp(beta*affinity), one per species
+layout(location = 1) out vec4 oP0;      // matter to lay down, channels 0..3
+layout(location = 2) out vec4 oP1;      //                     channels 4..7
+${outs("V", ND, 3)}                     // the new velocity, two species a vector
+${outs("S", ND, 3 + ND)}                // the strafe, which is not carried
 
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec2 uv = (vec2(p) + 0.5)*uTexel;
-  vec4 dv[ND];
-  ${reads("dv", "D", ND, "p")}
+  vec4 vv[ND];
+  ${reads("vv", "V", ND, "p")}
 
   // ---- perceive: ONE Gaussian a lobe, read off the mip chain.
-  // A Gaussian-weighted average over a disc is a blurred read, so a lobe is a
-  // single tap at the level whose footprint is SIZE. Three shells stacked was
-  // three overlapping blobs pretending to be one; this is the one.
-  // The kernel is turned by the heading of the SPECIES DOING THE SMELLING, so
-  // the taps sit inside the loop and every species gets its own perception.
-  // Only the centre tap is shared -- it does not depend on which way anyone
-  // is facing, so it is read once.
+  // A Gaussian-weighted average over a disc IS a blurred read, so a lobe is a
+  // single tap at the level whose footprint is SIZE. The centre tap does not
+  // depend on which way anyone faces, so it is read once and shared.
   float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
   vec4 ctr0 = textureLod(uM0, uv, lod);
   vec4 ctr1 = textureLod(uM1, uv, lod);
   // SWEEP runs the gain across the world instead of holding it fixed, the way
-  // Fluoddity sweeps a parameter over its canvas. One frame then shows a
-  // whole gradient of behaviour under one set of rules -- smooth on one edge,
-  // frantic on the other -- rather than a single point sampled from it.
+  // Fluoddity sweeps a parameter over its canvas. One frame then shows a whole
+  // gradient of behaviour under one set of rules.
   float gain = uGain*exp(uSweep*(uv.x - 0.5)*2.0);
 
-  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
-  float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0)) + dot(c2, vec4(1.0));
+  vec4 c = texelFetch(uC, p, 0);
+  float tot = dot(c, vec4(1.0));
 
-  // ---- think: each brain smells through its own species' heading
-  vec4 e0 = vec4(0.0), e1 = vec4(0.0), e2 = vec4(0.0);
-  vec4 q0 = vec4(0.0), q1 = vec4(0.0);
-  vec4 tv[NT];
-  for(int i = 0; i < NT; i++) tv[i] = vec4(0.0);
+  vec4 e = vec4(0.0), q0 = vec4(0.0), q1 = vec4(0.0);
+  vec4 nv[ND], st[ND];
+  for(int i = 0; i < ND; i++){ nv[i] = vec4(0.0); st[i] = vec4(0.0); }
+
   for(int s = 0; s < NS; s++){
-    float conc = SP(c0, c1, c2, s);
-    vec2 dir = getdir(dv, s);
-    float th = atan(dir.y, dir.x);
+    float conc = c[s];
+    vec2 vel = getvec(vv, s);
+    // A species with no speed still has to face somewhere to smell; it keeps
+    // pointing the way it last went rather than snapping to an axis.
+    float sp = length(vel);
+    vec2 fwd = sp > 1e-6 ? vel/sp : vec2(1.0, 0.0);
+    vec2 lat = vec2(-fwd.y, fwd.x);
+    float th = atan(fwd.y, fwd.x);
     vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
     vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
     vec4 rgt0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
@@ -431,34 +439,26 @@ void main(){
     vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
     vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
     // The FLOW, read at the same two places and turned into this species' own
-    // frame. Fluoddity's ground is a velocity field, not a heap: what an agent
-    // smells is which way things went past, decomposed into how much of it
-    // runs along its nose and how much across it. Eight scalar heaps can say
-    // "there is more over there" and can never say "the grain runs this way",
-    // which is most of what a slime mold is doing. These four numbers are that
-    // missing sense, and they are the only SIGNED, frame-relative thing a
-    // brain gets.
-    vec2 fwd = vec2(cos(th), sin(th)), lat = vec2(-sin(th), cos(th));
+    // frame. Fluoddity's ground is a velocity field and it is the ONLY thing
+    // its sensors read: eight scalar heaps can say "there is more over there"
+    // and can never say "the grain runs this way".
     vec2 fr = textureLod(uF, uv + ep*uDist*uTexel, lod).xy*uFnorm;
     vec2 fl = textureLod(uF, uv + en*uDist*uTexel, lod).xy*uFnorm;
+
     // The SHAPE decides how those taps become readings. Taps that share a
     // reading are summed with their sign, so a shape with one reading per
-    // channel is genuinely a different function than one with two: a brain
-    // can build a difference out of two separate eyes, but it can never pull
-    // two separate eyes back out of a difference.
+    // channel is a different function than one with two: a brain can build a
+    // difference out of two eyes and can never pull two eyes out of one.
     //   0 opposed      right minus left            -- one reading  (K + 1)
     //   1 both eyes    right and left kept apart   -- two readings (2K + 1)
     //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
     float x[NIN];
     for(int i = 0; i < NIN; i++) x[i] = 0.0;
-    // CENTRED on the typical reading, so a lobe hands over how much more or
-    // less there is than usual rather than a number that can only be
-    // positive. Matter is floored at zero, so uncentred readings live in one
-    // orthant and a random sinusoid over them only ever sees a cone of its
-    // own input space -- which is a very small, very self-similar family of
-    // functions. Fluoddity senses a signed velocity field and gets this for
-    // free; here it costs a subtraction.
     for(int i = 0; i < 4; i++){
+      // Centred on the typical reading, so a lobe hands over how much more or
+      // less there is than usual rather than a number that can only be
+      // positive: matter is floored at zero, and a sum of sinusoids over
+      // one-orthant inputs only ever sees a cone of its own input space.
       float r0 = rgt0[i]*uMnorm - 1.0, r1 = rgt1[i]*uMnorm - 1.0;
       float l0 = lft0[i]*uMnorm - 1.0, l1 = lft1[i]*uMnorm - 1.0;
       if(uShape == 0){
@@ -478,18 +478,14 @@ void main(){
     // ---- the brain, which is Fluoddity's: no hidden layer and no squashing,
     // just a sum of NC random sinusoids. Each centre turns the whole
     // perception into ONE phase and hands every output a different basis
-    // function of it, so a brain is a band-limited random function rather
-    // than a squashed two-layer net. GAIN dilates the phase -- it decides how
-    // many oscillations a perception travels through, which is Fluoddity's
-    // sensor_gain and the single most consequential knob in here.
+    // function of it, so a brain is a band-limited random function rather than
+    // a squashed two-layer net. GAIN dilates the phase -- how many
+    // oscillations a perception travels through -- which is their sensor_gain.
     //
     // MIRROR runs it twice, the second time with the eyes swapped, and
-    // averages: the turn antisymmetrically (a mirrored world should turn the
-    // other way) and everything else symmetrically. Without it a brain has an
-    // arbitrary handedness baked in at seeding and every one of its cells
-    // spirals the same way for ever. Fluoddity does this by default and calls
-    // it keeping entities from displaying clockwise/counterclockwise bias;
-    // there it is a sum, here a mean, so the output scale does not move.
+    // averages: everything ACROSS the nose the other way round, everything
+    // along it the same. Without it a brain has an arbitrary handedness baked
+    // in at seeding and spirals that way for ever.
     float o[NOUT];
     for(int i = 0; i < NOUT; i++) o[i] = 0.0;
     for(int m = 0; m < 2; m++){
@@ -498,181 +494,148 @@ void main(){
       if(m == 0){ for(int j = 0; j < NIN; j++) y[j] = x[j]; }
       else {
         if(uShape == 0){
-          // One reading, and it IS right minus left, so mirroring negates it.
-          for(int j = 0; j < 3*K; j++) y[j] = -x[j];
+          for(int j = 0; j < 3*K; j++) y[j] = -x[j];   // it IS right minus left
         } else {
-          for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];  // eyes swapped
-          for(int j = 2*K; j < 3*K; j++) y[j] = x[j];              // the centre stays
+          for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];
+          for(int j = 2*K; j < 3*K; j++) y[j] = x[j];  // the centre stays
         }
-        // The flow swaps eyes AND flips its lateral half, whatever the matter
-        // shape: a mirrored world's grain runs the other way across the nose,
-        // not along it.
         y[3*K + 0] =  x[3*K + 2]; y[3*K + 1] = -x[3*K + 3];
         y[3*K + 2] =  x[3*K + 0]; y[3*K + 3] = -x[3*K + 1];
         y[3*K + 4] = 1.0;
       }
       float t[NOUT];
       for(int i = 0; i < NOUT; i++) t[i] = 0.0;
-      for(int c = 0; c < NC; c++){
-        int fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
+      for(int cc = 0; cc < NC; cc++){
+        int fb = (s*NC + cc)*NIN, ab = (s*NC + cc)*NOUT;
         float ph = 0.0;
         for(int j = 0; j < NIN; j++) ph += FRQ(fb + j)*y[j];
         ph *= gain;
         // A per-centre phase offset, so the centres do not all agree at the
         // origin and a brain has something to say about an empty world.
-        float off = 2.0*float(c)*0.6283 + AMP(ab + NOUT - 1)*PI;
-        // Four basis shapes -- the fundamental and its first harmonic, in
-        // sine and cosine, each at its own fraction of the offset. Only four
-        // are distinct, so they are computed once and shared by every output
-        // that lands on them.
+        float off = 2.0*float(cc)*0.6283 + AMP(ab + NOUT - 1)*PI;
+        // Four basis shapes -- the fundamental and its first harmonic, in sine
+        // and cosine, each at its own fraction of the offset. Only four are
+        // distinct, so they are shared by every output that lands on them.
         vec4 b = vec4(sin(ph + off), cos(ph + off*0.7),
                       sin(ph*2.0 + off*1.3), cos(ph*2.0 + off*0.5));
         for(int i = 0; i < NOUT; i++) t[i] += AMP(ab + i)*b[i & 3];
       }
       if(m == 0){ for(int i = 0; i < NOUT; i++) o[i] = t[i]; }
       else {
-        o[0] = (o[0] - t[0])*0.5;                                  // the turn flips
-        for(int i = 1; i < NOUT; i++) o[i] = (o[i] + t[i])*0.5;    // the rest does not
+        // 0 along, 1 across, 2 along, 3 across: the across half flips.
+        o[0] = (o[0] + t[0])*0.5;  o[1] = (o[1] - t[1])*0.5;
+        o[2] = (o[2] + t[2])*0.5;  o[3] = (o[3] - t[3])*0.5;
+        for(int i = 4; i < NOUT; i++) o[i] = (o[i] + t[i])*0.5;
       }
     }
-    // ---- combine, one answer at a time
-    // The turn is NOT averaged any more. It belongs to the species that asked
-    // for it and turns only that species' heading -- and it is damped by how
-    // much of that species is actually here, so a heading stops being spun by
-    // a brain that has nothing standing where it is smelling from. Full turn
-    // at the typical density, nothing at all where the species is absent.
-    tv[s >> 2][s & 3] = uTurn*tanh(o[0])*min(1.0, conc*uCnorm);
+
+    // ---- velocity += force, in the species' own frame, under drag. Damped by
+    // how much of the species is here, so an empty cell's velocity is not
+    // thrown about by a brain with nobody standing in it to do the smelling.
+    float here = min(1.0, conc*uCnorm);
+    vec2 force = (fwd*o[0]*uForce + lat*o[1]*uSwerve)*here;
+    setvec(nv, s, cap(vel*(1.0 - uDrag) + force));
+    // ---- strafe pushes this step and is forgotten, never accumulating.
+    setvec(st, s, cap((fwd*o[2] + lat*o[3])*uStrafe*here));
     // The affinity is NOT averaged. It belongs to its own species and only
-    // that species moves by it, which is the whole reason they stay distinct.
-    // Less a crowding term, and without that term this runs away: a brain
-    // that likes where it already is piles concentration up, deposit is
-    // proportional to concentration, matter follows, and the matter is what
-    // attracted it. Decay cannot win that argument because the SOURCE is
-    // growing. Nothing else here pushes back on density.
-    // Clamped at FORTY, not ten. A softmax only reads DIFFERENCES, and
-    // clamping absolute values destroys them: at beta 18 measured on the CPU
-    // port, 84 per cent of affinities were pinned at the rail, every pinned
-    // pair became equal, and the nine shares came out nearly uniform -- which
-    // is plain diffusion, the exact opposite of what beta is for. Species
-    // contrast against beta was flat at 6.5x for every beta from 4 to 30;
-    // widening the rail it goes 6.3, 17.3, 46.3, 38.5. Forty is safe in the
-    // 32-bit E and S textures because the result is BOUNDED whatever the
-    // exponents: Z(q) always contains E(p), so the mass arriving at p is at
-    // most nine times what left, and no product can run away.
-    float e = exp(clamp(uBeta*o[1] - uCrowd*tot*uCnorm, -40.0, 40.0));
-    if(s < 4) e0[s] = e; else if(s < 8) e1[s - 4] = e; else e2[s - 8] = e;
+    // that species moves by it, which is why they stay distinct. Clamped at
+    // FORTY, not ten: a softmax reads only DIFFERENCES, and clamping absolute
+    // values destroys them -- at ten, beta above about four did nothing at all.
+    e[s] = exp(clamp(uBeta*o[4] - uCrowd*tot*uCnorm, -40.0, 40.0));
     // The matter offsets are summed, weighted by who is here to lay them.
     for(int k = 0; k < 4; k++){
-      q0[k] += conc*tanh(o[2 + k]);
-      q1[k] += conc*tanh(o[6 + k]);
+      q0[k] += conc*tanh(o[5 + k]);
+      q1[k] += conc*tanh(o[9 + k]);
     }
   }
-  oE0 = e0; oE1 = e1; oE2 = e2;
+  oE = e;
   oP0 = q0*uMoff*uCnorm; oP1 = q1*uMoff*uCnorm;
-  ${writes("tv", "T", NT)}
+  ${writes("nv", "V", ND)}
+  ${writes("st", "S", ND)}
 }`;
 
 /* --------------------------------------------------- 2: the share to give
-   Z is the nine-cell sum of E and S is what each cell hands out. The share
-   from q to p is E_p/Z_q, which factorises -- and that is the only reason
-   eight independent transports cost one number per cell per species rather
-   than nine.
-   E and S are ALWAYS 32-bit whatever the fields are kept in. S is rho/Z, Z
-   runs to a few times exp(beta), and at beta 9 that puts S under float16's
-   subnormal floor: a third of them flush to zero and take their mass with
-   them. That is not rounding, it is a leak.                                */
+   MaCE, with the bias vector in it. A cell divides what it holds by the total
+   weight of its nine neighbours; the next pass multiplies back. That is what
+   makes the transport conservative for ANY weights, so the bias below is free
+   to be whatever the brains asked for.                                      */
 const FS_SHARE = HEAD + `
-uniform sampler2D uE0, uE1, uE2, uC0, uC1, uC2;
-${decl("uD", ND)}
+uniform sampler2D uE, uC;
+${decl("uV", ND)}
+${decl("uS", ND)}
 uniform float uSpeed;
-layout(location = 0) out vec4 oS0;
-layout(location = 1) out vec4 oS1;
-layout(location = 2) out vec4 oS2;
+layout(location = 0) out vec4 oS;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 dv[ND];
-  ${reads("dv", "D", ND, "p")}
-  // A share now weighs where a species is FACING as well as what it wants:
-  // the nine weights are exp(beta*affinity) times exp(SPEED*dot(heading,
-  // offset)), so the neighbour straight ahead is favoured and the one behind
-  // is not. That is the forward step, and without it the heading only ever
-  // aimed the kernel -- every move was a fresh softmax over what was smelled,
-  // with no memory of where anything was already going. Conservation is
-  // untouched: whatever weights are used here, they are the ones divided out.
+  vec4 vv[ND], ss[ND];
+  ${reads("vv", "V", ND, "p")}
+  ${reads("ss", "S", ND, "p")}
+  // position += velocity + strafe. The bias vector is exactly that sum, and
+  // its LENGTH is how far a species is trying to go this step -- speed is
+  // state now, not a setting, so a species that has been pushed the same way
+  // for a while streams and one that has not dawdles.
   float z[NS];
   for(int i = 0; i < NS; i++) z[i] = 0.0;
   for(int k = 0; k < 9; k++){
-    ivec2 q = wrap(p + OFF[k]);
-    vec4 a = texelFetch(uE0, q, 0), b = texelFetch(uE1, q, 0), c = texelFetch(uE2, q, 0);
+    vec4 a = texelFetch(uE, wrap(p + OFF[k]), 0);
     for(int i = 0; i < NS; i++)
-      z[i] += SP(a, b, c, i)*exp(uSpeed*dot(getdir(dv, i), UOFF[k]))*ILEN[k];
+      z[i] += a[i]*wexp(uSpeed*dot(getvec(vv, i) + getvec(ss, i), UOFF[k]))*ILEN[k];
   }
-  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
-  // Guard 0/0 only. The floor must sit far below the smallest honest Z or
-  // mass is silently deleted.
-  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
-  for(int i = 0; i < NS; i++){
-    float v = SP(c0, c1, c2, i)/max(z[i], 1e-30);
-    SETSP(s0, s1, s2, i, v)
-  }
-  oS0 = s0; oS1 = s1; oS2 = s2;
+  vec4 c = texelFetch(uC, p, 0);
+  vec4 o = vec4(0.0);
+  // Guard 0/0 only. The floor must sit far below the smallest honest Z or mass
+  // is silently deleted.
+  for(int i = 0; i < NS; i++) o[i] = c[i]/max(z[i], 1e-30);
+  oS = o;
 }`;
 
-/* -------------------------------- 3: collect, and carry each species' heading
-   Every species is transported independently, and now its HEADING is carried
-   independently too: what arrives at this cell from neighbour q is E(p)*S(q)
-   FOR THAT SPECIES, and that is exactly the weight its heading arrives with.
-   The heading is a carried property, never a fresh guess at where the mass
-   happened to go. The turn the brain asked for is applied here, after the
-   carry, because this pass has to touch all nine headings anyway.          */
+/* ------------------------------- 3: collect, and carry each species' velocity
+   What arrives here from neighbour q is E(p)*S(q) FOR THAT SPECIES, and that
+   is exactly the weight q's velocity arrives with. The velocity is carried,
+   not renormalised: its length is the species' speed and throwing that away
+   was the whole difference between a heading and a velocity.                */
 const FS_MOVE = HEAD + `
-uniform sampler2D uE0, uE1, uE2, uS0, uS1, uS2;
-${decl("uD", ND)}
-${decl("uT", NT)}
+uniform sampler2D uE, uSh;
+${decl("uV", ND)}
+${decl("uS", ND)}
 uniform float uSpeed;
-layout(location = 0) out vec4 oC0;
-layout(location = 1) out vec4 oC1;
-layout(location = 2) out vec4 oC2;
-${outs("D", ND, 3)}
+layout(location = 0) out vec4 oC;
+${outs("V", ND, 1)}
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0), e2 = texelFetch(uE2, p, 0);
+  vec4 e = texelFetch(uE, p, 0);
   vec2 acc[NS];
   float wt[NS], got[NS];
   for(int i = 0; i < NS; i++){ acc[i] = vec2(0.0); wt[i] = 0.0; got[i] = 0.0; }
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0), c = texelFetch(uS2, q, 0);
-    vec4 dq[ND];
-    ${reads("dq", "D", ND, "q")}
-    // q sent to p, so the offset q measured its forward step by is p - q.
+    vec4 a = texelFetch(uSh, q, 0);
+    vec4 vq[ND], sq[ND];
+    ${reads("vq", "V", ND, "q")}
+    ${reads("sq", "S", ND, "q")}
+    // q sent to p, so the offset q measured its step by is p - q.
     for(int i = 0; i < NS; i++){
-      vec2 dqi = getdir(dq, i);
-      float w = SP(a, b, c, i)*exp(uSpeed*dot(dqi, -UOFF[k]))*ILEN[k];
+      vec2 vi = getvec(vq, i);
+      float w = a[i]*wexp(uSpeed*dot(vi + getvec(sq, i), -UOFF[k]))*ILEN[k];
       got[i] += w;
-      float m = SP(e0, e1, e2, i)*w;
-      acc[i] += m*dqi; wt[i] += m;
+      float m = e[i]*w;
+      acc[i] += m*vi; wt[i] += m;
     }
   }
-  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
-  for(int i = 0; i < NS; i++) SETSP(s0, s1, s2, i, got[i])
-  oC0 = e0*s0; oC1 = e1*s1; oC2 = e2*s2;
+  vec4 oc = vec4(0.0);
+  for(int i = 0; i < NS; i++) oc[i] = got[i];
+  oC = e*oc;
 
-  vec4 dp[ND];
-  ${reads("dp", "D", ND, "p")}
-  vec4 tv[NT];
-  ${reads("tv", "T", NT, "p")}
-  vec4 od[ND];
-  for(int i = 0; i < ND; i++) od[i] = vec4(1.0, 0.0, 1.0, 0.0);
+  vec4 vp[ND];
+  ${reads("vp", "V", ND, "p")}
+  vec4 ov[ND];
+  for(int i = 0; i < ND; i++) ov[i] = vec4(0.0);
   for(int i = 0; i < NS; i++){
-    // Nothing of this species came from anywhere: keep the heading it had,
+    // Nothing of this species came from anywhere: keep the velocity it had,
     // rather than inventing one and having it snap when mass finally arrives.
-    vec2 d = wt[i] > 1e-20 ? acc[i]/wt[i] : getdir(dp, i);
-    float l = length(d);
-    d = l > 1e-6 ? d/l : vec2(1.0, 0.0);
-    setdir(od, i, rot(d, tv[i >> 2][i & 3]));
+    setvec(ov, i, wt[i] > 1e-20 ? acc[i]/wt[i] : getvec(vp, i));
   }
-  ${writes("od", "D", ND)}
+  ${writes("ov", "V", ND)}
 }`;
 
 /* --------------------------------------- 4: the ground takes what was laid
@@ -680,23 +643,23 @@ void main(){
    trail rather than a smear that never forgets, and diffuse is what lets
    anyone smell it from further off than the cell it was dropped on.        */
 const FS_MATTER = HEAD + `
-uniform sampler2D uM0, uM1, uP0, uP1, uF, uC0, uC1, uC2;
-${decl("uD", ND)}
+uniform sampler2D uM0, uM1, uP0, uP1, uF, uC;
+${decl("uV", ND)}
 uniform float uDecay, uDiff, uCnorm;
 layout(location = 0) out vec4 oM0;
 layout(location = 1) out vec4 oM1;
 layout(location = 2) out vec4 oF;
-// The FLOW is laid down the way Fluoddity lays down its canvas: not a choice a
-// brain makes but simply where the mass here is going -- every species' own
-// heading, weighted by how much of it is present. It then fades and spreads
+// The FLOW is now literally Fluoddity's canvas: not a choice a brain makes but
+// the VELOCITY of the mass here, weighted by how much of each species is
+// present. Their agents deposit velocity; so do ours, now that we have one. It then fades and spreads
 // with exactly the same decay and diffusion as the matter, because it is the
 // same kind of thing: a mark left on the ground that outlives whoever left it.
 vec2 flowAt(ivec2 q){
-  vec4 c0 = texelFetch(uC0, q, 0), c1 = texelFetch(uC1, q, 0), c2 = texelFetch(uC2, q, 0);
-  vec4 dv[ND];
-  ${reads("dv", "D", ND, "q")}
+  vec4 c = texelFetch(uC, q, 0);
+  vec4 vv[ND];
+  ${reads("vv", "V", ND, "q")}
   vec2 f = vec2(0.0);
-  for(int i = 0; i < NS; i++) f += SP(c0, c1, c2, i)*getdir(dv, i);
+  for(int i = 0; i < NS; i++) f += c[i]*getvec(vv, i);
   return f*uCnorm;
 }
 void main(){
@@ -727,12 +690,10 @@ void main(){
 }`;
 
 const FS_RHO = HEAD + `
-uniform sampler2D uC0, uC1, uC2;
+uniform sampler2D uC;
 out vec4 oRho;
 void main(){
-  ivec2 p = ivec2(gl_FragCoord.xy);
-  oRho = vec4(dot(texelFetch(uC0, p, 0), vec4(1.0)) + dot(texelFetch(uC1, p, 0), vec4(1.0))
-            + dot(texelFetch(uC2, p, 0), vec4(1.0)));
+  oRho = vec4(dot(texelFetch(uC, ivec2(gl_FragCoord.xy), 0), vec4(1.0)));
 }`;
 
 /* How a run starts. The matter always starts at NOTHING -- the ground has to
@@ -752,28 +713,22 @@ uniform float uAmp, uRad, uCScale;
 uniform float uCA[24], uCV[64];
 uniform int uSeed, uMode, uUse, uSpots;
 uniform ivec2 uGrid;
-layout(location = 0) out vec4 oC0;
-layout(location = 1) out vec4 oC1;
-layout(location = 2) out vec4 oC2;
-${outs("D", ND, 3)}
+layout(location = 0) out vec4 oC;
+${outs("V", ND, 1)}
 
-void cppnAt(vec2 q, out vec4 g0, out vec4 g1, out vec4 g2){
-  g0 = vec4(0.0); g1 = vec4(0.0); g2 = vec4(0.0);
+vec4 cppnAt(vec2 q){
+  vec4 g = vec4(0.0);
   for(int i = 0; i < 8; i++){
     float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
-    g0 += vec4(uCV[8*i], uCV[8*i+1], uCV[8*i+2], uCV[8*i+3])*z;
-    g1 += vec4(uCV[8*i+4], uCV[8*i+5], uCV[8*i+6], uCV[8*i+7])*z;
-    g2 += vec4(uCV[8*i+2], uCV[8*i+5], uCV[8*i], uCV[8*i+7])*z;
+    g += vec4(uCV[8*i], uCV[8*i+1], uCV[8*i+2], uCV[8*i+3])*z;
   }
-  g0 = exp(g0*uCScale); g1 = exp(g1*uCScale); g2 = exp(g2*uCScale);
-  g2.yzw = vec3(0.0);                       // only nine species exist
-  float t = dot(g0, vec4(1.0)) + dot(g1, vec4(1.0)) + dot(g2, vec4(1.0));
-  g0 /= t; g1 /= t; g2 /= t;
+  g = exp(g*uCScale);
+  return g/dot(g, vec4(1.0));
 }
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec2 fp = vec2(p) + 0.5;
-  vec4 c0 = vec4(0.0), c1 = vec4(0.0), c2 = vec4(0.0);
+  vec4 c = vec4(0.0);
 
   if(uMode == 1){
     // A ball each, on a grid. Every species starts alone and has to travel to
@@ -783,9 +738,7 @@ void main(){
       vec2 mid = (vec2(float(s - (s/uGrid.x)*uGrid.x), float(s/uGrid.x)) + 0.5)*cell;
       vec2 d = fp - mid;
       d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
-      if(length(d) < uRad){
-        if(s < 4) c0[s] = uAmp; else if(s < 8) c1[s - 4] = uAmp; else c2[s - 8] = uAmp;
-      }
+      if(length(d) < uRad) c[s] = uAmp;
     }
   } else if(uMode == 4){
     // Many small balls thrown thin. The sites sit on a lattice with their
@@ -806,66 +759,55 @@ void main(){
       vec2 d = fp - mid;
       d -= uN*floor(d/uN + 0.5);
       if(length(d) < uRad){
-        int sd = min(int((rnd(gw, 3, uSeed) + 0.5)*float(uUse)), uUse - 1);
-        if(sd < 4) c0[sd] += uAmp; else if(sd < 8) c1[sd - 4] += uAmp; else c2[sd - 8] += uAmp;
+        c[min(int((rnd(gw, 3, uSeed) + 0.5)*float(uUse)), uUse - 1)] += uAmp;
       }
     }
   } else if(uMode == 3){
-    cppnAt(fp/uN*TAU, c0, c1, c2);
+    c = cppnAt(fp/uN*TAU);
     float on = (rnd(p, 0, uSeed) + 0.5) < uRad ? 1.0 : 0.0;   // uRad is fill here
-    c0 *= uAmp*on; c1 *= uAmp*on; c2 *= uAmp*on;
+    c *= uAmp*on;
   } else {
     vec2 d = fp - vec2(uN*0.5);
     if(length(d) < uRad){
-      if(uMode == 2){
-        cppnAt(fp/uN*TAU, c0, c1, c2);
-        c0 *= uAmp*float(NS); c1 *= uAmp*float(NS); c2 *= uAmp*float(NS);
-      } else for(int s = 0; s < uUse; s++){
-        if(s < 4) c0[s] = uAmp; else if(s < 8) c1[s - 4] = uAmp; else c2[s - 8] = uAmp;
-      }
+      if(uMode == 2) c = cppnAt(fp/uN*TAU)*uAmp*float(NS);
+      else for(int s = 0; s < uUse; s++) c[s] = uAmp;
     }
   }
-  oC0 = c0; oC1 = c1; oC2 = c2;
-  // Each species starts facing its own way. Handing them all the same field
-  // would have nine headings that only ever differ by what the brains did to
-  // them, which is a much weaker start than nine independent ones.
-  vec4 od[ND];
-  for(int i = 0; i < ND; i++) od[i] = vec4(1.0, 0.0, 1.0, 0.0);
+  oC = c;
+  // Each species starts moving its own way, at a slow drift rather than from
+  // rest: at exactly zero every brain would smell through the same arbitrary
+  // fallback direction on the first step.
+  vec4 ov[ND];
+  for(int i = 0; i < ND; i++) ov[i] = vec4(0.0);
   for(int i = 0; i < NS; i++){
     float a = (rnd(p, 16 + i, uSeed) + 0.5)*TAU;
-    setdir(od, i, vec2(cos(a), sin(a)));
+    setvec(ov, i, vec2(cos(a), sin(a))*0.25);
   }
-  ${writes("od", "D", ND)}
+  ${writes("ov", "V", ND)}
 }`;
 
 const FS_PAINT = HEAD + `
-uniform sampler2D uC0, uC1, uC2;
+uniform sampler2D uC;
 uniform vec2 uAt;
 uniform float uRad, uAmt;
 uniform int uKind;
-layout(location = 0) out vec4 oC0;
-layout(location = 1) out vec4 oC1;
-layout(location = 2) out vec4 oC2;
+layout(location = 0) out vec4 oC;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
+  vec4 c = texelFetch(uC, p, 0);
   vec2 d = vec2(p) + 0.5 - uAt;
   d -= uN*floor(d/uN + 0.5);
   float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
   if(t > 0.0){
-    if(uAmt < 0.0){ c0 *= 1.0 - t; c1 *= 1.0 - t; c2 *= 1.0 - t; }
-    else for(int i = 0; i < 4; i++){
-      if(i == uKind) c0[i] += uAmt*t;
-      if(4 + i == uKind) c1[i] += uAmt*t;
-      if(8 + i == uKind) c2[i] += uAmt*t;
-    }
+    if(uAmt < 0.0) c *= 1.0 - t;
+    else c[uKind] += uAmt*t;
   }
-  oC0 = c0; oC1 = c1; oC2 = c2;
+  oC = c;
 }`;
 
 const FS_DRAW = HEAD + `
-uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1, uF;
-${decl("uD", ND)}
+uniform sampler2D uRho, uC, uM0, uM1, uF;
+${decl("uV", ND)}
 uniform vec2 uRes, uPan;
 uniform float uZoom, uExp, uFloor, uCnorm, uMnorm, uFnorm;
 uniform vec3 uPal[NS];
@@ -887,9 +829,9 @@ void main(){
   // fractional radius; the picture does not, and taking it blends neighbouring
   // cells into each other and smears the boundary between them.
   ivec2 c = ivec2(floor(uv*uN));
-  vec4 a4 = texelFetch(uC0, c, 0), b4 = texelFetch(uC1, c, 0), d4 = texelFetch(uC2, c, 0);
+  vec4 a4 = texelFetch(uC, c, 0);
   vec4 m0 = texelFetch(uM0, c, 0), m1 = texelFetch(uM1, c, 0);
-  float tot = dot(a4, vec4(1.0)) + dot(b4, vec4(1.0)) + dot(d4, vec4(1.0));
+  float tot = dot(a4, vec4(1.0));
   float v = 1.0 - exp(-max(tot*uCnorm - uFloor, 0.0)*uExp);
 
   if(uView == 1){                                   // the matter
@@ -919,13 +861,13 @@ void main(){
   }
   if(uView == 2){ oCol = vec4(vec3(v), 1.0); return; }
   if(uView == 3){
-    // Nine headings a cell now, so the picture shows the one that matters:
-    // the mean of them weighted by how much of each species is here. Where a
-    // cell is one clean species this IS that species' heading.
-    vec4 dv[ND];
-    ${reads("dv", "D", ND, "c")}
+    // Four velocities a cell, so the picture shows the one that matters: their
+    // mean weighted by how much of each species is here, hue for the way it
+    // points and brightness for how fast.
+    vec4 vv[ND];
+    ${reads("vv", "V", ND, "c")}
     vec2 d = vec2(0.0);
-    for(int i = 0; i < NS; i++) d += SP(a4, b4, d4, i)*getdir(dv, i);
+    for(int i = 0; i < NS; i++) d += a4[i]*getvec(vv, i);
     if(dot(d, d) < 1e-24){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
     oCol = vec4(hue(atan(d.y, d.x)/TAU + 0.5)*v, 1.0);
     return;
@@ -947,11 +889,9 @@ void main(){
     float inv = 1.0/tot;
     vec3 col = vec3(0.0);
     float best = 0.0;
-    for(int i = 0; i < 4; i++){
-      float wa = a4[i]*inv, wb = b4[i]*inv;
-      col += uPal[i]*wa + uPal[4 + i]*wb;
-      best = max(best, max(wa, wb));
-      if(8 + i < NS){ float wc = d4[i]*inv; col += uPal[8 + i]*wc; best = max(best, wc); }
+    for(int i = 0; i < NS; i++){
+      float w = a4[i]*inv;
+      col += uPal[i]*w; best = max(best, w);
     }
     float sat = clamp((best*float(NS) - 1.0)/float(NS - 1), 0.0, 1.0);
     col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
@@ -960,14 +900,9 @@ void main(){
   }
   vec3 hue = vec3(0.0);                             // the species, same blend
   float sum = 0.0, wsum = 0.0;
-  for(int i = 0; i < 4; i++){
-    float a = max(a4[i], 0.0)*uCnorm, b = max(b4[i], 0.0)*uCnorm;
-    sum += a + b; wsum += a*a + b*b;
-    hue += uPal[i]*a*a + uPal[4 + i]*b*b;
-    if(8 + i < NS){
-      float c2 = max(d4[i], 0.0)*uCnorm;
-      sum += c2; wsum += c2*c2; hue += uPal[8 + i]*c2*c2;
-    }
+  for(int i = 0; i < NS; i++){
+    float a = max(a4[i], 0.0)*uCnorm;
+    sum += a; wsum += a*a; hue += uPal[i]*a*a;
   }
   float al = 1.0 - exp(-max(sum - uFloor, 0.0)*uExp);
   oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
@@ -1004,7 +939,7 @@ function compile(src, type){
 function program(fs){
   const defs = `#define K ${K}\n#define NS ${NS}\n#define NC ${NC}\n` +
                `#define NIN ${NIN}\n#define NOUT ${NOUT}\n` +
-               `#define ND ${ND}\n#define NT ${NT}\n`;
+               `#define ND ${ND}\n`;
   const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
   const p = gl.createProgram();
   gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
@@ -1042,10 +977,10 @@ const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
 // writing eight targets at once. Every desktop GPU offers eight; software
 // renderers tend to stop at six, and at this grid size they were never going
 // to keep up anyway.
-if(MAXBUF < 8)
-  fatal("This GPU offers only " + MAXBUF + " draw buffers, and this needs eight.\n"
-      + "One pass writes the nine affinities, the eight deposits\n"
-      + "and a turn for each species, all at once.");
+if(MAXBUF < 7)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers, and this needs seven.\n"
+      + "One pass writes the affinities, the eight deposits, and a new\n"
+      + "velocity and a strafe for each species, all at once.");
 const BUFS = [];
 for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
 function target(list, w, h){
@@ -1097,8 +1032,12 @@ const S = {
   // point tap at any distance aliases into dots as a heading creeps round.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
   dist: 2.5, size: 1, spread: 162, feather: 0.2, shape: 1, mirror: 1,
-  beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.938, diff: 1,
+  beta: 8, moff: 1, crowd: 0, decay: 0.938, diff: 1,
   gain: 0.5, sweep: 0, speed: 2,
+  // Fluoddity's own force numbers: drag 0.504, axial_force 0.371,
+  // lateral_force 0.707 (its sign lives in the brain's weights, which are
+  // symmetric, so only the magnitude carries over), strafe_power 0.224.
+  drag: 0.504, force: 0.37, swerve: 0.71, strafe: 0.22,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
@@ -1179,8 +1118,7 @@ function alloc(){
   const R = wide ? gl.R32F : gl.R16F;
   const LF = (!wide || linOK) ? gl.LINEAR : gl.NEAREST;
   const g = {N};
-  g.c0 = make2D(N, N, F, LF); g.c1 = make2D(N, N, F, LF); g.c2 = make2D(N, N, F, LF);
-  g.c0b = make2D(N, N, F, LF); g.c1b = make2D(N, N, F, LF); g.c2b = make2D(N, N, F, LF);
+  g.c = make2D(N, N, F, LF); g.cb = make2D(N, N, F, LF);
   // The MATTER is what the lobes read, so the matter carries the mip chain:
   // one tap at the right level is the Gaussian average over a lobe.
   g.m0 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
@@ -1194,28 +1132,28 @@ function alloc(){
   g.p0 = make2D(N, N, gl.RGBA16F); g.p1 = make2D(N, N, gl.RGBA16F);
   // E and S are always 32-bit: S is conc/Z, Z runs to a few times exp(beta),
   // and at 16-bit a third of them flush to zero and take their mass with them.
-  g.e0 = make2D(N, N, gl.RGBA32F); g.e1 = make2D(N, N, gl.RGBA32F);
-  g.e2 = make2D(N, N, gl.RGBA32F);
-  g.s0 = make2D(N, N, gl.RGBA32F); g.s1 = make2D(N, N, gl.RGBA32F);
-  g.s2 = make2D(N, N, gl.RGBA32F);
-  // A heading each, for each species: nine vec2s a cell, two to a texture.
-  g.d = []; g.db = []; g.t = [];
-  for(let i = 0; i < ND; i++){ g.d.push(make2D(N, N, F, LF)); g.db.push(make2D(N, N, F, LF)); }
-  for(let i = 0; i < NT; i++) g.t.push(make2D(N, N, gl.RGBA16F));
+  g.e = make2D(N, N, gl.RGBA32F); g.sh = make2D(N, N, gl.RGBA32F);
+  // A VELOCITY each, and a strafe each: four vec2s a cell apiece, two to a
+  // texture. The velocity is state and ping-pongs; the strafe is written fresh
+  // every step and never carried, so it needs no second copy.
+  g.v = []; g.vb = []; g.st = [];
+  for(let i = 0; i < ND; i++){
+    g.v.push(make2D(N, N, F, LF)); g.vb.push(make2D(N, N, F, LF));
+    g.st.push(make2D(N, N, F, LF));
+  }
   g.rho = make2D(N, N, R, LF);
   g.pyr = [];
   for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
     g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
     if(n === 1) break;
   }
-  g.all = [g.c0, g.c1, g.c2, g.c0b, g.c1b, g.c2b, g.m0, g.m1, g.m0b, g.m1b,
-           g.p0, g.p1, g.e0, g.e1, g.e2, g.s0, g.s1, g.s2,
-           g.f, g.fb, ...g.d, ...g.db, ...g.t, g.rho, ...g.pyr];
+  g.all = [g.c, g.cb, g.m0, g.m1, g.m0b, g.m1b, g.p0, g.p1, g.e, g.sh,
+           g.f, g.fb, ...g.v, ...g.vb, ...g.st, g.rho, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (6*N*N*8*w + 6*N*N*8 + 8*N*N*16 + 2*ND*N*N*8*w + NT*N*N*8 + N*N*2*w
+  return (2*N*N*8*w + 4*N*N*8 + 8*N*N*16 + 3*ND*N*N*8*w + N*N*2*w
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
@@ -1247,8 +1185,7 @@ function remip(){
 }
 function makeRho(){
   const u = use(P.rho); common(u);
-  gl.uniform1i(u.uC0, tex(0, G.c0)); gl.uniform1i(u.uC1, tex(1, G.c1));
-  gl.uniform1i(u.uC2, tex(2, G.c2));
+  gl.uniform1i(u.uC, tex(0, G.c));
   target(G.rho, G.N, G.N); drawQuad();
 }
 function reseed(seed){
@@ -1288,7 +1225,7 @@ function reseed(seed){
   gl.uniform1i(u.uSeed, S.seed);
   gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
   gl.uniform1i(u.uUse, S.use); gl.uniform1i(u.uSpots, spots);
-  target([G.c0, G.c1, G.c2, ...G.d], G.N, G.N); drawQuad();
+  target([G.c, ...G.v], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b, G.f, G.fb]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
   }
@@ -1297,53 +1234,47 @@ function reseed(seed){
 }
 function step(){
   const N = G.N;
-  {                                     // perceive, think, combine
+  {                                     // perceive, think, move
     const u = use(P.brain); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
-    gl.uniform1i(u.uC0, tex(2, G.c0)); gl.uniform1i(u.uC1, tex(3, G.c1));
-    gl.uniform1i(u.uC2, tex(4, G.c2)); gl.uniform1i(u.uF, tex(5, G.f));
-    gl.uniform1f(u.uFnorm, 1 - S.decay); bindRun(u, "uD", G.d, 6);
+    gl.uniform1i(u.uC, tex(2, G.c)); gl.uniform1i(u.uF, tex(3, G.f));
+    gl.uniform1f(u.uFnorm, 1 - S.decay); bindRun(u, "uV", G.v, 4);
     gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
     gl.uniform1i(u.uShape, S.shape); gl.uniform1i(u.uMirror, S.mirror);
     gl.uniform1f(u.uBeta, S.beta);
-    gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
+    gl.uniform1f(u.uDrag, S.drag); gl.uniform1f(u.uForce, S.force);
+    gl.uniform1f(u.uSwerve, S.swerve); gl.uniform1f(u.uStrafe, S.strafe);
     gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
     gl.uniform1f(u.uGain, gain()); gl.uniform1f(u.uSweep, S.sweep);
     gl.uniform4fv(u.uFRQ, S.frq); gl.uniform4fv(u.uAMP, S.amp);
-    target([G.e0, G.e1, G.e2, G.p0, G.p1, ...G.t], N, N); drawQuad();
+    target([G.e, G.p0, G.p1, ...G.vb, ...G.st], N, N); drawQuad();
+    [G.v, G.vb] = [G.vb, G.v];
   }
   {                                     // each species' own nine shares
     const u = use(P.share); common(u);
-    gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
-    gl.uniform1i(u.uE2, tex(2, G.e2));
-    gl.uniform1i(u.uC0, tex(3, G.c0)); gl.uniform1i(u.uC1, tex(4, G.c1));
-    gl.uniform1i(u.uC2, tex(5, G.c2)); bindRun(u, "uD", G.d, 6);
+    gl.uniform1i(u.uE, tex(0, G.e)); gl.uniform1i(u.uC, tex(1, G.c));
+    bindRun(u, "uS", G.st, bindRun(u, "uV", G.v, 2));
     gl.uniform1f(u.uSpeed, S.speed);
-    target([G.s0, G.s1, G.s2], N, N); drawQuad();
+    target(G.sh, N, N); drawQuad();
   }
-  {                                     // collect, and carry the heading
+  {                                     // collect, and carry the velocity
     const u = use(P.move); common(u);
-    gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
-    gl.uniform1i(u.uE2, tex(2, G.e2));
-    gl.uniform1i(u.uS0, tex(3, G.s0)); gl.uniform1i(u.uS1, tex(4, G.s1));
-    gl.uniform1i(u.uS2, tex(5, G.s2));
-    bindRun(u, "uT", G.t, bindRun(u, "uD", G.d, 6));
+    gl.uniform1i(u.uE, tex(0, G.e)); gl.uniform1i(u.uSh, tex(1, G.sh));
+    bindRun(u, "uS", G.st, bindRun(u, "uV", G.v, 2));
     gl.uniform1f(u.uSpeed, S.speed);
-    target([G.c0b, G.c1b, G.c2b, ...G.db], N, N); drawQuad();
-    [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
-    [G.c2, G.c2b] = [G.c2b, G.c2];
-    [G.d, G.db] = [G.db, G.d];
+    target([G.cb, ...G.vb], N, N); drawQuad();
+    [G.c, G.cb] = [G.cb, G.c];
+    [G.v, G.vb] = [G.vb, G.v];
   }
   {                                     // the ground takes what was laid
     const u = use(P.matter); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
     gl.uniform1i(u.uP0, tex(2, G.p0)); gl.uniform1i(u.uP1, tex(3, G.p1));
-    gl.uniform1i(u.uF, tex(4, G.f));
-    gl.uniform1i(u.uC0, tex(5, G.c0)); gl.uniform1i(u.uC1, tex(6, G.c1));
-    gl.uniform1i(u.uC2, tex(7, G.c2)); bindRun(u, "uD", G.d, 8);
+    gl.uniform1i(u.uF, tex(4, G.f)); gl.uniform1i(u.uC, tex(5, G.c));
+    bindRun(u, "uV", G.v, 6);
     gl.uniform1f(u.uDecay, S.decay); gl.uniform1f(u.uDiff, S.diff);
     gl.uniform1f(u.uCnorm, cnorm());
     target([G.m0b, G.m1b, G.fb], N, N); drawQuad();
@@ -1356,14 +1287,12 @@ function step(){
 }
 function paintAt(gx, gy, amount){
   const u = use(P.paint); common(u);
-  gl.uniform1i(u.uC0, tex(0, G.c0)); gl.uniform1i(u.uC1, tex(1, G.c1));
-  gl.uniform1i(u.uC2, tex(2, G.c2));
+  gl.uniform1i(u.uC, tex(0, G.c));
   gl.uniform2f(u.uAt, gx, gy);
   gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
   gl.uniform1i(u.uKind, S.kind);
-  target([G.c0b, G.c1b, G.c2b], G.N, G.N); drawQuad();
-  [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
-  [G.c2, G.c2b] = [G.c2b, G.c2];
+  target(G.cb, G.N, G.N); drawQuad();
+  [G.c, G.cb] = [G.cb, G.c];
   makeRho();
   massDue = true;
 }
@@ -1384,11 +1313,10 @@ function render(){
   gl.viewport(0, 0, cv.width, cv.height);
   const u = use(P.draw); common(u);
   gl.uniform1i(u.uRho, tex(0, G.rho));
-  gl.uniform1i(u.uC0, tex(1, G.c0)); gl.uniform1i(u.uC1, tex(2, G.c1));
-  gl.uniform1i(u.uC2, tex(3, G.c2));
-  gl.uniform1i(u.uM0, tex(4, G.m0)); gl.uniform1i(u.uM1, tex(5, G.m1));
-  gl.uniform1i(u.uF, tex(6, G.f));
-  bindRun(u, "uD", G.d, 7);
+  gl.uniform1i(u.uC, tex(1, G.c));
+  gl.uniform1i(u.uM0, tex(2, G.m0)); gl.uniform1i(u.uM1, tex(3, G.m1));
+  gl.uniform1i(u.uF, tex(4, G.f));
+  bindRun(u, "uV", G.v, 5);
   gl.uniform1f(u.uFnorm, 1 - S.decay);
   gl.uniform2f(u.uRes, cv.width, cv.height);
   gl.uniform2f(u.uPan, S.panx, S.pany);
@@ -1604,24 +1532,9 @@ function buildKernel(){
    than blobs or boiling -- then the survivors were judged by eye off a contact
    sheet. Each carries the seeds it was found with, and the page's generator is
    the search's generator, so a preset replays rather than merely rhymes.     */
-const PRESETS = [
-  {name: "veins", brain: 474614178, world: 893909377,
-   p: {shape: 0, mirror: 1, dist: 5.3, size: 1, spread: 161, feather: 0.95, gain: 0.38, sweep: 0, speed: 4.3, beta: 12.05, turn: 35, moff: 0.85, crowd: 0, decay: 0.978, diff: 0.01, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "colony", brain: 493251245, world: 419869570,
-   p: {shape: 2, mirror: 0, dist: 5.5, size: 1.5, spread: 16, feather: 0.06, gain: 0.38, sweep: 0, speed: 0.1, beta: 4.95, turn: 78, moff: 1.65, crowd: 0, decay: 0.932, diff: 0.16, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "web", brain: 984634179, world: 885171492,
-   p: {shape: 1, mirror: 0, dist: 2, size: 2, spread: 139, feather: 0.94, gain: 0.82, sweep: 0, speed: 4.9, beta: 6.05, turn: 44.5, moff: 0.4, crowd: 0, decay: 0.897, diff: 0.13, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "vesicles", brain: 323400531, world: 377809936,
-   p: {shape: 2, mirror: 0, dist: 2.5, size: 1.5, spread: 65, feather: 0.95, gain: 0.38, sweep: 0, speed: 4.55, beta: 17.35, turn: 27.5, moff: 0.9, crowd: 0, decay: 0.981, diff: 0.09, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "brushwork", brain: 776844949, world: 323396976,
-   p: {shape: 0, mirror: 1, dist: 3, size: 1.5, spread: 17, feather: 0.31, gain: 1.28, sweep: 0, speed: 4.2, beta: 4.25, turn: 28.5, moff: 2.55, crowd: 2.4, decay: 0.863, diff: 0.11, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "current", brain: 569772742, world: 272659978,
-   p: {shape: 1, mirror: 1, dist: 8.5, size: 3.5, spread: 48, feather: 0.58, gain: 0.23, sweep: 0, speed: 3, beta: 6.9, turn: 9.5, moff: 0.5, crowd: 2.85, decay: 0.898, diff: 0.07, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "coral", brain: 378913789, world: 984397022,
-   p: {shape: 0, mirror: 0, dist: 6, size: 3.5, spread: 35, feather: 0.2, gain: 0.67, sweep: 0, speed: 3.5, beta: 6.95, turn: 51, moff: 1.9, crowd: 0, decay: 0.928, diff: 0.3, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "spawn", brain: 999525171, world: 335855842,
-   p: {shape: 2, mirror: 1, dist: 2, size: 1, spread: 126, feather: 0.15, gain: 0.37, sweep: 0, speed: 4, beta: 12.25, turn: 24, moff: 1, crowd: 0, decay: 0.977, diff: 0.44, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-];
+const PRESETS = [];   // stale: four species draw a different brain from a seed
+                      // than nine did, and TURN no longer exists. Re-searched
+                      // rather than patched.
 function applyPreset(i){
   const P = PRESETS[i]; if(!P) return;
   for(const k in P.p){
@@ -1711,15 +1624,11 @@ function buildUI(){
     + "around <b>1.5</b>. It costs nothing to move &mdash; it does not reroll "
     + "the brains, so the same nine rules can be run soft or savage.");
   slider("speed", "speed", 0, 6, 0.05, 2, null,
-    "How strongly a species is carried <b>along its own heading</b>, on top "
-    + "of wherever its affinity wants it. This is the <b>forward step</b> "
-    + "&mdash; the thing an ant does after it turns. At <b>0</b> the heading "
-    + "only aims the kernel and every move is a fresh decision about what is "
-    + "smelled right now, with no memory of where anything was already going; "
-    + "trails cannot form because nothing keeps going straight. Turning it up "
-    + "gives the field <b>momentum</b>: a heading is state, it turns slowly, "
-    + "and now it drives motion, which is what makes filaments instead of "
-    + "blobs. Mass is conserved at any value.");
+    "How many cells a unit of velocity is worth &mdash; the exchange rate "
+    + "between the brains' force units and the grid. It scales <b>velocity + "
+    + "strafe</b> together when they bias the nine shares, so it sets how "
+    + "ballistic the whole field is without touching what any brain decided. "
+    + "Mass is conserved at any value.");
   slider("sweep", "sweep", 0, 2.5, 0.05, 2, null,
     "Runs <b>gain</b> across the world from left to right instead of holding "
     + "it fixed, the way Fluoddity sweeps a parameter over its canvas. At "
@@ -1732,14 +1641,28 @@ function buildUI(){
     + "its concentration to all nine neighbours in nearly equal shares, which is "
     + "a fog; high and nearly everything goes to the best one. The temperature "
     + "of the transport, and the sharpest knob on the page.");
-  slider("turn", "turn", 0, 90, 0.5, 1, null,
-    "How far a species may swing its heading in one step. Every species "
-    + "carries its <b>own</b> heading and smells through a kernel turned to "
-    + "it, so its brain's offset turns only that one &mdash; scaled by how "
-    + "much of the species is here, so an absent species' heading sits still "
-    + "rather than being spun by a brain with nobody there to do the "
-    + "smelling. The heading is then carried along with that species' own "
-    + "mass, never read back out of where the mass happened to go.");
+  slider("force", "force", 0, 2, 0.01, 2, null,
+    "How hard a brain's <b>along-the-nose</b> push is added to its species' "
+    + "velocity. Velocity is <b>state</b>: it accumulates, so a species pushed "
+    + "the same way for a while ends up moving faster than one that is not, "
+    + "and speed is something the field works out rather than something you "
+    + "set. Fluoddity's axial_force is 0.371.");
+  slider("swerve", "swerve", 0, 2, 0.01, 2, null,
+    "The same push, <b>across</b> the nose &mdash; what makes a species turn "
+    + "rather than accelerate. Fluoddity keeps this about twice the along-"
+    + "the-nose force at 0.707, which is why its agents curve so readily.");
+  slider("drag", "drag", 0, 1, 0.005, 3, null,
+    "How much of the velocity is thrown away each step. At <b>0</b> nothing "
+    + "ever slows and a push is remembered for ever; at <b>1</b> there is no "
+    + "memory at all and the velocity is whatever the last force said, which "
+    + "is the old heading-only behaviour. Fluoddity sits at 0.504, about two "
+    + "steps of memory.");
+  slider("strafe", "strafe", 0, 2, 0.01, 2, null,
+    "A push that moves the mass <b>this step and is then forgotten</b>, never "
+    + "accumulating into the velocity. Fluoddity's author gives the whole "
+    + "rule as <i>velocity += force; position += velocity + strafe</i>, and "
+    + "this is that second term: a way to sidestep without changing where you "
+    + "are pointed or how fast you are going. Its strafe_power is 0.224.");
   slider("crowd", "crowd", 0, 8, 0.05, 2, null,
     "How hard a species is pushed away from density that is already there. "
     + "<b>Nothing else in here pushes back on crowding</b>, and without it the "
@@ -1787,7 +1710,7 @@ function buildUI(){
 
   group("run");
   slider("species", "use", 1, NS, 1, 0, reseed,
-    "How many of the nine species are actually put down. <b>Set it to 1</b> to "
+    "How many of the four species are actually put down. <b>Set it to 1</b> to "
     + "watch a single brain on its own, which is the only way to see what one "
     + "rule does without seven others averaging into its turn.");
   picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
