@@ -1008,15 +1008,17 @@ const S = {
   // What does not carry: its forces, drag and strafe belong to particles with
   // momentum and we transport by affinity instead; its sensor_gain is in
   // units of a velocity field scaled by 38.855*sqrt(world) and ours is a
-  // normalised concentration, so GAIN starts at the median of its presets
-  // rather than at its default. BETA has no analogue at all -- Fluoddity has
+  // normalised concentration, so GAIN is the one number no conversion could
+  // reach. It started at the median of their presets and is now 0.5, which is
+  // where the search put it: over 360 draws the sixty most structured had a
+  // median gain of 0.45 against 1.00 for the sample. BETA has no analogue -- Fluoddity has
   // no softmax over neighbours -- so it stays where this rule reads crisp.
   // SIZE and FEATHER stay too: Fluoddity's sensor is a bare point, and a
   // point tap at any distance aliases into dots as a heading creeps round.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
   dist: 2.5, size: 1, spread: 162, feather: 0.2, shape: 1, mirror: 1,
   beta: 8, turn: 45, moff: 1, crowd: 0, decay: 0.938, diff: 1,
-  gain: 1.55, sweep: 0, speed: 2,
+  gain: 0.5, sweep: 0, speed: 2,
   fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
@@ -1510,7 +1512,24 @@ function buildKernel(){
    than blobs or boiling -- then the survivors were judged by eye off a contact
    sheet. Each carries the seeds it was found with, and the page's generator is
    the search's generator, so a preset replays rather than merely rhymes.     */
-const PRESETS = [];
+const PRESETS = [
+  {name: "crosshatch", brain: 580866539, world: 833557194,
+   p: {shape: 0, mirror: 0, dist: 2.38, size: 4.59, spread: 101, feather: 0.61, gain: 0.57, sweep: 0, speed: 4, beta: 3.65, turn: 77, moff: 1.55, crowd: 1.4, decay: 0.923, diff: 0.01, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "lichen", brain: 781908487, world: 327447408,
+   p: {shape: 2, mirror: 1, dist: 1.5, size: 1.5, spread: 97, feather: 0.09, gain: 0.82, sweep: 0, speed: 1.05, beta: 4.35, turn: 10.5, moff: 1.15, crowd: 0, decay: 0.989, diff: 0, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "orbs", brain: 591049758, world: 869791481,
+   p: {shape: 0, mirror: 0, dist: 1, size: 5.5, spread: 116, feather: 0.91, gain: 0.56, sweep: 0, speed: 0.25, beta: 18.35, turn: 56.5, moff: 0.3, crowd: 0, decay: 0.824, diff: 0.04, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "shards", brain: 794615782, world: 724527028,
+   p: {shape: 1, mirror: 1, dist: 1, size: 2.5, spread: 36, feather: 0.32, gain: 0.2, sweep: 0, speed: 4.4, beta: 5.7, turn: 79, moff: 0.3, crowd: 2.95, decay: 0.921, diff: 0.3, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "brushwork", brain: 585160834, world: 783087255,
+   p: {shape: 0, mirror: 1, dist: 1, size: 1.5, spread: 22, feather: 0.75, gain: 2.1, sweep: 0, speed: 3.15, beta: 8.7, turn: 4.5, moff: 1.75, crowd: 0, decay: 0.908, diff: 0.24, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "tapestry", brain: 836351404, world: 674091672,
+   p: {shape: 1, mirror: 0, dist: 16, size: 5, spread: 53, feather: 0.7, gain: 0.45, sweep: 0, speed: 4.55, beta: 15.05, turn: 82, moff: 2.5, crowd: 0, decay: 0.906, diff: 0.2, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "moss", brain: 954686712, world: 853481140,
+   p: {shape: 0, mirror: 1, dist: 3.5, size: 5, spread: 18, feather: 0.3, gain: 0.29, sweep: 0, speed: 3.6, beta: 10.1, turn: 39, moff: 0.9, crowd: 0, decay: 0.846, diff: 0.29, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+  {name: "ember", brain: 859290190, world: 697997631,
+   p: {shape: 0, mirror: 1, dist: 2.77, size: 2.2, spread: 152, feather: 0.09, gain: 0.545, sweep: 0, speed: 0.35, beta: 12.05, turn: 32.5, moff: 0.65, crowd: 0, decay: 0.949, diff: 0.44, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
+];
 function applyPreset(i){
   const P = PRESETS[i]; if(!P) return;
   for(const k in P.p){
