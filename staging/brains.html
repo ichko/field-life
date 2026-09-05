@@ -166,7 +166,7 @@ button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
 <div class="page">
 <header>
   <h1>Field Life &mdash; Brains</h1>
-  <span class="tag"><b>Eight species, eight networks, one world of matter.</b>
+  <span class="tag"><b>Nine species, nine networks, one world of matter.</b>
   <a href="species.html">species</a> &middot; <a href="flow.html">flow</a>
   &middot; <a href="index.html">flat</a></span>
 </header>
@@ -194,29 +194,30 @@ button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
 <p>Three things, and nothing else.</p>
 <p>&mdash; <b>Eight matter channels.</b> Stuff lying on the ground. Deposited, spread and faded.
 Not conserved, and it must not be: fading is what makes a trail a trail.</p>
-<p>&mdash; <b>A direction.</b> Two numbers, one vector, which way this cell is facing.</p>
-<p>&mdash; <b>Eight species channels.</b> How much of each species is in this cell. Conserved,
+<p>&mdash; <b>A direction per species.</b> Two numbers a vector, nine vectors a cell &mdash; which way each species is facing here. Each one is turned only by its own brain and carried only by its own mass.</p>
+<p>&mdash; <b>Nine species channels.</b> How much of each species is in this cell. Conserved,
 each one on its own.</p>
 
 <h2>The step</h2>
-<p>&mdash; <b>Perceive.</b> The kernel is turned to face the cell's own direction and convolved
-across all eight matter channels. Its lobes give a reading per channel, so what comes out is a
-<b>perception vector</b>. How many readings depends on the <b>kernel</b> setting: <i>both eyes</i>
-keeps each side separate for sixteen numbers, <i>opposed eyes</i> hands over only right minus left
-for eight, and <i>eyes and centre</i> adds the cell's own ground negated for twenty-four. One
-kernel, one perception, shared by everybody in the cell.</p>
+<p>&mdash; <b>Perceive.</b> The kernel is turned to face <b>the smelling species' own
+direction</b> and convolved across all eight matter channels. Its lobes give a reading per channel,
+so what comes out is a <b>perception vector</b>. How many readings depends on the <b>kernel</b>
+setting: <i>both eyes</i> keeps each side separate for sixteen numbers, <i>opposed eyes</i> hands
+over only right minus left for eight, and <i>eyes and centre</i> adds the cell's own ground negated
+for twenty-four. Nine species facing nine ways means nine readings of the same ground.</p>
 <p>&mdash; <b>Think.</b> Each species has a <b>brain</b> &mdash; a small network, sampled at
-random for now. Every brain reads the same perception vector and answers with three things: an
+random for now. Each brain reads its own perception vector and answers with three things: an
 <b>orientation offset</b>, an <b>affinity</b>, and a <b>matter offset</b>, one number per matter
-channel. Eight species, eight brains, eight answers.</p>
+channel. Nine species, nine brains, nine answers.</p>
 <p>&mdash; <b>Combine.</b> Now those answers have to become one cell.</p>
-<p>The <b>orientation offsets</b> are averaged, each weighted by how much of that species is
-present, and the result turns the cell's direction. A cell that is mostly species three turns
-mostly the way species three wanted.</p>
+<p>The <b>orientation offsets</b> are not averaged. Each species carries its <b>own heading</b>,
+and its own offset turns only that heading &mdash; damped by how much of that species is standing
+here, so a heading is never spun about by a brain with nothing in the cell to do the smelling.
+Nine headings a cell, nine independent turns.</p>
 <p>The <b>affinities</b> are not averaged. Each one belongs to its own species, and each species
 redistributes <i>its own</i> concentration according to <i>its own</i> affinity &mdash; its
 contents split among the nine neighbours in shares proportional to
-<code>exp(beta&middot;affinity)</code> at each of them, scaled to sum to one. Eight species, eight
+<code>exp(beta&middot;affinity)</code> at each of them, scaled to sum to one. Nine species, nine
 independent transports, and not one of them creates or destroys anything. This is the reason they
 can stay distinct: a species is never carried by somebody else's decision.</p>
 <p>The <b>matter offsets</b> are summed, weighted by concentration, and added to the ground. Then
@@ -228,10 +229,12 @@ the matter is spread by <b>diffuse</b> and faded by <b>decay</b>.</p>
 thing anyone writes to &mdash; the way an ant smells what has been left rather than the ants that
 left it. Every interaction in here is indirect, through matter, and a brain is free to lay down
 something that another brain runs from.</p>
-<p>The direction is <b>state</b>. It is rotated by an offset and then carried along with the mass
-that moves, never read back out of where the mass happened to go.</p>
-<p>The kernel is <b>built from the angle</b>, not rotated: its lobe centres are computed from this
-cell's own heading every step, so nothing is a stored stencil being turned and resampled. Each
+<p>The direction is <b>state</b>, and there is one per species. It is rotated by that species'
+offset and carried along with <b>that species' own mass</b> &mdash; the weight a neighbour's
+heading arrives with is exactly how much of that species arrived with it. Never read back out of
+where the mass happened to go.</p>
+<p>The kernel is <b>built from the angle</b>, not rotated: its lobe centres are computed from the
+smelling species' own heading every step, so nothing is a stored stencil being turned and resampled. Each
 lobe is read as a blurred average over its own radius rather than as a scatter of point taps,
 which is what makes them smooth blobs instead of a handful of dots.</p>
 <p style="margin-top:22px;font-size:12px">A staging page.</p>
@@ -259,6 +262,8 @@ const NS = 9;                // species, and so brains -- 3x3 on the grid start
 const HID = 6;               // hidden units in a brain
 const NIN = 3*K + 1;         // up to three readings per matter channel, and a bias
 const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
+const ND = (NS + 1) >> 1;    // direction textures -- two species to a vec4
+const NT = (NS + 3) >> 2;    // turn textures -- four species to a vec4
 
 const VS = `#version 300 es
 in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
@@ -277,7 +282,32 @@ ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
 // unused, which costs a little memory and saves indexing three textures by
 // hand everywhere.
 #define SP(a, b, c, s) ((s) < 4 ? (a)[(s)] : ((s) < 8 ? (b)[(s) - 4] : (c)[(s) - 8]))
+// Every species carries its OWN heading, so a direction field is nine vec2s a
+// cell: two to a vec4, five textures, the last half of the last one unused.
+// A local array can be indexed by a running variable where a sampler array
+// cannot, so the taps are always unrolled into one of these first.
+vec2 getdir(vec4 d[ND], int s){ return (s & 1) == 0 ? d[s >> 1].xy : d[s >> 1].zw; }
+void setdir(inout vec4 d[ND], int s, vec2 v){
+  if((s & 1) == 0){ d[s >> 1].xy = v; } else { d[s >> 1].zw = v; }
+}
+vec2 rot(vec2 v, float a){
+  float c = cos(a), n = sin(a);
+  return vec2(v.x*c - v.y*n, v.x*n + v.y*c);
+}
 `;
+
+// A sampler array can only be indexed by a constant in GLSL ES, so the nine
+// headings live in ND separately named textures and every touch of them is
+// unrolled into a local array, which CAN be indexed by a running variable.
+// These write that unrolling so the count is in one place.
+const names = (pre, n) => Array.from({length: n}, (_, i) => pre + i);
+const decl = (pre, n) => `uniform sampler2D ${names(pre, n).join(", ")};`;
+const outs = (pre, n, at) => names("o" + pre, n)
+  .map((v, i) => `layout(location = ${at + i}) out vec4 ${v};`).join("\n");
+const reads = (dst, pre, n, at) => names("u" + pre, n)
+  .map((t, i) => `${dst}[${i}] = texelFetch(${t}, ${at}, 0);`).join(" ");
+const writes = (src, pre, n) => names("o" + pre, n)
+  .map((v, i) => `${v} = ${src}[${i}];`).join(" ");
 
 const HASH = `
 uint hash(uint x){
@@ -304,7 +334,8 @@ float rnd(ivec2 p, int k, int f){
    right level is that average -- which is what makes a lobe a lobe rather than
    a scatter of point taps.                                                  */
 const FS_BRAIN = HEAD + `
-uniform sampler2D uM0, uM1, uC0, uC1, uC2, uD;
+uniform sampler2D uM0, uM1, uC0, uC1, uC2;
+${decl("uD", ND)}
 uniform float uDist, uSize, uSpread, uFeather;
 uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
@@ -324,61 +355,73 @@ layout(location = 1) out vec4 oE1;      //                     species 4..7
 layout(location = 2) out vec4 oE2;      //                     species 8
 layout(location = 3) out vec4 oP0;      // matter to lay down, channels 0..3
 layout(location = 4) out vec4 oP1;      //                     channels 4..7
-layout(location = 5) out vec4 oD;       // where the cell now faces
+// oT: how far each species turns, four to a vector. The turn is written out
+// rather than applied because the headings are ND textures and this pass has
+// no room left for them; the move pass, which has to touch every heading
+// anyway to carry it, does the turning.
+${outs("T", NT, 5)}
 
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec2 uv = (vec2(p) + 0.5)*uTexel;
-  vec2 dir = texelFetch(uD, p, 0).xy;
-  float th = atan(dir.y, dir.x);
+  vec4 dv[ND];
+  ${reads("dv", "D", ND, "p")}
 
   // ---- perceive: ONE Gaussian a lobe, read off the mip chain.
   // A Gaussian-weighted average over a disc is a blurred read, so a lobe is a
   // single tap at the level whose footprint is SIZE. Three shells stacked was
   // three overlapping blobs pretending to be one; this is the one.
+  // The kernel is turned by the heading of the SPECIES DOING THE SMELLING, so
+  // the taps sit inside the loop and every species gets its own perception.
+  // Only the centre tap is shared -- it does not depend on which way anyone
+  // is facing, so it is read once.
   float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
-  vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
-  vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
-  vec4 rgt0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
-  vec4 rgt1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
-  vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
-  vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
   vec4 ctr0 = textureLod(uM0, uv, lod);
   vec4 ctr1 = textureLod(uM1, uv, lod);
-  // The SHAPE decides how those taps become readings. Taps that share a
-  // reading are summed with their sign, so a shape with one reading per
-  // channel is genuinely a different function than one with two: a brain can
-  // build a difference out of two separate eyes, but it can never pull two
-  // separate eyes back out of a difference.
-  //   0 opposed      right minus left            -- one reading  (K + 1 inputs)
-  //   1 both eyes    right and left kept apart   -- two readings (2K + 1)
-  //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
-  float x[NIN];
-  for(int i = 0; i < NIN; i++) x[i] = 0.0;
-  for(int i = 0; i < 4; i++){
-    float r0 = rgt0[i]*uMnorm, r1 = rgt1[i]*uMnorm;
-    float l0 = lft0[i]*uMnorm, l1 = lft1[i]*uMnorm;
-    if(uShape == 0){
-      x[i] = r0 - l0;  x[4 + i] = r1 - l1;
-    } else {
-      x[i]      = r0;  x[4 + i]  = r1;
-      x[8 + i]  = l0;  x[12 + i] = l1;
-      if(uShape == 2){
-        x[16 + i] = -ctr0[i]*uMnorm;  x[20 + i] = -ctr1[i]*uMnorm;
-      }
-    }
-  }
-  x[3*K] = 1.0;
 
   vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
   float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0)) + dot(c2, vec4(1.0));
 
-  // ---- think: every brain reads the same perception
+  // ---- think: each brain smells through its own species' heading
   vec4 e0 = vec4(0.0), e1 = vec4(0.0), e2 = vec4(0.0);
   vec4 q0 = vec4(0.0), q1 = vec4(0.0);
-  float turn = 0.0;
+  vec4 tv[NT];
+  for(int i = 0; i < NT; i++) tv[i] = vec4(0.0);
   for(int s = 0; s < NS; s++){
     float conc = SP(c0, c1, c2, s);
+    vec2 dir = getdir(dv, s);
+    float th = atan(dir.y, dir.x);
+    vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
+    vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
+    vec4 rgt0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
+    vec4 rgt1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
+    vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
+    vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
+    // The SHAPE decides how those taps become readings. Taps that share a
+    // reading are summed with their sign, so a shape with one reading per
+    // channel is genuinely a different function than one with two: a brain
+    // can build a difference out of two separate eyes, but it can never pull
+    // two separate eyes back out of a difference.
+    //   0 opposed      right minus left            -- one reading  (K + 1)
+    //   1 both eyes    right and left kept apart   -- two readings (2K + 1)
+    //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
+    float x[NIN];
+    for(int i = 0; i < NIN; i++) x[i] = 0.0;
+    for(int i = 0; i < 4; i++){
+      float r0 = rgt0[i]*uMnorm, r1 = rgt1[i]*uMnorm;
+      float l0 = lft0[i]*uMnorm, l1 = lft1[i]*uMnorm;
+      if(uShape == 0){
+        x[i] = r0 - l0;  x[4 + i] = r1 - l1;
+      } else {
+        x[i]      = r0;  x[4 + i]  = r1;
+        x[8 + i]  = l0;  x[12 + i] = l1;
+        if(uShape == 2){
+          x[16 + i] = -ctr0[i]*uMnorm;  x[20 + i] = -ctr1[i]*uMnorm;
+        }
+      }
+    }
+    x[3*K] = 1.0;
+
     float h[HID];
     for(int i = 0; i < HID; i++){
       float a = B1(s*HID + i);
@@ -392,9 +435,12 @@ void main(){
       o[i] = a;
     }
     // ---- combine, one answer at a time
-    // The turn is a weighted average: a cell that is mostly one species turns
-    // mostly the way that species wanted.
-    turn += conc*tanh(o[0]);
+    // The turn is NOT averaged any more. It belongs to the species that asked
+    // for it and turns only that species' heading -- and it is damped by how
+    // much of that species is actually here, so a heading stops being spun by
+    // a brain that has nothing standing where it is smelling from. Full turn
+    // at the typical density, nothing at all where the species is absent.
+    tv[s >> 2][s & 3] = uTurn*tanh(o[0])*min(1.0, conc*uCnorm);
     // The affinity is NOT averaged. It belongs to its own species and only
     // that species moves by it, which is the whole reason they stay distinct.
     // Less a crowding term, and without that term this runs away: a brain
@@ -412,9 +458,7 @@ void main(){
   }
   oE0 = e0; oE1 = e1; oE2 = e2;
   oP0 = q0*uMoff*uCnorm; oP1 = q1*uMoff*uCnorm;
-  // The direction is STATE: turned by an offset, then carried with the mass.
-  float nth = th + uTurn*(turn/max(tot, 1e-5));
-  oD = vec4(cos(nth), sin(nth), 0.0, 1.0);
+  ${writes("tv", "T", NT)}
 }`;
 
 /* --------------------------------------------------- 2: the share to give
@@ -445,32 +489,57 @@ void main(){
   oS2 = texelFetch(uC2, p, 0)/max(z2, vec4(1e-30));
 }`;
 
-/* ----------------------------------------- 3: collect, and carry the heading */
+/* -------------------------------- 3: collect, and carry each species' heading
+   Every species is transported independently, and now its HEADING is carried
+   independently too: what arrives at this cell from neighbour q is E(p)*S(q)
+   FOR THAT SPECIES, and that is exactly the weight its heading arrives with.
+   The heading is a carried property, never a fresh guess at where the mass
+   happened to go. The turn the brain asked for is applied here, after the
+   carry, because this pass has to touch all nine headings anyway.          */
 const FS_MOVE = HEAD + `
-uniform sampler2D uE0, uE1, uE2, uS0, uS1, uS2, uD;
+uniform sampler2D uE0, uE1, uE2, uS0, uS1, uS2;
+${decl("uD", ND)}
+${decl("uT", NT)}
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
 layout(location = 2) out vec4 oC2;
-layout(location = 3) out vec4 oD;
+${outs("D", ND, 3)}
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0), e2 = texelFetch(uE2, p, 0);
   vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
-  vec2 acc = vec2(0.0);
-  float wt = 0.0;
+  vec2 acc[NS];
+  float wt[NS];
+  for(int i = 0; i < NS; i++){ acc[i] = vec2(0.0); wt[i] = 0.0; }
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
     vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0), c = texelFetch(uS2, q, 0);
     s0 += a; s1 += b; s2 += c;
-    // What actually arrived here from q is E(p)*S(q) summed over the species,
-    // and the heading rides in on it -- a carried property, not a fresh guess.
-    float m = dot(e0*a, vec4(1.0)) + dot(e1*b, vec4(1.0)) + dot(e2*c, vec4(1.0));
-    acc += m*texelFetch(uD, q, 0).xy; wt += m;
+    vec4 dq[ND];
+    ${reads("dq", "D", ND, "q")}
+    vec4 m0 = e0*a, m1 = e1*b, m2 = e2*c;
+    for(int i = 0; i < NS; i++){
+      float m = SP(m0, m1, m2, i);
+      acc[i] += m*getdir(dq, i); wt[i] += m;
+    }
   }
   oC0 = e0*s0; oC1 = e1*s1; oC2 = e2*s2;
-  vec2 d = wt > 1e-20 ? acc/wt : texelFetch(uD, p, 0).xy;
-  float l = length(d);
-  oD = vec4(l > 1e-6 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
+
+  vec4 dp[ND];
+  ${reads("dp", "D", ND, "p")}
+  vec4 tv[NT];
+  ${reads("tv", "T", NT, "p")}
+  vec4 od[ND];
+  for(int i = 0; i < ND; i++) od[i] = vec4(1.0, 0.0, 1.0, 0.0);
+  for(int i = 0; i < NS; i++){
+    // Nothing of this species came from anywhere: keep the heading it had,
+    // rather than inventing one and having it snap when mass finally arrives.
+    vec2 d = wt[i] > 1e-20 ? acc[i]/wt[i] : getdir(dp, i);
+    float l = length(d);
+    d = l > 1e-6 ? d/l : vec2(1.0, 0.0);
+    setdir(od, i, rot(d, tv[i >> 2][i & 3]));
+  }
+  ${writes("od", "D", ND)}
 }`;
 
 /* --------------------------------------- 4: the ground takes what was laid
@@ -528,7 +597,7 @@ uniform ivec2 uGrid;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
 layout(location = 2) out vec4 oC2;
-layout(location = 3) out vec4 oD;
+${outs("D", ND, 3)}
 
 void cppnAt(vec2 q, out vec4 g0, out vec4 g1, out vec4 g2){
   g0 = vec4(0.0); g1 = vec4(0.0); g2 = vec4(0.0);
@@ -576,8 +645,16 @@ void main(){
     }
   }
   oC0 = c0; oC1 = c1; oC2 = c2;
-  float a = (rnd(p, 3, uSeed) + 0.5)*TAU;
-  oD = vec4(cos(a), sin(a), 0.0, 1.0);
+  // Each species starts facing its own way. Handing them all the same field
+  // would have nine headings that only ever differ by what the brains did to
+  // them, which is a much weaker start than nine independent ones.
+  vec4 od[ND];
+  for(int i = 0; i < ND; i++) od[i] = vec4(1.0, 0.0, 1.0, 0.0);
+  for(int i = 0; i < NS; i++){
+    float a = (rnd(p, 16 + i, uSeed) + 0.5)*TAU;
+    setdir(od, i, vec2(cos(a), sin(a)));
+  }
+  ${writes("od", "D", ND)}
 }`;
 
 const FS_PAINT = HEAD + `
@@ -606,7 +683,8 @@ void main(){
 }`;
 
 const FS_DRAW = HEAD + `
-uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1, uD;
+uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1;
+${decl("uD", ND)}
 uniform vec2 uRes, uPan;
 uniform float uZoom, uExp, uFloor, uCnorm, uMnorm;
 uniform vec3 uPal[NS];
@@ -654,7 +732,14 @@ void main(){
   }
   if(uView == 2){ oCol = vec4(vec3(v), 1.0); return; }
   if(uView == 3){
-    vec2 d = texelFetch(uD, c, 0).xy;
+    // Nine headings a cell now, so the picture shows the one that matters:
+    // the mean of them weighted by how much of each species is here. Where a
+    // cell is one clean species this IS that species' heading.
+    vec4 dv[ND];
+    ${reads("dv", "D", ND, "c")}
+    vec2 d = vec2(0.0);
+    for(int i = 0; i < NS; i++) d += SP(a4, b4, d4, i)*getdir(dv, i);
+    if(dot(d, d) < 1e-24){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
     oCol = vec4(hue(atan(d.y, d.x)/TAU + 0.5)*v, 1.0);
     return;
   }
@@ -721,7 +806,8 @@ function compile(src, type){
 }
 function program(fs){
   const defs = `#define K ${K}\n#define NS ${NS}\n#define HID ${HID}\n` +
-               `#define NIN ${NIN}\n#define NOUT ${NOUT}\n`;
+               `#define NIN ${NIN}\n#define NOUT ${NOUT}\n` +
+               `#define ND ${ND}\n#define NT ${NT}\n`;
   const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
   const p = gl.createProgram();
   gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
@@ -755,9 +841,14 @@ const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES
 
 const fbo = gl.createFramebuffer();
 const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
-if(MAXBUF < 6)
-  fatal("This GPU offers only " + MAXBUF + " draw buffers.\nThe thinking pass writes six at once:\n"
-      + "three thirds of the affinities, two of the matter to lay down,\nand the new direction.");
+// Nine affinities, eight deposits and nine turns leave the thinking pass
+// writing eight targets at once. Every desktop GPU offers eight; software
+// renderers tend to stop at six, and at this grid size they were never going
+// to keep up anyway.
+if(MAXBUF < 8)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers, and this needs eight.\n"
+      + "One pass writes the nine affinities, the eight deposits\n"
+      + "and a turn for each species, all at once.");
 const BUFS = [];
 for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
 function target(list, w, h){
@@ -868,7 +959,10 @@ function alloc(){
   g.e2 = make2D(N, N, gl.RGBA32F);
   g.s0 = make2D(N, N, gl.RGBA32F); g.s1 = make2D(N, N, gl.RGBA32F);
   g.s2 = make2D(N, N, gl.RGBA32F);
-  g.d = make2D(N, N, RG, LF); g.db = make2D(N, N, RG, LF);
+  // A heading each, for each species: nine vec2s a cell, two to a texture.
+  g.d = []; g.db = []; g.t = [];
+  for(let i = 0; i < ND; i++){ g.d.push(make2D(N, N, F, LF)); g.db.push(make2D(N, N, F, LF)); }
+  for(let i = 0; i < NT; i++) g.t.push(make2D(N, N, gl.RGBA16F));
   g.rho = make2D(N, N, R, LF);
   g.pyr = [];
   for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
@@ -876,12 +970,13 @@ function alloc(){
     if(n === 1) break;
   }
   g.all = [g.c0, g.c1, g.c2, g.c0b, g.c1b, g.c2b, g.m0, g.m1, g.m0b, g.m1b,
-           g.p0, g.p1, g.e0, g.e1, g.e2, g.s0, g.s1, g.s2, g.d, g.db, g.rho, ...g.pyr];
+           g.p0, g.p1, g.e0, g.e1, g.e2, g.s0, g.s1, g.s2,
+           ...g.d, ...g.db, ...g.t, g.rho, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (6*N*N*8*w + 6*N*N*8 + 6*N*N*16 + 2*N*N*4*w + N*N*2*w
+  return (6*N*N*8*w + 6*N*N*8 + 6*N*N*16 + 2*ND*N*N*8*w + NT*N*N*8 + N*N*2*w
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
@@ -901,6 +996,13 @@ const cnorm = () => 1/Math.max(1e-6, S.fill);
 // rather than measured -- so it does not move when the field does.
 const mnorm = () => (1 - S.decay)/Math.max(1e-6, S.moff*S.fill);
 function common(u){ gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N); }
+// uD0..uD4 and uT0..uT2 are separate names rather than sampler arrays: GLSL ES
+// only lets a sampler array be indexed by a constant, so the taps get unrolled
+// into a local array in the shader and the binding is unrolled here.
+function bindRun(u, name, list, from){
+  for(let i = 0; i < list.length; i++) gl.uniform1i(u[name + i], tex(from + i, list[i]));
+  return from + list.length;
+}
 function remip(){
   for(const t of [G.m0, G.m1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
 }
@@ -940,7 +1042,7 @@ function reseed(){
   gl.uniform1i(u.uSeed, S.seed);
   gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
   gl.uniform1i(u.uUse, S.use);
-  target([G.c0, G.c1, G.c2, G.d], G.N, G.N); drawQuad();
+  target([G.c0, G.c1, G.c2, ...G.d], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
   }
@@ -953,7 +1055,7 @@ function step(){
     const u = use(P.brain); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
     gl.uniform1i(u.uC0, tex(2, G.c0)); gl.uniform1i(u.uC1, tex(3, G.c1));
-    gl.uniform1i(u.uC2, tex(4, G.c2)); gl.uniform1i(u.uD, tex(5, G.d));
+    gl.uniform1i(u.uC2, tex(4, G.c2)); bindRun(u, "uD", G.d, 5);
     gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
@@ -964,8 +1066,7 @@ function step(){
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
     gl.uniform4fv(u.uW1, S.w1); gl.uniform4fv(u.uB1, S.b1);
     gl.uniform4fv(u.uW2, S.w2); gl.uniform4fv(u.uB2, S.b2);
-    target([G.e0, G.e1, G.e2, G.p0, G.p1, G.db], N, N); drawQuad();
-    [G.d, G.db] = [G.db, G.d];
+    target([G.e0, G.e1, G.e2, G.p0, G.p1, ...G.t], N, N); drawQuad();
   }
   {                                     // each species' own nine shares
     const u = use(P.share); common(u);
@@ -980,8 +1081,9 @@ function step(){
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
     gl.uniform1i(u.uE2, tex(2, G.e2));
     gl.uniform1i(u.uS0, tex(3, G.s0)); gl.uniform1i(u.uS1, tex(4, G.s1));
-    gl.uniform1i(u.uS2, tex(5, G.s2)); gl.uniform1i(u.uD, tex(6, G.d));
-    target([G.c0b, G.c1b, G.c2b, G.db], N, N); drawQuad();
+    gl.uniform1i(u.uS2, tex(5, G.s2));
+    bindRun(u, "uT", G.t, bindRun(u, "uD", G.d, 6));
+    target([G.c0b, G.c1b, G.c2b, ...G.db], N, N); drawQuad();
     [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
     [G.c2, G.c2b] = [G.c2b, G.c2];
     [G.d, G.db] = [G.db, G.d];
@@ -1031,7 +1133,7 @@ function render(){
   gl.uniform1i(u.uC0, tex(1, G.c0)); gl.uniform1i(u.uC1, tex(2, G.c1));
   gl.uniform1i(u.uC2, tex(3, G.c2));
   gl.uniform1i(u.uM0, tex(4, G.m0)); gl.uniform1i(u.uM1, tex(5, G.m1));
-  gl.uniform1i(u.uD, tex(6, G.d));
+  bindRun(u, "uD", G.d, 6);
   gl.uniform2f(u.uRes, cv.width, cv.height);
   gl.uniform2f(u.uPan, S.panx, S.pany);
   gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
@@ -1275,10 +1377,13 @@ function buildUI(){
     + "a fog; high and nearly everything goes to the best one. The temperature "
     + "of the transport, and the sharpest knob on the page.");
   slider("turn", "turn", 0, 90, 0.5, 1, null,
-    "How far a cell may swing its heading in one step. The heading is "
-    + "<b>state</b>: the brains' offsets are averaged by concentration, the "
-    + "average turns it, and it is then carried along with the mass &mdash; "
-    + "never read back out of where the mass happened to go.");
+    "How far a species may swing its heading in one step. Every species "
+    + "carries its <b>own</b> heading and smells through a kernel turned to "
+    + "it, so its brain's offset turns only that one &mdash; scaled by how "
+    + "much of the species is here, so an absent species' heading sits still "
+    + "rather than being spun by a brain with nobody there to do the "
+    + "smelling. The heading is then carried along with that species' own "
+    + "mass, never read back out of where the mass happened to go.");
   slider("crowd", "crowd", 0, 8, 0.05, 2, null,
     "How hard a species is pushed away from density that is already there. "
     + "<b>Nothing else in here pushes back on crowding</b>, and without it the "
@@ -1324,7 +1429,7 @@ function buildUI(){
 
   group("run");
   slider("species", "use", 1, NS, 1, 0, reseed,
-    "How many of the eight species are actually put down. <b>Set it to 1</b> to "
+    "How many of the nine species are actually put down. <b>Set it to 1</b> to "
     + "watch a single brain on its own, which is the only way to see what one "
     + "rule does without seven others averaging into its turn.");
   picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
