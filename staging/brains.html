@@ -272,7 +272,7 @@ if(!gl.getExtension("EXT_color_buffer_float"))
 const K = 8;                 // matter channels
 const NS = 9;                // species, and so brains -- 3x3 on the grid start
 const NC = 10;               // Fourier centres in a brain, Fluoddity's number
-const NIN = 3*K + 1;         // up to three readings per matter channel, and a bias
+const NIN = 3*K + 5;         // three readings a matter channel, the flow, and a bias
 const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
 const ND = (NS + 1) >> 1;    // direction textures -- two species to a vec4
 const NT = (NS + 3) >> 2;    // turn textures -- four species to a vec4
@@ -348,8 +348,9 @@ float rnd(ivec2 p, int k, int f){
    right level is that average -- which is what makes a lobe a lobe rather than
    a scatter of point taps.                                                  */
 const FS_BRAIN = HEAD + `
-uniform sampler2D uM0, uM1, uC0, uC1, uC2;
+uniform sampler2D uM0, uM1, uC0, uC1, uC2, uF;
 ${decl("uD", ND)}
+uniform float uFnorm;
 uniform float uDist, uSize, uSpread, uFeather;
 uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
@@ -413,6 +414,17 @@ void main(){
     vec4 rgt1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
     vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
     vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
+    // The FLOW, read at the same two places and turned into this species' own
+    // frame. Fluoddity's ground is a velocity field, not a heap: what an agent
+    // smells is which way things went past, decomposed into how much of it
+    // runs along its nose and how much across it. Eight scalar heaps can say
+    // "there is more over there" and can never say "the grain runs this way",
+    // which is most of what a slime mold is doing. These four numbers are that
+    // missing sense, and they are the only SIGNED, frame-relative thing a
+    // brain gets.
+    vec2 fwd = vec2(cos(th), sin(th)), lat = vec2(-sin(th), cos(th));
+    vec2 fr = textureLod(uF, uv + ep*uDist*uTexel, lod).xy*uFnorm;
+    vec2 fl = textureLod(uF, uv + en*uDist*uTexel, lod).xy*uFnorm;
     // The SHAPE decides how those taps become readings. Taps that share a
     // reading are summed with their sign, so a shape with one reading per
     // channel is genuinely a different function than one with two: a brain
@@ -443,7 +455,9 @@ void main(){
         }
       }
     }
-    x[3*K] = 1.0;
+    x[3*K + 0] = dot(fr, fwd); x[3*K + 1] = dot(fr, lat);
+    x[3*K + 2] = dot(fl, fwd); x[3*K + 3] = dot(fl, lat);
+    x[3*K + 4] = 1.0;
 
     // ---- the brain, which is Fluoddity's: no hidden layer and no squashing,
     // just a sum of NC random sinusoids. Each centre turns the whole
@@ -466,13 +480,20 @@ void main(){
       if(m == 1 && uMirror == 0) break;
       float y[NIN];
       if(m == 0){ for(int j = 0; j < NIN; j++) y[j] = x[j]; }
-      else if(uShape == 0){
-        // One reading, and it IS right minus left, so mirroring negates it.
-        for(int j = 0; j < NIN; j++) y[j] = -x[j];
-        y[3*K] = 1.0;
-      } else {
-        for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];   // eyes swapped
-        for(int j = 2*K; j < NIN; j++) y[j] = x[j];               // centre, bias
+      else {
+        if(uShape == 0){
+          // One reading, and it IS right minus left, so mirroring negates it.
+          for(int j = 0; j < 3*K; j++) y[j] = -x[j];
+        } else {
+          for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];  // eyes swapped
+          for(int j = 2*K; j < 3*K; j++) y[j] = x[j];              // the centre stays
+        }
+        // The flow swaps eyes AND flips its lateral half, whatever the matter
+        // shape: a mirrored world's grain runs the other way across the nose,
+        // not along it.
+        y[3*K + 0] =  x[3*K + 2]; y[3*K + 1] = -x[3*K + 3];
+        y[3*K + 2] =  x[3*K + 0]; y[3*K + 3] = -x[3*K + 1];
+        y[3*K + 4] = 1.0;
       }
       float t[NOUT];
       for(int i = 0; i < NOUT; i++) t[i] = 0.0;
@@ -512,7 +533,17 @@ void main(){
     // proportional to concentration, matter follows, and the matter is what
     // attracted it. Decay cannot win that argument because the SOURCE is
     // growing. Nothing else here pushes back on density.
-    float e = exp(clamp(uBeta*o[1] - uCrowd*tot*uCnorm, -10.0, 10.0));
+    // Clamped at FORTY, not ten. A softmax only reads DIFFERENCES, and
+    // clamping absolute values destroys them: at beta 18 measured on the CPU
+    // port, 84 per cent of affinities were pinned at the rail, every pinned
+    // pair became equal, and the nine shares came out nearly uniform -- which
+    // is plain diffusion, the exact opposite of what beta is for. Species
+    // contrast against beta was flat at 6.5x for every beta from 4 to 30;
+    // widening the rail it goes 6.3, 17.3, 46.3, 38.5. Forty is safe in the
+    // 32-bit E and S textures because the result is BOUNDED whatever the
+    // exponents: Z(q) always contains E(p), so the mass arriving at p is at
+    // most nine times what left, and no product can run away.
+    float e = exp(clamp(uBeta*o[1] - uCrowd*tot*uCnorm, -40.0, 40.0));
     if(s < 4) e0[s] = e; else if(s < 8) e1[s - 4] = e; else e2[s - 8] = e;
     // The matter offsets are summed, weighted by who is here to lay them.
     for(int k = 0; k < 4; k++){
@@ -634,19 +665,38 @@ void main(){
    trail rather than a smear that never forgets, and diffuse is what lets
    anyone smell it from further off than the cell it was dropped on.        */
 const FS_MATTER = HEAD + `
-uniform sampler2D uM0, uM1, uP0, uP1;
-uniform float uDecay, uDiff;
+uniform sampler2D uM0, uM1, uP0, uP1, uF, uC0, uC1, uC2;
+${decl("uD", ND)}
+uniform float uDecay, uDiff, uCnorm;
 layout(location = 0) out vec4 oM0;
 layout(location = 1) out vec4 oM1;
+layout(location = 2) out vec4 oF;
+// The FLOW is laid down the way Fluoddity lays down its canvas: not a choice a
+// brain makes but simply where the mass here is going -- every species' own
+// heading, weighted by how much of it is present. It then fades and spreads
+// with exactly the same decay and diffusion as the matter, because it is the
+// same kind of thing: a mark left on the ground that outlives whoever left it.
+vec2 flowAt(ivec2 q){
+  vec4 c0 = texelFetch(uC0, q, 0), c1 = texelFetch(uC1, q, 0), c2 = texelFetch(uC2, q, 0);
+  vec4 dv[ND];
+  ${reads("dv", "D", ND, "q")}
+  vec2 f = vec2(0.0);
+  for(int i = 0; i < NS; i++) f += SP(c0, c1, c2, i)*getdir(dv, i);
+  return f*uCnorm;
+}
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 s0 = vec4(0.0), s1 = vec4(0.0);
+  vec2 sf = vec2(0.0);
   for(int dy = -1; dy <= 1; dy++)
     for(int dx = -1; dx <= 1; dx++){
       ivec2 q = wrap(p + ivec2(dx, dy));
       s0 += texelFetch(uM0, q, 0) + texelFetch(uP0, q, 0);
       s1 += texelFetch(uM1, q, 0) + texelFetch(uP1, q, 0);
+      sf += texelFetch(uF, q, 0).xy + flowAt(q);
     }
+  vec2 cf = texelFetch(uF, p, 0).xy + flowAt(p);
+  oF = vec4(clamp(uDecay*mix(cf, sf/9.0, uDiff), -6.0e4, 6.0e4), 0.0, 1.0);
   vec4 c0 = texelFetch(uM0, p, 0) + texelFetch(uP0, p, 0);
   vec4 c1 = texelFetch(uM1, p, 0) + texelFetch(uP1, p, 0);
   // Floored at zero because a brain may emit a negative offset, and capped
@@ -794,10 +844,10 @@ void main(){
 }`;
 
 const FS_DRAW = HEAD + `
-uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1;
+uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1, uF;
 ${decl("uD", ND)}
 uniform vec2 uRes, uPan;
-uniform float uZoom, uExp, uFloor, uCnorm, uMnorm;
+uniform float uZoom, uExp, uFloor, uCnorm, uMnorm, uFnorm;
 uniform vec3 uPal[NS];
 uniform int uView;
 out vec4 oCol;
@@ -858,6 +908,16 @@ void main(){
     for(int i = 0; i < NS; i++) d += SP(a4, b4, d4, i)*getdir(dv, i);
     if(dot(d, d) < 1e-24){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
     oCol = vec4(hue(atan(d.y, d.x)/TAU + 0.5)*v, 1.0);
+    return;
+  }
+  if(uView == 5){
+    // The flow: hue is which way the ground remembers things went, brightness
+    // how strongly it remembers. Where this is smooth, something is combing
+    // the field; where it is speckled, nothing agrees for two cells running.
+    vec2 f = texelFetch(uF, c, 0).xy*uFnorm;
+    float L = length(f);
+    oCol = vec4(hue(atan(f.y, f.x)/TAU + 0.5)*(1.0 - exp(-L*uExp*2.0))
+                + vec3(0.016, 0.024, 0.040), 1.0);
     return;
   }
   if(uView == 4){
@@ -1107,6 +1167,10 @@ function alloc(){
   g.m1 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
   g.m0b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
   g.m1b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  // The flow is read at the lobes like the matter, so it carries a mip chain
+  // for the same reason: one tap at the right level is the blurred average.
+  g.f = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.fb = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
   g.p0 = make2D(N, N, gl.RGBA16F); g.p1 = make2D(N, N, gl.RGBA16F);
   // E and S are always 32-bit: S is conc/Z, Z runs to a few times exp(beta),
   // and at 16-bit a third of them flush to zero and take their mass with them.
@@ -1126,12 +1190,12 @@ function alloc(){
   }
   g.all = [g.c0, g.c1, g.c2, g.c0b, g.c1b, g.c2b, g.m0, g.m1, g.m0b, g.m1b,
            g.p0, g.p1, g.e0, g.e1, g.e2, g.s0, g.s1, g.s2,
-           ...g.d, ...g.db, ...g.t, g.rho, ...g.pyr];
+           g.f, g.fb, ...g.d, ...g.db, ...g.t, g.rho, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (6*N*N*8*w + 6*N*N*8 + 6*N*N*16 + 2*ND*N*N*8*w + NT*N*N*8 + N*N*2*w
+  return (6*N*N*8*w + 6*N*N*8 + 8*N*N*16 + 2*ND*N*N*8*w + NT*N*N*8 + N*N*2*w
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
@@ -1159,7 +1223,7 @@ function bindRun(u, name, list, from){
   return from + list.length;
 }
 function remip(){
-  for(const t of [G.m0, G.m1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
+  for(const t of [G.m0, G.m1, G.f]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
 }
 function makeRho(){
   const u = use(P.rho); common(u);
@@ -1205,7 +1269,7 @@ function reseed(seed){
   gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
   gl.uniform1i(u.uUse, S.use); gl.uniform1i(u.uSpots, spots);
   target([G.c0, G.c1, G.c2, ...G.d], G.N, G.N); drawQuad();
-  for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
+  for(const t of [G.m0, G.m1, G.m0b, G.m1b, G.f, G.fb]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
   }
   remip(); makeRho();
@@ -1217,7 +1281,8 @@ function step(){
     const u = use(P.brain); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
     gl.uniform1i(u.uC0, tex(2, G.c0)); gl.uniform1i(u.uC1, tex(3, G.c1));
-    gl.uniform1i(u.uC2, tex(4, G.c2)); bindRun(u, "uD", G.d, 5);
+    gl.uniform1i(u.uC2, tex(4, G.c2)); gl.uniform1i(u.uF, tex(5, G.f));
+    gl.uniform1f(u.uFnorm, 1 - S.decay); bindRun(u, "uD", G.d, 6);
     gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
@@ -1256,9 +1321,14 @@ function step(){
     const u = use(P.matter); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
     gl.uniform1i(u.uP0, tex(2, G.p0)); gl.uniform1i(u.uP1, tex(3, G.p1));
+    gl.uniform1i(u.uF, tex(4, G.f));
+    gl.uniform1i(u.uC0, tex(5, G.c0)); gl.uniform1i(u.uC1, tex(6, G.c1));
+    gl.uniform1i(u.uC2, tex(7, G.c2)); bindRun(u, "uD", G.d, 8);
     gl.uniform1f(u.uDecay, S.decay); gl.uniform1f(u.uDiff, S.diff);
-    target([G.m0b, G.m1b], N, N); drawQuad();
+    gl.uniform1f(u.uCnorm, cnorm());
+    target([G.m0b, G.m1b, G.fb], N, N); drawQuad();
     [G.m0, G.m0b] = [G.m0b, G.m0]; [G.m1, G.m1b] = [G.m1b, G.m1];
+    [G.f, G.fb] = [G.fb, G.f];
     remip();
   }
   makeRho();
@@ -1297,7 +1367,9 @@ function render(){
   gl.uniform1i(u.uC0, tex(1, G.c0)); gl.uniform1i(u.uC1, tex(2, G.c1));
   gl.uniform1i(u.uC2, tex(3, G.c2));
   gl.uniform1i(u.uM0, tex(4, G.m0)); gl.uniform1i(u.uM1, tex(5, G.m1));
-  bindRun(u, "uD", G.d, 6);
+  gl.uniform1i(u.uF, tex(6, G.f));
+  bindRun(u, "uD", G.d, 7);
+  gl.uniform1f(u.uFnorm, 1 - S.decay);
   gl.uniform2f(u.uRes, cv.width, cv.height);
   gl.uniform2f(u.uPan, S.panx, S.pany);
   gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
@@ -1512,24 +1584,9 @@ function buildKernel(){
    than blobs or boiling -- then the survivors were judged by eye off a contact
    sheet. Each carries the seeds it was found with, and the page's generator is
    the search's generator, so a preset replays rather than merely rhymes.     */
-const PRESETS = [
-  {name: "crosshatch", brain: 580866539, world: 833557194,
-   p: {shape: 0, mirror: 0, dist: 2.38, size: 4.59, spread: 101, feather: 0.61, gain: 0.57, sweep: 0, speed: 4, beta: 3.65, turn: 77, moff: 1.55, crowd: 1.4, decay: 0.923, diff: 0.01, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "lichen", brain: 781908487, world: 327447408,
-   p: {shape: 2, mirror: 1, dist: 1.5, size: 1.5, spread: 97, feather: 0.09, gain: 0.82, sweep: 0, speed: 1.05, beta: 4.35, turn: 10.5, moff: 1.15, crowd: 0, decay: 0.989, diff: 0, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "orbs", brain: 591049758, world: 869791481,
-   p: {shape: 0, mirror: 0, dist: 1, size: 5.5, spread: 116, feather: 0.91, gain: 0.56, sweep: 0, speed: 0.25, beta: 18.35, turn: 56.5, moff: 0.3, crowd: 0, decay: 0.824, diff: 0.04, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "shards", brain: 794615782, world: 724527028,
-   p: {shape: 1, mirror: 1, dist: 1, size: 2.5, spread: 36, feather: 0.32, gain: 0.2, sweep: 0, speed: 4.4, beta: 5.7, turn: 79, moff: 0.3, crowd: 2.95, decay: 0.921, diff: 0.3, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "brushwork", brain: 585160834, world: 783087255,
-   p: {shape: 0, mirror: 1, dist: 1, size: 1.5, spread: 22, feather: 0.75, gain: 2.1, sweep: 0, speed: 3.15, beta: 8.7, turn: 4.5, moff: 1.75, crowd: 0, decay: 0.908, diff: 0.24, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "tapestry", brain: 836351404, world: 674091672,
-   p: {shape: 1, mirror: 0, dist: 16, size: 5, spread: 53, feather: 0.7, gain: 0.45, sweep: 0, speed: 4.55, beta: 15.05, turn: 82, moff: 2.5, crowd: 0, decay: 0.906, diff: 0.2, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "moss", brain: 954686712, world: 853481140,
-   p: {shape: 0, mirror: 1, dist: 3.5, size: 5, spread: 18, feather: 0.3, gain: 0.29, sweep: 0, speed: 3.6, beta: 10.1, turn: 39, moff: 0.9, crowd: 0, decay: 0.846, diff: 0.29, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-  {name: "ember", brain: 859290190, world: 697997631,
-   p: {shape: 0, mirror: 1, dist: 2.77, size: 2.2, spread: 152, feather: 0.09, gain: 0.545, sweep: 0, speed: 0.35, beta: 12.05, turn: 32.5, moff: 0.65, crowd: 0, decay: 0.949, diff: 0.44, fill: 0.1, ball: 0.55, mode: 1, view: 1}},
-];
+const PRESETS = [];   // stale: the flow inputs changed how many numbers a
+                      // brain seed draws, so every old seed now names a
+                      // different brain. Re-searched rather than patched.
 function applyPreset(i){
   const P = PRESETS[i]; if(!P) return;
   for(const k in P.p){
@@ -1677,9 +1734,11 @@ function buildUI(){
     + "was dropped on, where nobody can smell it from a distance.");
 
   group("view");
-  picker("show", "view", [{v:0,t:"species"}, {v:1,t:"matter"}, {v:4,t:"purity"},
-                          {v:2,t:"density"}, {v:3,t:"direction"}], null,
-    "<b>species</b> and <b>matter</b> are each channel as a colour, added. "
+  picker("show", "view", [{v:0,t:"species"}, {v:1,t:"matter"}, {v:5,t:"flow"},
+                          {v:4,t:"purity"}, {v:2,t:"density"}, {v:3,t:"direction"}], null,
+    "<b>species</b> and <b>matter</b> are each channel as a colour, blended. "
+    + "<b>flow</b> is the vector half of the ground &mdash; which way it "
+    + "remembers things went, which is the only signed thing a brain smells. "
     + "<b>purity</b> paints a cell grey when it is an even mixture and a "
     + "saturated hue when it is one clean species &mdash; the view for asking "
     + "whether they are staying apart.");

@@ -49,8 +49,7 @@ def glsl_rnd(px, py, k, f):
     return h.astype(np.float64) * (1.0 / 4294967296.0) - 0.5
 
 
-def nin_of(shape):
-    return K + 1 if shape == 0 else (3 * K + 1 if shape == 2 else 2 * K + 1)
+NIN = 3 * K + 5      # three readings a matter channel, the flow, and a bias
 
 
 def roll_at(a, off):
@@ -97,7 +96,7 @@ class Brains:
     def __init__(self, P, seed):
         self.P = P
         self.N = N = P["N"]
-        self.nin = nin_of(P["shape"])
+        self.nin = NIN
         # --- rollBrains: Fluoddity's seeding, drawn in the page's exact order
         r = mulberry32(seed)
         self.frq = np.empty((NS, NC, self.nin), np.float32)
@@ -125,6 +124,7 @@ class Brains:
     def reset(self):
         P, N = self.P, self.N
         self.M = np.zeros((N, N, K), np.float32)          # matter: starts empty
+        self.F = np.zeros((N, N, 2), np.float32)          # flow: the vector half
         self.C = np.zeros((N, N, NS), np.float32)         # species
         gw, gh, best = 1, NS, 1e9
         for w in range(1, NS + 1):
@@ -160,6 +160,8 @@ class Brains:
         lod = max(0.0, np.log2(max(P["size"], 1.0)) + P["feather"] * 1.6)
         Mb = blur(self.M, 0.42 * (2.0 ** lod))
         Mf = Mb.reshape(N * N, K)
+        Fb = blur(self.F, 0.42 * (2.0 ** lod)).reshape(N * N, 2)
+        fnorm = np.float32(1 - P["decay"])
         ctr = (Mb * mnorm - 1.0)[:, :, None, :]              # (N,N,1,K), shared
 
         th = np.arctan2(self.D[..., 1], self.D[..., 0])      # (N,N,NS)
@@ -167,17 +169,26 @@ class Brains:
         rgt = self._tap(Mf, th + hs) * mnorm - 1.0           # (N,N,NS,K)
         lft = self._tap(Mf, th - hs) * mnorm - 1.0
         one = np.ones((N, N, NS, 1), np.float32)
+        Z = np.zeros((N, N, NS, K), np.float32)
         ctrb = np.broadcast_to(ctr, (N, N, NS, K))
+        # the flow at each lobe, turned into the reading species' own frame
+        fwd = np.stack([np.cos(th), np.sin(th)], -1)
+        lat = np.stack([-np.sin(th), np.cos(th)], -1)
+        fr = self._tap(Fb, th + hs, 2) * fnorm
+        fl = self._tap(Fb, th - hs, 2) * fnorm
+        F = np.stack([(fr * fwd).sum(-1), (fr * lat).sum(-1),
+                      (fl * fwd).sum(-1), (fl * lat).sum(-1)], -1)
+        Fm = np.stack([F[..., 2], -F[..., 3], F[..., 0], -F[..., 1]], -1)
 
         if P["shape"] == 0:
-            x = np.concatenate([rgt - lft, one], -1)
-            xm = np.concatenate([lft - rgt, one], -1)
+            x = np.concatenate([rgt - lft, Z, Z, F, one], -1)
+            xm = np.concatenate([lft - rgt, Z, Z, Fm, one], -1)
         elif P["shape"] == 2:
-            x = np.concatenate([rgt, lft, -ctrb, one], -1)
-            xm = np.concatenate([lft, rgt, -ctrb, one], -1)
+            x = np.concatenate([rgt, lft, -ctrb, F, one], -1)
+            xm = np.concatenate([lft, rgt, -ctrb, Fm, one], -1)
         else:
-            x = np.concatenate([rgt, lft, one], -1)
-            xm = np.concatenate([lft, rgt, one], -1)
+            x = np.concatenate([rgt, lft, Z, F, one], -1)
+            xm = np.concatenate([lft, rgt, Z, Fm, one], -1)
 
         o = self._brain(x, gain)
         if P["mirror"]:
@@ -189,7 +200,7 @@ class Brains:
         turn = (np.float32(np.radians(P["turn"])) * np.tanh(o[..., 0])
                 * np.minimum(1.0, self.C * cnorm))                       # (N,N,NS)
         E = np.exp(np.clip(P["beta"] * o[..., 1]
-                           - P["crowd"] * tot[..., None] * cnorm, -10, 10))
+                           - P["crowd"] * tot[..., None] * cnorm, -40, 40))
         dep = (self.C[..., None] * np.tanh(o[..., 2:])).sum(2) * np.float32(P["moff"] * cnorm)
 
         # ---- transport: exp(beta*affinity + speed*heading.offset), per species
@@ -216,13 +227,17 @@ class Brains:
                            d[..., 0] * st + d[..., 1] * ct], -1)
         self.C = E * got
 
-        # ---- the ground
+        # ---- the ground, matter and flow alike
         c = self.M + dep
         s9 = sum(roll_at(c, off) for off in OFF) / np.float32(9.0)
         self.M = np.clip(P["decay"] * (c * (1 - P["diff"]) + s9 * P["diff"]),
                          0, 6e4).astype(np.float32)
+        cf = self.F + (self.C[..., None] * self.D).sum(2) * np.float32(cnorm)
+        f9 = sum(roll_at(cf, off) for off in OFF) / np.float32(9.0)
+        self.F = np.clip(P["decay"] * (cf * (1 - P["diff"]) + f9 * P["diff"]),
+                         -6e4, 6e4).astype(np.float32)
 
-    def _tap(self, Mf, ang):
+    def _tap(self, Mf, ang, C=K):
         """Bilinear read of the blurred matter DIST cells along each angle."""
         N, P = self.N, self.P
         x = self.px[..., None] + np.cos(ang) * P["dist"]
@@ -232,7 +247,7 @@ class Brains:
         x0 = x0.astype(np.int32) % N; y0 = y0.astype(np.int32) % N
         x1 = (x0 + 1) % N; y1 = (y0 + 1) % N
         a = Mf[y0 * N + x0]; b = Mf[y0 * N + x1]
-        c = Mf[y1 * N + x0]; e = Mf[y1 * N + x1]
+        c = Mf[y1 * N + x0]; e = Mf[y1 * N + x1]   # (N,N,NS,C)
         return (a + (b - a) * fx) + ((c + (e - c) * fx) - (a + (b - a) * fx)) * fy
 
     def _brain(self, x, gain):
