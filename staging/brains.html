@@ -253,7 +253,7 @@ if(!gl.getExtension("EXT_color_buffer_float"))
   fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
 
 const K = 8;                 // matter channels
-const NS = 8;                // species, and so brains
+const NS = 9;                // species, and so brains -- 3x3 on the grid start
 const HID = 6;               // hidden units in a brain
 const NIN = 2*K + 1;         // both lobes per matter channel, and a bias
 const NOUT = 2 + K;          // turn, affinity, and a matter offset per channel
@@ -271,6 +271,10 @@ const ivec2 OFF[9] = ivec2[9](ivec2( 0, 0),
   ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
   ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
 ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+// Nine species across three vec4s. The last three slots of the third are
+// unused, which costs a little memory and saves indexing three textures by
+// hand everywhere.
+#define SP(a, b, c, s) ((s) < 4 ? (a)[(s)] : ((s) < 8 ? (b)[(s) - 4] : (c)[(s) - 8]))
 `;
 
 const HASH = `
@@ -298,8 +302,8 @@ float rnd(ivec2 p, int k, int f){
    right level is that average -- which is what makes a lobe a lobe rather than
    a scatter of point taps.                                                  */
 const FS_BRAIN = HEAD + `
-uniform sampler2D uM0, uM1, uC0, uC1, uD;
-uniform float uSize, uLobe, uSpread, uFeather;
+uniform sampler2D uM0, uM1, uC0, uC1, uC2, uD;
+uniform float uDist, uSize, uSpread, uFeather;
 // Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
 // per element, so 1424 weights ask for 1424 vectors against a limit of 1024
 // and the link fails; as vec4 they ask for 356.
@@ -311,12 +315,13 @@ uniform vec4 uB2[(NS*NOUT + 3)/4];
 #define B1(i) uB1[(i) >> 2][(i) & 3]
 #define W2(i) uW2[(i) >> 2][(i) & 3]
 #define B2(i) uB2[(i) >> 2][(i) & 3]
-uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm;
+uniform float uBeta, uTurn, uMoff, uMnorm, uCnorm, uCrowd;
 layout(location = 0) out vec4 oE0;      // exp(beta*affinity), species 0..3
 layout(location = 1) out vec4 oE1;      //                     species 4..7
-layout(location = 2) out vec4 oP0;      // matter to lay down, channels 0..3
-layout(location = 3) out vec4 oP1;      //                     channels 4..7
-layout(location = 4) out vec4 oD;       // where the cell now faces
+layout(location = 2) out vec4 oE2;      //                     species 8
+layout(location = 3) out vec4 oP0;      // matter to lay down, channels 0..3
+layout(location = 4) out vec4 oP1;      //                     channels 4..7
+layout(location = 5) out vec4 oD;       // where the cell now faces
 
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -324,38 +329,36 @@ void main(){
   vec2 dir = texelFetch(uD, p, 0).xy;
   float th = atan(dir.y, dir.x);
 
-  // ---- perceive: two lobes, three shells each, read off the mip chain
-  float lod = max(0.0, log2(max(uLobe, 1.0)) + uFeather*1.2);
-  const float SH[3] = float[3](0.6, 1.0, 1.5);
-  vec4 pos0 = vec4(0.0), pos1 = vec4(0.0), neg0 = vec4(0.0), neg1 = vec4(0.0);
-  for(int t = 0; t < 2; t++){
-    float sgn = t == 0 ? 1.0 : -1.0;
-    float a = th + sgn*uSpread*0.5;
-    vec2 e = vec2(cos(a), sin(a));
-    for(int j = 0; j < 3; j++){
-      vec2 off = e*(uSize*SH[j])*uTexel;
-      vec4 m0 = textureLod(uM0, uv + off, lod), m1 = textureLod(uM1, uv + off, lod);
-      if(t == 0){ pos0 += m0; pos1 += m1; } else { neg0 += m0; neg1 += m1; }
-    }
-  }
+  // ---- perceive: ONE Gaussian a lobe, read off the mip chain.
+  // A Gaussian-weighted average over a disc is a blurred read, so a lobe is a
+  // single tap at the level whose footprint is SIZE. Three shells stacked was
+  // three overlapping blobs pretending to be one; this is the one.
+  float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
+  vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
+  vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
+  vec4 pos0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
+  vec4 pos1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
+  vec4 neg0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
+  vec4 neg1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
   // Both lobes go in whole rather than as their difference: a brain can form
   // the difference itself if it wants one, and it can also tell "plenty
   // everywhere" from "plenty on one side", which a difference throws away.
   float x[NIN];
   for(int i = 0; i < 4; i++){
-    x[i]       = pos0[i]*uMnorm/3.0;  x[4 + i]  = pos1[i]*uMnorm/3.0;
-    x[8 + i]   = neg0[i]*uMnorm/3.0;  x[12 + i] = neg1[i]*uMnorm/3.0;
+    x[i]       = pos0[i]*uMnorm;  x[4 + i]  = pos1[i]*uMnorm;
+    x[8 + i]   = neg0[i]*uMnorm;  x[12 + i] = neg1[i]*uMnorm;
   }
   x[2*K] = 1.0;
 
-  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0);
-  float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0));
+  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
+  float tot = dot(c0, vec4(1.0)) + dot(c1, vec4(1.0)) + dot(c2, vec4(1.0));
 
   // ---- think: every brain reads the same perception
-  vec4 e0, e1, q0 = vec4(0.0), q1 = vec4(0.0);
+  vec4 e0 = vec4(0.0), e1 = vec4(0.0), e2 = vec4(0.0);
+  vec4 q0 = vec4(0.0), q1 = vec4(0.0);
   float turn = 0.0;
   for(int s = 0; s < NS; s++){
-    float conc = s < 4 ? c0[s] : c1[s - 4];
+    float conc = SP(c0, c1, c2, s);
     float h[HID];
     for(int i = 0; i < HID; i++){
       float a = B1(s*HID + i);
@@ -374,15 +377,20 @@ void main(){
     turn += conc*tanh(o[0]);
     // The affinity is NOT averaged. It belongs to its own species and only
     // that species moves by it, which is the whole reason they stay distinct.
-    float e = exp(clamp(uBeta*o[1], -10.0, 10.0));
-    if(s < 4) e0[s] = e; else e1[s - 4] = e;
+    // Less a crowding term, and without that term this runs away: a brain
+    // that likes where it already is piles concentration up, deposit is
+    // proportional to concentration, matter follows, and the matter is what
+    // attracted it. Decay cannot win that argument because the SOURCE is
+    // growing. Nothing else here pushes back on density.
+    float e = exp(clamp(uBeta*o[1] - uCrowd*tot*uCnorm, -10.0, 10.0));
+    if(s < 4) e0[s] = e; else if(s < 8) e1[s - 4] = e; else e2[s - 8] = e;
     // The matter offsets are summed, weighted by who is here to lay them.
     for(int k = 0; k < 4; k++){
       q0[k] += conc*tanh(o[2 + k]);
       q1[k] += conc*tanh(o[6 + k]);
     }
   }
-  oE0 = e0; oE1 = e1;
+  oE0 = e0; oE1 = e1; oE2 = e2;
   oP0 = q0*uMoff*uCnorm; oP1 = q1*uMoff*uCnorm;
   // The direction is STATE: turned by an offset, then carried with the mass.
   float nth = th + uTurn*(turn/max(tot, 1e-5));
@@ -399,44 +407,47 @@ void main(){
    subnormal floor: a third of them flush to zero and take their mass with
    them. That is not rounding, it is a leak.                                */
 const FS_SHARE = HEAD + `
-uniform sampler2D uE0, uE1, uC0, uC1;
+uniform sampler2D uE0, uE1, uE2, uC0, uC1, uC2;
 layout(location = 0) out vec4 oS0;
 layout(location = 1) out vec4 oS1;
+layout(location = 2) out vec4 oS2;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 z0 = vec4(0.0), z1 = vec4(0.0);
+  vec4 z0 = vec4(0.0), z1 = vec4(0.0), z2 = vec4(0.0);
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    z0 += texelFetch(uE0, q, 0); z1 += texelFetch(uE1, q, 0);
+    z0 += texelFetch(uE0, q, 0); z1 += texelFetch(uE1, q, 0); z2 += texelFetch(uE2, q, 0);
   }
   // Guard 0/0 only. The floor must sit far below the smallest honest Z or
   // mass is silently deleted.
   oS0 = texelFetch(uC0, p, 0)/max(z0, vec4(1e-30));
   oS1 = texelFetch(uC1, p, 0)/max(z1, vec4(1e-30));
+  oS2 = texelFetch(uC2, p, 0)/max(z2, vec4(1e-30));
 }`;
 
 /* ----------------------------------------- 3: collect, and carry the heading */
 const FS_MOVE = HEAD + `
-uniform sampler2D uE0, uE1, uS0, uS1, uD;
+uniform sampler2D uE0, uE1, uE2, uS0, uS1, uS2, uD;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
-layout(location = 2) out vec4 oD;
+layout(location = 2) out vec4 oC2;
+layout(location = 3) out vec4 oD;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0);
-  vec4 s0 = vec4(0.0), s1 = vec4(0.0);
+  vec4 e0 = texelFetch(uE0, p, 0), e1 = texelFetch(uE1, p, 0), e2 = texelFetch(uE2, p, 0);
+  vec4 s0 = vec4(0.0), s1 = vec4(0.0), s2 = vec4(0.0);
   vec2 acc = vec2(0.0);
   float wt = 0.0;
   for(int k = 0; k < 9; k++){
     ivec2 q = wrap(p + OFF[k]);
-    vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0);
-    s0 += a; s1 += b;
+    vec4 a = texelFetch(uS0, q, 0), b = texelFetch(uS1, q, 0), c = texelFetch(uS2, q, 0);
+    s0 += a; s1 += b; s2 += c;
     // What actually arrived here from q is E(p)*S(q) summed over the species,
     // and the heading rides in on it -- a carried property, not a fresh guess.
-    float m = dot(e0*a, vec4(1.0)) + dot(e1*b, vec4(1.0));
+    float m = dot(e0*a, vec4(1.0)) + dot(e1*b, vec4(1.0)) + dot(e2*c, vec4(1.0));
     acc += m*texelFetch(uD, q, 0).xy; wt += m;
   }
-  oC0 = e0*s0; oC1 = e1*s1;
+  oC0 = e0*s0; oC1 = e1*s1; oC2 = e2*s2;
   vec2 d = wt > 1e-20 ? acc/wt : texelFetch(uD, p, 0).xy;
   float l = length(d);
   oD = vec4(l > 1e-6 ? d/l : vec2(1.0, 0.0), 0.0, 1.0);
@@ -470,11 +481,12 @@ void main(){
 }`;
 
 const FS_RHO = HEAD + `
-uniform sampler2D uC0, uC1;
+uniform sampler2D uC0, uC1, uC2;
 out vec4 oRho;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  oRho = vec4(dot(texelFetch(uC0, p, 0), vec4(1.0)) + dot(texelFetch(uC1, p, 0), vec4(1.0)));
+  oRho = vec4(dot(texelFetch(uC0, p, 0), vec4(1.0)) + dot(texelFetch(uC1, p, 0), vec4(1.0))
+            + dot(texelFetch(uC2, p, 0), vec4(1.0)));
 }`;
 
 /* How a run starts. The matter always starts at NOTHING -- the ground has to
@@ -495,23 +507,26 @@ uniform int uSeed, uMode, uUse;
 uniform ivec2 uGrid;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
-layout(location = 2) out vec4 oD;
+layout(location = 2) out vec4 oC2;
+layout(location = 3) out vec4 oD;
 
-void cppnAt(vec2 q, out vec4 g0, out vec4 g1){
-  g0 = vec4(0.0); g1 = vec4(0.0);
+void cppnAt(vec2 q, out vec4 g0, out vec4 g1, out vec4 g2){
+  g0 = vec4(0.0); g1 = vec4(0.0); g2 = vec4(0.0);
   for(int i = 0; i < 8; i++){
     float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
     g0 += vec4(uCV[8*i], uCV[8*i+1], uCV[8*i+2], uCV[8*i+3])*z;
     g1 += vec4(uCV[8*i+4], uCV[8*i+5], uCV[8*i+6], uCV[8*i+7])*z;
+    g2 += vec4(uCV[8*i+2], uCV[8*i+5], uCV[8*i], uCV[8*i+7])*z;
   }
-  g0 = exp(g0*uCScale); g1 = exp(g1*uCScale);
-  float t = dot(g0, vec4(1.0)) + dot(g1, vec4(1.0));
-  g0 /= t; g1 /= t;
+  g0 = exp(g0*uCScale); g1 = exp(g1*uCScale); g2 = exp(g2*uCScale);
+  g2.yzw = vec3(0.0);                       // only nine species exist
+  float t = dot(g0, vec4(1.0)) + dot(g1, vec4(1.0)) + dot(g2, vec4(1.0));
+  g0 /= t; g1 /= t; g2 /= t;
 }
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec2 fp = vec2(p) + 0.5;
-  vec4 c0 = vec4(0.0), c1 = vec4(0.0);
+  vec4 c0 = vec4(0.0), c1 = vec4(0.0), c2 = vec4(0.0);
 
   if(uMode == 1){
     // A ball each, on a grid. Every species starts alone and has to travel to
@@ -522,53 +537,56 @@ void main(){
       vec2 d = fp - mid;
       d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
       if(length(d) < uRad){
-        if(s < 4) c0[s] = uAmp; else c1[s - 4] = uAmp;
+        if(s < 4) c0[s] = uAmp; else if(s < 8) c1[s - 4] = uAmp; else c2[s - 8] = uAmp;
       }
     }
   } else if(uMode == 3){
-    vec2 d = vec2(0.0);
-    cppnAt(fp/uN*TAU, c0, c1);
+    cppnAt(fp/uN*TAU, c0, c1, c2);
     float on = (rnd(p, 0, uSeed) + 0.5) < uRad ? 1.0 : 0.0;   // uRad is fill here
-    c0 *= uAmp*on; c1 *= uAmp*on;
+    c0 *= uAmp*on; c1 *= uAmp*on; c2 *= uAmp*on;
   } else {
     vec2 d = fp - vec2(uN*0.5);
     if(length(d) < uRad){
-      if(uMode == 2){ cppnAt(fp/uN*TAU, c0, c1); c0 *= uAmp*8.0; c1 *= uAmp*8.0; }
-      else for(int s = 0; s < uUse; s++){
-        if(s < 4) c0[s] = uAmp; else c1[s - 4] = uAmp;
+      if(uMode == 2){
+        cppnAt(fp/uN*TAU, c0, c1, c2);
+        c0 *= uAmp*float(NS); c1 *= uAmp*float(NS); c2 *= uAmp*float(NS);
+      } else for(int s = 0; s < uUse; s++){
+        if(s < 4) c0[s] = uAmp; else if(s < 8) c1[s - 4] = uAmp; else c2[s - 8] = uAmp;
       }
     }
   }
-  oC0 = c0; oC1 = c1;
+  oC0 = c0; oC1 = c1; oC2 = c2;
   float a = (rnd(p, 3, uSeed) + 0.5)*TAU;
   oD = vec4(cos(a), sin(a), 0.0, 1.0);
 }`;
 
 const FS_PAINT = HEAD + `
-uniform sampler2D uC0, uC1;
+uniform sampler2D uC0, uC1, uC2;
 uniform vec2 uAt;
 uniform float uRad, uAmt;
 uniform int uKind;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
+layout(location = 2) out vec4 oC2;
 void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
-  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0);
+  vec4 c0 = texelFetch(uC0, p, 0), c1 = texelFetch(uC1, p, 0), c2 = texelFetch(uC2, p, 0);
   vec2 d = vec2(p) + 0.5 - uAt;
   d -= uN*floor(d/uN + 0.5);
   float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
   if(t > 0.0){
-    if(uAmt < 0.0){ c0 *= 1.0 - t; c1 *= 1.0 - t; }
+    if(uAmt < 0.0){ c0 *= 1.0 - t; c1 *= 1.0 - t; c2 *= 1.0 - t; }
     else for(int i = 0; i < 4; i++){
       if(i == uKind) c0[i] += uAmt*t;
       if(4 + i == uKind) c1[i] += uAmt*t;
+      if(8 + i == uKind) c2[i] += uAmt*t;
     }
   }
-  oC0 = c0; oC1 = c1;
+  oC0 = c0; oC1 = c1; oC2 = c2;
 }`;
 
 const FS_DRAW = HEAD + `
-uniform sampler2D uRho, uC0, uC1, uM0, uM1, uD;
+uniform sampler2D uRho, uC0, uC1, uC2, uM0, uM1, uD;
 uniform vec2 uRes, uPan;
 uniform float uZoom, uExp, uFloor, uCnorm, uMnorm;
 uniform vec3 uPal[NS];
@@ -590,9 +608,9 @@ void main(){
   // fractional radius; the picture does not, and taking it blends neighbouring
   // cells into each other and smears the boundary between them.
   ivec2 c = ivec2(floor(uv*uN));
-  vec4 a4 = texelFetch(uC0, c, 0), b4 = texelFetch(uC1, c, 0);
+  vec4 a4 = texelFetch(uC0, c, 0), b4 = texelFetch(uC1, c, 0), d4 = texelFetch(uC2, c, 0);
   vec4 m0 = texelFetch(uM0, c, 0), m1 = texelFetch(uM1, c, 0);
-  float tot = dot(a4, vec4(1.0)) + dot(b4, vec4(1.0));
+  float tot = dot(a4, vec4(1.0)) + dot(b4, vec4(1.0)) + dot(d4, vec4(1.0));
   float v = 1.0 - exp(-max(tot*uCnorm - uFloor, 0.0)*uExp);
 
   if(uView == 1){                                   // the matter, blended
@@ -622,6 +640,7 @@ void main(){
       float wa = a4[i]*inv, wb = b4[i]*inv;
       col += uPal[i]*wa + uPal[4 + i]*wb;
       best = max(best, max(wa, wb));
+      if(8 + i < NS){ float wc = d4[i]*inv; col += uPal[8 + i]*wc; best = max(best, wc); }
     }
     float sat = clamp((best*float(NS) - 1.0)/float(NS - 1), 0.0, 1.0);
     col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
@@ -629,8 +648,10 @@ void main(){
     return;
   }
   vec3 add = vec3(0.0);                             // the species, blended
-  for(int i = 0; i < 4; i++)
-    add += uPal[i]*max(a4[i], 0.0)*uCnorm + uPal[4 + i]*max(b4[i], 0.0)*uCnorm;
+  for(int i = 0; i < 4; i++){
+    add += (uPal[i]*max(a4[i], 0.0) + uPal[4 + i]*max(b4[i], 0.0))*uCnorm;
+    if(8 + i < NS) add += uPal[8 + i]*max(d4[i], 0.0)*uCnorm;
+  }
   oCol = vec4(vec3(1.0) - exp(-max(add - uFloor, 0.0)*uExp)
               + vec3(0.016, 0.024, 0.040), 1.0);
 }`;
@@ -699,9 +720,9 @@ const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES
 
 const fbo = gl.createFramebuffer();
 const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
-if(MAXBUF < 5)
-  fatal("This GPU offers only " + MAXBUF + " draw buffers.\nThe thinking pass writes five at once:\n"
-      + "two halves of the affinities, two of the matter to lay down,\nand the new direction.");
+if(MAXBUF < 6)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers.\nThe thinking pass writes six at once:\n"
+      + "three thirds of the affinities, two of the matter to lay down,\nand the new direction.");
 const BUFS = [];
 for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
 function target(list, w, h){
@@ -741,8 +762,8 @@ const S = {
   // takes a hard three-way argmax -- so it sits where this rule reads crisp.
   N: 768, steps: 1, running: true, frame: 0, prec: 16,
   dist: 9, size: 1, spread: 45, feather: 0.2,
-  beta: 8, turn: 45, moff: 1, decay: 0.9, diff: 1,
-  fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: 8,
+  beta: 8, turn: 45, moff: 1, crowd: 1.2, decay: 0.9, diff: 1,
+  fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
   exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
   w1: null, b1: null, w2: null, b2: null, ca: null, cv: null,
@@ -796,8 +817,8 @@ function alloc(){
   const R = wide ? gl.R32F : gl.R16F;
   const LF = (!wide || linOK) ? gl.LINEAR : gl.NEAREST;
   const g = {N};
-  g.c0 = make2D(N, N, F, LF); g.c1 = make2D(N, N, F, LF);
-  g.c0b = make2D(N, N, F, LF); g.c1b = make2D(N, N, F, LF);
+  g.c0 = make2D(N, N, F, LF); g.c1 = make2D(N, N, F, LF); g.c2 = make2D(N, N, F, LF);
+  g.c0b = make2D(N, N, F, LF); g.c1b = make2D(N, N, F, LF); g.c2b = make2D(N, N, F, LF);
   // The MATTER is what the lobes read, so the matter carries the mip chain:
   // one tap at the right level is the Gaussian average over a lobe.
   g.m0 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
@@ -808,7 +829,9 @@ function alloc(){
   // E and S are always 32-bit: S is conc/Z, Z runs to a few times exp(beta),
   // and at 16-bit a third of them flush to zero and take their mass with them.
   g.e0 = make2D(N, N, gl.RGBA32F); g.e1 = make2D(N, N, gl.RGBA32F);
+  g.e2 = make2D(N, N, gl.RGBA32F);
   g.s0 = make2D(N, N, gl.RGBA32F); g.s1 = make2D(N, N, gl.RGBA32F);
+  g.s2 = make2D(N, N, gl.RGBA32F);
   g.d = make2D(N, N, RG, LF); g.db = make2D(N, N, RG, LF);
   g.rho = make2D(N, N, R, LF);
   g.pyr = [];
@@ -816,22 +839,31 @@ function alloc(){
     g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
     if(n === 1) break;
   }
-  g.all = [g.c0, g.c1, g.c0b, g.c1b, g.m0, g.m1, g.m0b, g.m1b, g.p0, g.p1,
-           g.e0, g.e1, g.s0, g.s1, g.d, g.db, g.rho, ...g.pyr];
+  g.all = [g.c0, g.c1, g.c2, g.c0b, g.c1b, g.c2b, g.m0, g.m1, g.m0b, g.m1b,
+           g.p0, g.p1, g.e0, g.e1, g.e2, g.s0, g.s1, g.s2, g.d, g.db, g.rho, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (4*N*N*8*w + 6*N*N*8 + 4*N*N*16 + 2*N*N*4*w + N*N*2*w
+  return (6*N*N*8*w + 6*N*N*8 + 6*N*N*16 + 2*N*N*4*w + N*N*2*w
           + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
 }
 
 let meanRho = S.fill;
-const cnorm = () => 1/Math.max(1e-6, meanRho);
+// Both normalisers run off FILL, the number that was asked for, and never off
+// the measured mass. Measuring it looks harmless and is not: the measurement
+// only refreshes every couple of hundred frames or when the brush is used, so
+// painting made it jump, and the jump went two places at once. The picture
+// stepped from bright to dim in a frame, which is the flicker; and every
+// brain's inputs are scaled by the same number, so a dab of paint in one
+// corner silently changed what every cell in the field perceived. The
+// measured value is still shown in the readout, where a surprise is useful
+// rather than harmful.
+const cnorm = () => 1/Math.max(1e-6, S.fill);
 // The lobes want a reading of order one whatever deposit and decay are set to.
-// The steady mean of the matter is offset*conc/(1-decay), and the species
-// total is conserved, so the normaliser is known rather than measured.
-const mnorm = () => (1 - S.decay)/Math.max(1e-6, S.moff*meanRho);
+// The steady mean of the matter is offset*fill/(1-decay), which is known
+// rather than measured -- so it does not move when the field does.
+const mnorm = () => (1 - S.decay)/Math.max(1e-6, S.moff*S.fill);
 function common(u){ gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N); }
 function remip(){
   for(const t of [G.m0, G.m1]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
@@ -839,6 +871,7 @@ function remip(){
 function makeRho(){
   const u = use(P.rho); common(u);
   gl.uniform1i(u.uC0, tex(0, G.c0)); gl.uniform1i(u.uC1, tex(1, G.c1));
+  gl.uniform1i(u.uC2, tex(2, G.c2));
   target(G.rho, G.N, G.N); drawQuad();
 }
 function reseed(){
@@ -871,7 +904,7 @@ function reseed(){
   gl.uniform1i(u.uSeed, S.seed);
   gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
   gl.uniform1i(u.uUse, S.use);
-  target([G.c0, G.c1, G.d], G.N, G.N); drawQuad();
+  target([G.c0, G.c1, G.c2, G.d], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
   }
@@ -884,32 +917,36 @@ function step(){
     const u = use(P.brain); common(u);
     gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
     gl.uniform1i(u.uC0, tex(2, G.c0)); gl.uniform1i(u.uC1, tex(3, G.c1));
-    gl.uniform1i(u.uD, tex(4, G.d));
-    gl.uniform1f(u.uSize, S.size); gl.uniform1f(u.uLobe, S.lobe);
+    gl.uniform1i(u.uC2, tex(4, G.c2)); gl.uniform1i(u.uD, tex(5, G.d));
+    gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
     gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
     gl.uniform1f(u.uFeather, S.feather);
     gl.uniform1f(u.uBeta, S.beta);
     gl.uniform1f(u.uTurn, S.turn*Math.PI/180);
-    gl.uniform1f(u.uMoff, S.moff);
+    gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
     gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
     gl.uniform4fv(u.uW1, S.w1); gl.uniform4fv(u.uB1, S.b1);
     gl.uniform4fv(u.uW2, S.w2); gl.uniform4fv(u.uB2, S.b2);
-    target([G.e0, G.e1, G.p0, G.p1, G.db], N, N); drawQuad();
+    target([G.e0, G.e1, G.e2, G.p0, G.p1, G.db], N, N); drawQuad();
     [G.d, G.db] = [G.db, G.d];
   }
   {                                     // each species' own nine shares
     const u = use(P.share); common(u);
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
-    gl.uniform1i(u.uC0, tex(2, G.c0)); gl.uniform1i(u.uC1, tex(3, G.c1));
-    target([G.s0, G.s1], N, N); drawQuad();
+    gl.uniform1i(u.uE2, tex(2, G.e2));
+    gl.uniform1i(u.uC0, tex(3, G.c0)); gl.uniform1i(u.uC1, tex(4, G.c1));
+    gl.uniform1i(u.uC2, tex(5, G.c2));
+    target([G.s0, G.s1, G.s2], N, N); drawQuad();
   }
   {                                     // collect, and carry the heading
     const u = use(P.move); common(u);
     gl.uniform1i(u.uE0, tex(0, G.e0)); gl.uniform1i(u.uE1, tex(1, G.e1));
-    gl.uniform1i(u.uS0, tex(2, G.s0)); gl.uniform1i(u.uS1, tex(3, G.s1));
-    gl.uniform1i(u.uD, tex(4, G.d));
-    target([G.c0b, G.c1b, G.db], N, N); drawQuad();
+    gl.uniform1i(u.uE2, tex(2, G.e2));
+    gl.uniform1i(u.uS0, tex(3, G.s0)); gl.uniform1i(u.uS1, tex(4, G.s1));
+    gl.uniform1i(u.uS2, tex(5, G.s2)); gl.uniform1i(u.uD, tex(6, G.d));
+    target([G.c0b, G.c1b, G.c2b, G.db], N, N); drawQuad();
     [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
+    [G.c2, G.c2b] = [G.c2b, G.c2];
     [G.d, G.db] = [G.db, G.d];
   }
   {                                     // the ground takes what was laid
@@ -927,11 +964,13 @@ function step(){
 function paintAt(gx, gy, amount){
   const u = use(P.paint); common(u);
   gl.uniform1i(u.uC0, tex(0, G.c0)); gl.uniform1i(u.uC1, tex(1, G.c1));
+  gl.uniform1i(u.uC2, tex(2, G.c2));
   gl.uniform2f(u.uAt, gx, gy);
   gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
   gl.uniform1i(u.uKind, S.kind);
-  target([G.c0b, G.c1b], G.N, G.N); drawQuad();
+  target([G.c0b, G.c1b, G.c2b], G.N, G.N); drawQuad();
   [G.c0, G.c0b] = [G.c0b, G.c0]; [G.c1, G.c1b] = [G.c1b, G.c1];
+  [G.c2, G.c2b] = [G.c2b, G.c2];
   makeRho();
   massDue = true;
 }
@@ -953,8 +992,9 @@ function render(){
   const u = use(P.draw); common(u);
   gl.uniform1i(u.uRho, tex(0, G.rho));
   gl.uniform1i(u.uC0, tex(1, G.c0)); gl.uniform1i(u.uC1, tex(2, G.c1));
-  gl.uniform1i(u.uM0, tex(3, G.m0)); gl.uniform1i(u.uM1, tex(4, G.m1));
-  gl.uniform1i(u.uD, tex(5, G.d));
+  gl.uniform1i(u.uC2, tex(3, G.c2));
+  gl.uniform1i(u.uM0, tex(4, G.m0)); gl.uniform1i(u.uM1, tex(5, G.m1));
+  gl.uniform1i(u.uD, tex(6, G.d));
   gl.uniform2f(u.uRes, cv.width, cv.height);
   gl.uniform2f(u.uPan, S.panx, S.pany);
   gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
@@ -1100,16 +1140,20 @@ function drawKernel(){
   const k = $("kern"); if(!k) return;
   const g2 = k.getContext("2d");
   const W = k.width;
-  const R = Math.max(2, Math.ceil(S.size*1.5 + 2.2*S.lobe) + 1);
+  // A display floor on the drawn width. Jones' sensor is a POINT, and an
+  // honest picture of a point at nine cells out is a speck you cannot see, so
+  // the drawn blob never goes under about two cells. The number that matters
+  // is where the lobes sit and how far apart, and that stays true.
+  const sigMin = 1.8;
+  const sigD = Math.max(sigMin, S.size*(0.6 + 0.9*S.feather));
+  const R = Math.max(3, Math.ceil(S.dist + 3.0*sigD));
   const side = 2*R + 1, cs = W/side;
   const acc = new Float64Array(side*side);
-  const sig = Math.max(0.7, S.lobe*(0.55 + 0.75*S.feather));
-  const SH = [0.6, 1.0, 1.5];
+  const sig = sigD;
   const lobes = [];
   for(const sgn of [1, -1]){
     const a = sgn*S.spread*Math.PI/360;
-    for(let j = 0; j < 3; j++)
-      lobes.push([Math.cos(a)*S.size*SH[j], Math.sin(a)*S.size*SH[j], sgn]);
+    lobes.push([Math.cos(a)*S.dist, Math.sin(a)*S.dist, sgn]);
   }
   for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
     let v = 0;
@@ -1179,6 +1223,13 @@ function buildUI(){
     + "<b>state</b>: the brains' offsets are averaged by concentration, the "
     + "average turns it, and it is then carried along with the mass &mdash; "
     + "never read back out of where the mass happened to go.");
+  slider("crowd", "crowd", 0, 8, 0.05, 2, null,
+    "How hard a species is pushed away from density that is already there. "
+    + "<b>Nothing else in here pushes back on crowding</b>, and without it the "
+    + "thing runs away: a brain that likes where it already is piles up, what "
+    + "it lays down is proportional to how much of it is there, and what it "
+    + "lays down is what attracted it. Turning decay up cannot fix that, "
+    + "because the source is growing faster than the ground can forget.");
   slider("deposit", "moff", 0, 4, 0.05, 2, null,
     "How much the brains' matter offsets actually lay down. At 0 nothing is "
     + "written to the ground, nobody can smell anything, and the field freezes.");
