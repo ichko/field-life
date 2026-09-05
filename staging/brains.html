@@ -491,7 +491,8 @@ void main(){
 const FS_SEED = HEAD + HASH + `
 uniform float uAmp, uRad, uCScale;
 uniform float uCA[24], uCV[64];
-uniform int uSeed, uMode, uGridN;
+uniform int uSeed, uMode, uUse;
+uniform ivec2 uGrid;
 layout(location = 0) out vec4 oC0;
 layout(location = 1) out vec4 oC1;
 layout(location = 2) out vec4 oD;
@@ -515,9 +516,9 @@ void main(){
   if(uMode == 1){
     // A ball each, on a grid. Every species starts alone and has to travel to
     // meet anybody, which is the only way to see who wins a border.
-    float g = float(uGridN), cell = uN/g;
-    for(int s = 0; s < NS; s++){
-      vec2 mid = (vec2(float(s - (s/uGridN)*uGridN), float(s/uGridN)) + 0.5)*cell;
+    vec2 cell = uN/vec2(uGrid);
+    for(int s = 0; s < uUse; s++){
+      vec2 mid = (vec2(float(s - (s/uGrid.x)*uGrid.x), float(s/uGrid.x)) + 0.5)*cell;
       vec2 d = fp - mid;
       d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
       if(length(d) < uRad){
@@ -533,7 +534,9 @@ void main(){
     vec2 d = fp - vec2(uN*0.5);
     if(length(d) < uRad){
       if(uMode == 2){ cppnAt(fp/uN*TAU, c0, c1); c0 *= uAmp*8.0; c1 *= uAmp*8.0; }
-      else { c0 = vec4(uAmp); c1 = vec4(uAmp); }
+      else for(int s = 0; s < uUse; s++){
+        if(s < 4) c0[s] = uAmp; else c1[s - 4] = uAmp;
+      }
     }
   }
   oC0 = c0; oC1 = c1;
@@ -731,11 +734,16 @@ const P = {
 
 /* ===================================================================== state */
 const S = {
-  N: 512, steps: 1, running: true, frame: 0, prec: 16,
-  size: 9, lobe: 4, spread: 70, feather: 0.65,
-  beta: 8, turn: 25, moff: 1, decay: 0.94, diff: 1,
-  fill: 0.22, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55,
-  exp: 1.5, floor: 0.05, view: 0, kkind: 0,
+  // Jones 2010's numbers, which is where the physarum rule comes from: the
+  // sensors nine cells out and forty-five degrees apart, a point sensor, a
+  // forty-five degree turn cap, trail persistence 0.9 with a full 3x3 blur,
+  // and a tenth of the grid populated. Beta has no analogue there -- Jones
+  // takes a hard three-way argmax -- so it sits where this rule reads crisp.
+  N: 1536, steps: 1, running: true, frame: 0, prec: 16,
+  dist: 9, size: 1, spread: 45, feather: 0.2,
+  beta: 8, turn: 45, moff: 1, decay: 0.9, diff: 1,
+  fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: 8,
+  exp: 1.5, floor: 0.05, view: 1, kkind: 0,
   zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
   w1: null, b1: null, w2: null, b2: null, ca: null, cv: null,
 };
@@ -836,21 +844,33 @@ function makeRho(){
 function reseed(){
   S.seed = (Math.random()*1e9) | 0;
   const u = use(P.seed); common(u);
-  const N = G.N, gN = Math.ceil(Math.sqrt(NS));
+  const N = G.N;
+  // A layout with no hole in it: eight species on a 3x3 leaves the last square
+  // empty, so pick the columns that divide the count most nearly squarely --
+  // eight becomes 4x2, nine stays 3x3.
+  let gw = 1, gh = S.use, best = 1e9;
+  for(let w = 1; w <= S.use; w++){
+    const h = Math.ceil(S.use/w);
+    // Empty squares cost, but so does a single column: five species want a
+    // 3x2 with one hole, not a 1x5 stripe.
+    const score = (w*h - S.use)*2.5 + Math.abs(w - h);
+    if(score < best){ best = score; gw = w; gh = h; }
+  }
   // The amount is set from the area actually covered, so FILL means the same
   // total mass whether it is one small ball or the whole grid.
   let rad, amp;
   if(S.mode === 3){ rad = S.fill; amp = 1; }
   else {
-    rad = S.ball*N*(S.mode === 1 ? 0.5/gN : 0.5);
-    const area = Math.PI*rad*rad*(S.mode === 1 ? NS : 1);
-    amp = S.fill*N*N/Math.max(area, 1)/(S.mode === 1 ? 1 : NS);
+    rad = S.ball*N*(S.mode === 1 ? 0.5/Math.max(gw, gh) : 0.5);
+    const area = Math.PI*rad*rad*(S.mode === 1 ? S.use : 1);
+    amp = S.fill*N*N/Math.max(area, 1)/(S.mode === 1 ? 1 : S.use);
   }
   gl.uniform1f(u.uAmp, amp); gl.uniform1f(u.uRad, rad);
   gl.uniform1f(u.uCScale, S.cscale);
   gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
   gl.uniform1i(u.uSeed, S.seed);
-  gl.uniform1i(u.uMode, S.mode); gl.uniform1i(u.uGridN, gN);
+  gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
+  gl.uniform1i(u.uUse, S.use);
   target([G.c0, G.c1, G.d], G.N, G.N); drawQuad();
   for(const t of [G.m0, G.m1, G.m0b, G.m1b]){
     target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
@@ -992,7 +1012,7 @@ addEventListener("keydown", e => {
   const k = e.key.toLowerCase();
   if(k === " "){ e.preventDefault(); toggleRun(); }
   else if(k === "r") reseed();
-  else if(k === "n"){ rollBrains(); rollCPPN(); reseed(); }
+  else if(k === "n") rollBrains();     // brains only; the world carries on
   else if(k === "h") $("rack").classList.toggle("hid");
   else if(k === "f") toggleFull();
 });
@@ -1131,20 +1151,22 @@ function buildKernel(){
 function buildUI(){
   buildKernel();
   group("perception");
-  slider("size", "size", 1, 40, 0.5, 1, drawKernel,
-    "How far out the two lobes sit, in cells. This is the <b>scale of "
-    + "everything</b> &mdash; the size of the structures that form is set here "
-    + "more than by any other knob.");
-  slider("lobe", "lobe", 0.5, 20, 0.5, 1, drawKernel,
-    "The radius of each lobe. It is read as a <b>blurred average</b> over that "
-    + "disc, so a bigger lobe is a broader, more forgiving reading rather than "
-    + "a slower one.");
+  slider("distance", "dist", 1, 60, 0.5, 1, drawKernel,
+    "How far out the two lobes sit, in cells. The <b>scale of everything</b> "
+    + "&mdash; the size of the structures that form is set here more than by "
+    + "any other knob. Jones' physarum uses <b>9</b>.");
+  slider("size", "size", 0.5, 24, 0.5, 1, drawKernel,
+    "The radius of each lobe &mdash; one Gaussian, read as a <b>blurred "
+    + "average</b> over that disc. At <b>1</b> it is Jones' point sensor.");
   slider("spread", "spread", 0, 180, 1, 0, drawKernel,
     "The angle <b>between</b> the two lobes. Narrow puts them both nearly "
-    + "straight ahead; wide makes it a plain left-versus-right sensor.");
+    + "straight ahead; wide makes it a plain left-versus-right sensor. Jones "
+    + "uses <b>45&deg;</b>; Fluoddity's presets run out at 110&ndash;160&deg;, "
+    + "which is where a lot of its variety lives.");
   slider("feather", "feather", 0, 1, 0.01, 2, drawKernel,
     "How soft the lobe's edge is. At <b>0</b> a reading jumps as a cell crosses "
-    + "the boundary, which is what makes movement look sharp and twitchy.");
+    + "the boundary, which is what makes movement look sharp and twitchy. Jones "
+    + "has no analogue &mdash; his sensors are points.");
 
   group("brains");
   slider("beta", "beta", 0.5, 30, 0.5, 1, null,
@@ -1160,11 +1182,12 @@ function buildUI(){
   slider("deposit", "moff", 0, 4, 0.05, 2, null,
     "How much the brains' matter offsets actually lay down. At 0 nothing is "
     + "written to the ground, nobody can smell anything, and the field freezes.");
-  tip(buttons([["new brains", () => { rollBrains(); reseed(); }],
+  tip(buttons([["new brains", rollBrains],
                ["new field", () => { rollCPPN(); reseed(); }]]),
-    "<b>New brains</b> resamples all eight networks &mdash; a whole new set of "
-    + "behaviours. <b>New field</b> keeps the brains and only rolls the CPPN "
-    + "that lays out where each species starts.");
+    "<b>New brains</b> resamples the networks and <b>nothing else</b> &mdash; "
+    + "the matter and the species stay exactly where they are, so the same "
+    + "world carries on under a new rule. <b>New field</b> keeps the brains and "
+    + "rolls where the species start.");
 
   group("ground");
   slider("decay", "decay", 0.70, 0.995, 0.001, 3, null,
@@ -1191,6 +1214,10 @@ function buildUI(){
     + "<b>alt-drag</b> takes away.");
 
   group("run");
+  slider("species", "use", 1, NS, 1, 0, reseed,
+    "How many of the eight species are actually put down. <b>Set it to 1</b> to "
+    + "watch a single brain on its own, which is the only way to see what one "
+    + "rule does without seven others averaging into its turn.");
   picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
                            {v:2,t:"one ball, cppn"}, {v:3,t:"scattered"}],
          reseed,
@@ -1226,7 +1253,7 @@ function buildUI(){
 $("play").onclick = toggleRun;
 $("step1").onclick = () => { step(); massDue = true; };
 $("reseed").onclick = reseed;
-$("shuffle").onclick = () => { rollBrains(); rollCPPN(); reseed(); };
+$("shuffle").onclick = rollBrains;
 $("full").onclick = toggleFull;
 $("hidep").onclick = () => rack.classList.toggle("hid");
 
