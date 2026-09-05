@@ -143,22 +143,53 @@ class Brains:
         self.M = np.zeros((N, N, K), np.float32)          # matter: starts empty
         self.F = np.zeros((N, N, 2), np.float32)          # flow: the vector half
         self.C = np.zeros((N, N, NS), np.float32)         # species
-        gw, gh, best = 1, NS, 1e9
-        for w in range(1, NS + 1):
-            h = -(-NS // w)
-            sc = (w * h - NS) * 2.5 + abs(w - h)
-            if sc < best:
-                best, gw, gh = sc, w, h
-        rad = P["ball"] * N * 0.5 / max(gw, gh)
-        amp = P["fill"] * N * N / max(np.pi * rad * rad * NS, 1)
         yy, xx = np.mgrid[0:N, 0:N]
         fp = np.stack([xx + 0.5, yy + 0.5], -1).astype(np.float32)
-        cell = N / np.array([gw, gh], np.float32)
-        for s in range(NS):
-            mid = (np.array([s % gw, s // gw], np.float32) + 0.5) * cell
-            d = fp - mid
-            d -= N * np.floor(d / N + 0.5)
-            self.C[..., s] = np.where(np.hypot(d[..., 0], d[..., 1]) < rad, amp, 0)
+        mode = int(P.get("mode", 1))
+        if mode == 1:
+            # a ball each, on a grid: everyone starts alone and has to travel
+            gw, gh, best = 1, NS, 1e9
+            for w in range(1, NS + 1):
+                h = -(-NS // w)
+                sc = (w * h - NS) * 2.5 + abs(w - h)
+                if sc < best:
+                    best, gw, gh = sc, w, h
+            rad = P["ball"] * N * 0.5 / max(gw, gh)
+            amp = P["fill"] * N * N / max(np.pi * rad * rad * NS, 1)
+            cell = N / np.array([gw, gh], np.float32)
+            for s in range(NS):
+                mid = (np.array([s % gw, s // gw], np.float32) + 0.5) * cell
+                d = fp - mid
+                d -= N * np.floor(d / N + 0.5)
+                self.C[..., s] = np.where(np.hypot(d[..., 0], d[..., 1]) < rad, amp, 0)
+        elif mode == 4:
+            # many small balls thrown thin, on a jittered lattice, one species each
+            spots = max(1, round(N / max(4, P.get("gscale", 40))))
+            sp = N / spots
+            rad = max(0.75, P["ball"] * sp * 0.5)
+            amp = P["fill"] * N * N / max(np.pi * rad * rad * spots * spots, 1)
+            home = np.floor(fp / sp).astype(np.int32)
+            for k in OFF:
+                g = home + np.array(k, np.int32)
+                gw_ = g % spots
+                jx = glsl_rnd(gw_[..., 0], gw_[..., 1], 1, P["seed"])
+                jy = glsl_rnd(gw_[..., 0], gw_[..., 1], 2, P["seed"])
+                mid = (g + 0.5) * sp + np.stack([jx, jy], -1) * sp * 0.7
+                d = fp - mid
+                d -= N * np.floor(d / N + 0.5)
+                inside = np.hypot(d[..., 0], d[..., 1]) < rad
+                sd = np.minimum((glsl_rnd(gw_[..., 0], gw_[..., 1], 3, P["seed"]) + 0.5)
+                                * NS, NS - 1).astype(np.int32)
+                for s in range(NS):
+                    self.C[..., s] += np.where(inside & (sd == s), amp, 0)
+        else:
+            # one ball in the middle, every species evenly mixed inside it
+            rad = P["ball"] * N * 0.5
+            amp = P["fill"] * N * N / max(np.pi * rad * rad, 1) / NS
+            d = fp - N * 0.5
+            inside = np.hypot(d[..., 0], d[..., 1]) < rad
+            for s in range(NS):
+                self.C[..., s] = np.where(inside, amp, 0)
         # each species faces its own way -- the seed shader's own hash
         a = np.stack([(glsl_rnd(xx, yy, 16 + s, P["seed"]) + 0.5) * 2 * np.pi
                       for s in range(NS)], -1).astype(np.float32)

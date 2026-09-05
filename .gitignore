@@ -5,3 +5,4 @@ train/*.log
 train/*.png
 train/*.npy
 train/__pycache__/
+staging/brains/__pycache__/
