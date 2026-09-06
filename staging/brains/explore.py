@@ -182,6 +182,16 @@ class Brains:
                                 * NS, NS - 1).astype(np.int32)
                 for s in range(NS):
                     self.C[..., s] += np.where(inside & (sd == s), amp, 0)
+        elif mode == 5:
+            # a fitted layout: a blob per species where its part of the animal
+            # goes, holding the mass that part needs
+            rad = max(1.0, 0.055*N)
+            amp = P["fill"]*N*N/max(np.pi*rad*rad, 1)
+            for s, b in enumerate(P.get("blobs", [])[:NS]):
+                d = fp - np.array([b["x"]*N, b["y"]*N], np.float32)
+                d -= N*np.floor(d/N + 0.5)
+                self.C[..., s] = np.where(np.hypot(d[..., 0], d[..., 1]) < rad,
+                                          amp*b["frac"], 0)
         else:
             # one ball in the middle, every species evenly mixed inside it
             rad = P["ball"] * N * 0.5
