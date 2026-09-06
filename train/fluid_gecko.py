@@ -16,6 +16,9 @@ training picks.
 """
 import argparse, functools, json, os, time
 import numpy as np
+# One CPU device per batch element: XLA's elementwise work is single-threaded
+# per device, and nearly all of a step is elementwise.
+os.environ.setdefault("XLA_FLAGS", "--xla_force_host_platform_device_count=4")
 import jax, jax.numpy as jnp
 from PIL import Image
 
@@ -25,7 +28,7 @@ ROOT = os.path.dirname(HERE)
 # The page's four colours, and what a gecko is made of in them.
 COL = np.array([[1.00, 0.36, 0.22], [0.42, 0.90, 0.46], [0.30, 0.58, 1.00], [1.00, 0.84, 0.30]], np.float32)
 
-PHYS = dict(dt=0.15, drag=0.05, visc=0.10, couple=0.05, spread=0.5, seep=0.5,
+PHYS = dict(dt=0.15, drag=0.05, visc=0.10, couple=0.05, spread=0.35, seep=0.5,
             stiff=0.5, gamma=2.0, vmax=0.9)
 NV, NHID = 4, 4            # visible fluids, hidden fluids
 C = NV + NHID
@@ -203,31 +206,43 @@ def main():
         print("resumed", args.ckpt)
 
     seed0 = seed_state(params, disc_w, masses)
-    pool = jax.tree_util.tree_map(lambda x: jnp.repeat(x[None], args.pool, 0), seed0)
+    # the pool lives on the host; pmap shards a batch across the devices itself
+    pool = jax.tree_util.tree_map(lambda x: np.repeat(np.asarray(x)[None], args.pool, 0), seed0)
 
     Tj = jnp.asarray(T)
-    def loss_fn(params, states, worst, n):
+    ndev = jax.local_device_count()
+    assert args.batch == ndev, f"batch must equal the device count ({ndev})"
+    def loss_one(params, state, reseed, n):
         # the seed is rebuilt here, inside the gradient, so the hidden masses
         # it holds are trained along with everything else
         seed_now = seed_state(params, disc_w, masses)
-        states = jax.tree_util.tree_map(lambda x, s: x.at[worst].set(s), states, seed_now)
-        out = jax.vmap(lambda s: rollout(params, s, n))(states)
-        rho = out[0]
-        l = jnp.mean((rho[:, :NV] - Tj[None])**2, axis=(1, 2, 3))
-        return l.mean(), (out, l)
+        state = jax.tree_util.tree_map(lambda x, s: jnp.where(reseed, s, x), state, seed_now)
+        out = rollout(params, state, n)
+        l = jnp.mean((out[0][:NV] - Tj)**2)
+        return l, out
+
+    @functools.partial(jax.pmap, axis_name="b", in_axes=(None, 0, 0, None), static_broadcasted_argnums=3)
+    def grads(params, state, reseed, n):
+        (l, out), g = jax.value_and_grad(loss_one, has_aux=True)(params, state, reseed, n)
+        return jax.lax.pmean(g, "b"), l, out
 
     import optax
     opt = optax.chain(optax.clip_by_global_norm(1.0), optax.adam(args.lr))
     opt_state = opt.init(params)
 
-    @functools.partial(jax.jit, static_argnums=4)
-    def train_step(params, opt_state, states, worst, n):
-        (loss, (out, per)), g = jax.value_and_grad(loss_fn, has_aux=True)(params, states, worst, n)
+    @jax.jit
+    def apply(params, opt_state, g):
         # NCA's normalised gradient: the scale of the loss is not the scale of the step
         g = jax.tree_util.tree_map(lambda x: x/(jnp.linalg.norm(x) + 1e-8), g)
         upd, opt_state = opt.update(g, opt_state, params)
-        params = optax.apply_updates(params, upd)
-        return params, opt_state, loss, out, per
+        return optax.apply_updates(params, upd), opt_state
+
+    def train_step(params, opt_state, states, worst, n):
+        reseed = np.arange(args.batch) == worst
+        g, per, out = grads(params, states, reseed, n)
+        g = jax.tree_util.tree_map(lambda x: x[0], g)          # the same on every device
+        params, opt_state = apply(params, opt_state, g)
+        return params, opt_state, per.mean(), out, per
 
     rng = np.random.default_rng(0)
     t0 = time.time(); best = 1e9
@@ -236,15 +251,14 @@ def main():
         states = jax.tree_util.tree_map(lambda x: x[idx], pool)
         # the worst of the batch starts over from the seed, so the seed is
         # never forgotten and the rest learn to hold what they have
-        rho_b = states[0]
-        pre = np.asarray(jnp.mean((rho_b[:, :NV] - Tj[None])**2, axis=(1, 2, 3)))
-        worst = jnp.int32(np.argmax(pre))
+        pre = np.mean((states[0][:, :NV] - T[None])**2, axis=(1, 2, 3))
+        worst = int(np.argmax(pre))
         # a few lengths only, so the jit compiles a few times, not once per length
         n = int(rng.choice(np.linspace(args.steps[0], args.steps[1], 3).round().astype(int)))
         params, opt_state, loss, out, per = train_step(params, opt_state, states, worst, n)
-        pool = jax.tree_util.tree_map(lambda p, o: p.at[idx].set(o), pool, out)
+        for p_, o in zip(pool, out): p_[idx] = np.asarray(o)
         loss = float(loss)
-        if it % 20 == 0 or it == args.iters - 1:
+        if it % 20 == 0 or it < 4 or it == args.iters - 1:
             print(f"{it:5d}  loss {loss:.5f}  steps {n}  hidden {np.asarray(jax.nn.softplus(params['hidden'])).round(2)}  "
                   f"{(time.time() - t0)/(it + 1):.2f}s/it", flush=True)
         if it % 100 == 99 or it == args.iters - 1:
