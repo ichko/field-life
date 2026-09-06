@@ -24,7 +24,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import field_brains as FB
 from gecko2d import build2d
 
-torch.set_num_threads(4)
+torch.set_num_threads(int(os.environ.get("TORCH_THREADS", "4")))
 
 
 def seed_state(N, parts, fill, gen):
