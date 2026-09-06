@@ -27,14 +27,36 @@ from gecko2d import build2d
 torch.set_num_threads(int(os.environ.get("TORCH_THREADS", "4")))
 
 
-def seed_state(N, parts, fill, gen):
-    """One blob in the middle, holding each species in the proportion its part
-    will need, and pointing every which way."""
-    frac = parts.sum((1, 2))/parts.sum()
-    yy, xx = torch.meshgrid(torch.arange(N).float(), torch.arange(N).float(), indexing="ij")
-    r = torch.hypot(xx - N/2 + 0.5, yy - N/2 + 0.5)
-    disc = (r < N*0.13).float()
-    C = disc[None]*frac[:, None, None]*(fill*N*N/max(float(disc.sum()), 1.0))
+def seed_state(N, parts, fill, gen, spread=1.0):
+    """A blob per species, each placed at the CENTROID of the part it must
+    become, holding exactly that part's mass.
+
+    The first fit seeded one mixed disc in the middle and grew a disc. That is
+    not a tuning failure, it is a symmetry argument: the rule has no preferred
+    direction in the world, and a radially symmetric seed with random velocities
+    gives it none either -- so every rotation of a gecko is an equally good
+    answer and the gradient averages over all of them. The average of a gecko
+    over every angle IS a disc, and the fit found it exactly.
+
+    So the seed carries the animal's AXIS and the rule has to find its shape.
+    Each species still gets only the mass its own part needs, which conservation
+    then keeps for it.
+    """
+    P = torch.as_tensor(parts)
+    mass = P.sum((1, 2))
+    tot = torch.clamp(P.sum(), min=1e-9)
+    yy, xx = torch.meshgrid(torch.arange(N).float(), torch.arange(N).float(),
+                            indexing="ij")
+    C = torch.zeros(FB.NS, N, N)
+    for s in range(FB.NS):
+        w = P[s]
+        wsum = torch.clamp(w.sum(), min=1e-9)
+        cy = float((w*yy).sum()/wsum)
+        cx = float((w*xx).sum()/wsum)
+        cy = N/2 + (cy - N/2)*spread
+        cx = N/2 + (cx - N/2)*spread
+        disc = (torch.hypot(xx - cx, yy - cy) < N*0.055).float()
+        C[s] = disc*(float(mass[s]/tot)*fill*N*N/torch.clamp(disc.sum(), min=1.0))
     a = torch.rand(FB.NS, N, N, generator=gen)*2*np.pi
     V = torch.stack([torch.cos(a), torch.sin(a)], 1)*0.25
     return FB.State(C, V)
@@ -45,8 +67,14 @@ def loss_of(st, P, wsil):
     about how much there is -- which conservation has already settled."""
     C = st.C/torch.clamp(st.C.sum(), min=1e-9)
     part = ((C - P)**2).mean()*C.shape[-1]**2
-    sil = ((C.sum(0) - P.sum(0))**2).mean()*C.shape[-1]**2
-    return part + wsil*sil, float(part), float(sil)
+    # Soft Dice on the silhouette. Squared error over a field that is six parts
+    # empty is mostly a statement about the empty part, and a blob of roughly
+    # the right area satisfies it -- which is half of why the first fit was
+    # happy with one. Overlap over union does not care how big the background
+    # is and cares a great deal about where the edge runs.
+    a, b = C.sum(0), P.sum(0)
+    dice = 1 - 2*(a*b).sum()/torch.clamp((a*a).sum() + (b*b).sum(), min=1e-12)
+    return part + wsil*dice, float(part), float(dice)
 
 
 def main():
