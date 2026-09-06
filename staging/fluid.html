@@ -191,7 +191,8 @@ button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
 <p><b>Twelve numbers.</b> Four are <b>density</b>: how much of each of four fluids sits in the
 cell. Eight are <b>velocity</b>, a vector for each fluid, because the four do not have to be
 going the same way. <b>Pressure</b> is worked out fresh every step, one number per fluid, and
-is not kept. That is the whole state. Everything a cell learns, it learns from the cell next
+is not kept. That is the whole state &mdash; twice that under the trained rule below, which
+has four more fluids you cannot see. Everything a cell learns, it learns from the cell next
 door.</p>
 
 <h2>One step</h2>
@@ -233,6 +234,24 @@ opinion of itself: positive and it beads into drops, negative and it spreads thi
 that dislike each other do not mix, and the boundary between them is a real interface, held by
 pressure on one side and the matrix on the other.</p>
 
+<h2>The trained one</h2>
+<p>The preset called <b>gecko</b> takes the matrix away and puts a small network in its place.
+Each cell reads, for each of <b>eight</b> fluids, the density, its two Sobel gradients and its
+Laplacian, and the velocity &mdash; forty-eight numbers &mdash; through one hidden layer of
+sixty-four, and answers with a potential and a push per fluid. The equation of state is still
+added on top, the velocity still takes the gradient, and the move is still the same nine
+shares, so it is the same fluid with a different opinion about where to go. Four of the eight
+fluids are <b>hidden</b>: never drawn, but moved by the same rule and conserved the same way,
+and they are the rule's memory &mdash; a marker that has spread this far says how far the edge
+is.</p>
+<p>It was fitted, in <code>train/fluid_gecko.py</code>, so that a <b>disc</b> nine cells across
+grows into the lizard emoji and then holds. Mass is conserved here, so the disc has to arrive
+already holding what the picture costs, colour by colour, plus an amount of each hidden fluid
+that the training chose. The fitting ran the very step the page runs, written out in JAX, with
+a pool of half-grown geckos so that holding still is learned along with growing; the page
+reproduces that step to the last rounding. The <b>paint</b> view is the one it was fitted to:
+each fluid its colour, added.</p>
+
 <h2>What is kept and what is not</h2>
 <p><b>Mass</b> is exact, per fluid, at 32-bit &mdash; the shares are computed by the same
 arithmetic at every one of the nine cells that use them, so what the destinations add up to is
@@ -251,7 +270,8 @@ on every page here.</p>
 (or a random one), <b>ctrl-drag</b> stirs, <b>alt-drag</b> erases; the same three are under
 <i>drag</i> in the panel for a trackpad. Space holds, <b>R</b> reseeds, <b>N</b> rolls a new
 matrix, <b>1</b>&ndash;<b>4</b> pick the fluid to paint, <b>H</b> hides the panel, <b>F</b> is
-fullscreen.</p>
+fullscreen. <b>Link</b> puts the whole world &mdash; matrix, scalars, seed &mdash; in the
+address bar, and <a href="fluid-sweep.html">the sweep</a> is a shelf of such links.</p>
 <p style="margin-top:22px;font-size:12px">A staging page.</p>
 </div>
 </div>
@@ -355,7 +375,10 @@ void main(){
    neighbours (a mass-weighted blur), and to drag. The cap at the end is
    what makes the move step's Gaussian land on a neighbour and not past it. */
 const FS_FORCE = HEAD + `
-uniform sampler2D uU, uRho, uVx, uVy;
+uniform sampler2D uU, uRho, uVx, uVy;         // this half
+uniform sampler2D uFx, uFy;                   // a push the trained rule adds
+uniform sampler2D uRhoO, uVxO, uVyO;          // the other half, for the coupling
+uniform int uUseF, uOther;
 uniform float uDt, uCouple, uVisc, uDrag, uVmax;
 layout(location = 0) out vec4 oVx;
 layout(location = 1) out vec4 oVy;
@@ -363,13 +386,23 @@ void main(){
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 gx = 0.5*(texelFetch(uU, wrap(p + OFF[1]), 0) - texelFetch(uU, wrap(p + OFF[5]), 0));
   vec4 gy = 0.5*(texelFetch(uU, wrap(p + OFF[3]), 0) - texelFetch(uU, wrap(p + OFF[7]), 0));
-  vec4 vx = texelFetch(uVx, p, 0) - uDt*gx;
-  vec4 vy = texelFetch(uVy, p, 0) - uDt*gy;
+  if(uUseF == 1){ gx -= texelFetch(uFx, p, 0); gy -= texelFetch(uFy, p, 0); }
+  vec4 vx0 = texelFetch(uVx, p, 0), vy0 = texelFetch(uVy, p, 0);
+  vec4 vx = vx0 - uDt*gx, vy = vy0 - uDt*gy;
   vec4 r = texelFetch(uRho, p, 0);
-  float tot = dot(r, vec4(1.0));
-  if(uCouple > 0.0 && tot > 1e-9){
-    float mx = dot(r, vx)/tot, my = dot(r, vy)/tot;
-    vx = mix(vx, vec4(mx), uCouple); vy = mix(vy, vec4(my), uCouple);
+  // The coupling and the viscosity read the velocities the step started
+  // with -- the cell's own and its neighbours' -- which is all one pass
+  // can see of the others.
+  if(uCouple > 0.0){
+    // the cell's mass-weighted mean, over all the fluids there are
+    float tot = dot(r, vec4(1.0)), sx = dot(r, vx0), sy = dot(r, vy0);
+    if(uOther == 1){
+      vec4 ro = texelFetch(uRhoO, p, 0);
+      tot += dot(ro, vec4(1.0));
+      sx += dot(ro, texelFetch(uVxO, p, 0)); sy += dot(ro, texelFetch(uVyO, p, 0));
+    }
+    float inv = 1.0/(tot + 1e-9);
+    vx = mix(vx, vec4(sx*inv), uCouple); vy = mix(vy, vec4(sy*inv), uCouple);
   }
   if(uVisc > 0.0){
     vec4 sx = vec4(0.0), sy = vec4(0.0), sw = vec4(0.0);
@@ -386,8 +419,8 @@ void main(){
     vx = mix(vx, sx/sw, uVisc*has); vy = mix(vy, sy/sw, uVisc*has);
   }
   vx *= 1.0 - uDrag; vy *= 1.0 - uDrag;
-  vec4 sp = sqrt(vx*vx + vy*vy);
-  vec4 sc = min(vec4(1.0), uVmax/max(sp, 1e-9));
+  vec4 sp = sqrt(vx*vx + vy*vy + 1e-12);
+  vec4 sc = min(vec4(1.0), uVmax/sp);
   oVx = vx*sc; oVy = vy*sc;
 }`;
 
@@ -432,18 +465,76 @@ void main(){
     m += got; mx += got*vx; my += got*vy;
   }
   oRho = m;
-  // A cell that received nothing keeps the velocity it had rather than
-  // taking zero over zero.
-  vec4 has = step(1e-20, m);
-  vec4 inv = 1.0/max(m, 1e-20);
-  oVx = mix(texelFetch(uVx, p, 0), mx*inv, has);
-  oVy = mix(texelFetch(uVy, p, 0), my*inv, has);
+  // Momentum over mass. A cell that received nothing comes out still.
+  vec4 inv = 1.0/(m + 1e-12);
+  oVx = mx*inv; oVy = my*inv;
+}`;
+
+/* ---------------------------------------------------- 4b: the trained rule
+   What the matrix used to do, done by a small network instead. Each cell
+   reads, for all eight fluids, the density, its Sobel gradients and its
+   Laplacian, and the velocity; one hidden layer; and answers with a
+   potential and a push per fluid. The equation of state is still added on
+   top, so the fluid is still a fluid. The weights live in a texture. The
+   hidden layer is the same for both halves and is worked out twice, once a
+   half, which is cheaper than six outputs at once on a GPU that offers four.
+   Feature order and every stencil here match train/fluid_gecko.py. */
+const FS_BRAIN = HEAD + `
+uniform sampler2D uRhoA, uRhoB, uVxA, uVxB, uVyA, uVyB, uR1A, uR1B, uW;
+uniform int uHalf;
+uniform float uStiff, uGamma;
+layout(location = 0) out vec4 oU;
+layout(location = 1) out vec4 oFx;
+layout(location = 2) out vec4 oFy;
+float W(int i){ return texelFetch(uW, ivec2((i >> 2) & 255, i >> 10), 0)[i & 3]; }
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float x[NIN];
+  for(int h = 0; h < 2; h++){
+    vec4 sx = vec4(0.0), sy = vec4(0.0), lp = vec4(0.0), c = vec4(0.0);
+    for(int dy = -1; dy <= 1; dy++)
+      for(int dx = -1; dx <= 1; dx++){
+        ivec2 q = wrap(p + ivec2(dx, dy));
+        vec4 r = h == 0 ? texelFetch(uRhoA, q, 0) : texelFetch(uRhoB, q, 0);
+        float wy = dy == 0 ? 2.0 : 1.0, wx = dx == 0 ? 2.0 : 1.0;
+        sx += float(dx)*wy*r; sy += float(dy)*wx*r;
+        lp += (dx == 0 && dy == 0 ? -12.0 : wx*wy)*r;
+        if(dx == 0 && dy == 0) c = r;
+      }
+    vec4 vx = h == 0 ? texelFetch(uVxA, p, 0) : texelFetch(uVxB, p, 0);
+    vec4 vy = h == 0 ? texelFetch(uVyA, p, 0) : texelFetch(uVyB, p, 0);
+    for(int i = 0; i < 4; i++){
+      int cc = 4*h + i;
+      x[cc] = c[i]; x[8 + cc] = sx[i]/8.0; x[16 + cc] = sy[i]/8.0; x[24 + cc] = lp[i]/16.0;
+      x[32 + cc] = vx[i]; x[40 + cc] = vy[i];
+    }
+  }
+  float hid[NH];
+  for(int i = 0; i < NH; i++){
+    float s = W(W1 + NH*NIN + i);
+    for(int j = 0; j < NIN; j++) s += W(W1 + i*NIN + j)*x[j];
+    hid[i] = max(s, 0.0);
+  }
+  vec4 U, Fx, Fy;
+  for(int i = 0; i < 4; i++){
+    int cc = 4*uHalf + i;
+    float su = W(W2 + NOUT*NH + cc), sfx = W(W2 + NOUT*NH + 8 + cc), sfy = W(W2 + NOUT*NH + 16 + cc);
+    for(int j = 0; j < NH; j++){
+      float hj = hid[j];
+      su += W(W2 + cc*NH + j)*hj; sfx += W(W2 + (8 + cc)*NH + j)*hj; sfy += W(W2 + (16 + cc)*NH + j)*hj;
+    }
+    U[i] = su; Fx[i] = sfx; Fy[i] = sfy;
+  }
+  float tot = dot(texelFetch(uR1A, p, 0), vec4(1.0)) + dot(texelFetch(uR1B, p, 0), vec4(1.0));
+  float press = uStiff*pow(max(tot, 0.0), uGamma);
+  oU = vec4(press) + U; oFx = Fx; oFy = Fy;
 }`;
 
 /* ------------------------------------------------------------ 5: seed/paint */
 const FS_SEED = HEAD + HASH + `
 uniform int uMode, uSeed;
-uniform float uAmt, uRad, uFill;
+uniform float uAmt, uRad, uFill, uDiscInv;
+uniform vec4 uMass;                              // the disc's mass, a fluid each
 uniform float uBlob[NCH*NB*2];
 layout(location = 0) out vec4 oRho;
 layout(location = 1) out vec4 oVx;
@@ -468,9 +559,14 @@ void main(){
     vec2 f = x/uN;
     int c = (f.x < 0.5 ? 0 : 1) + (f.y < 0.5 ? 0 : 2);
     r[c] = uAmt;
-  } else {                                         // bands
+  } else if(uMode == 3){                           // bands
     int c = int(floor(x.y/uN*8.0)) % NCH;
     r[c] = uAmt;
+  } else {                                         // a disc, holding exactly uMass
+    vec2 d = x - 0.5*uN;
+    float w = clamp(uRad + 0.5 - length(d), 0.0, 1.0)*uDiscInv;
+    oRho = uMass*w; oVx = vec4(0.0); oVy = vec4(0.0);
+    return;
   }
   // A little grain, or an even mixture is a symmetry nothing ever breaks
   // and it sits there grey instead of unmixing.
@@ -560,6 +656,13 @@ void main(){
     oCol = vec4(ramp(1.0 - exp(-here*uExp)), 1.0);
     return;
   }
+  if(uView == 5){
+    // The four fluids as paint: each its colour, added, in absolute units.
+    // This is the view the trained rule was fitted to.
+    vec4 ra = texelFetch(uRho, pc, 0)*uExp;
+    oCol = vec4(clamp(COL[0]*ra.x + COL[1]*ra.y + COL[2]*ra.z + COL[3]*ra.w, 0.0, 1.0), 1.0);
+    return;
+  }
   if(uView == 2){                                  // pressure, diverging
     vec4 U = texelFetch(uU, pc, 0);
     float u = uChan < 0 ? dot(U, vec4(0.25)) : U[uChan];
@@ -610,8 +713,8 @@ function compile(src, type){
   }
   return sh;
 }
-function program(fs){
-  const defs = `#define NCH ${NCH}\n#define NB ${NB}\n`;
+function program(fs, extra = ""){
+  const defs = `#define NCH ${NCH}\n#define NB ${NB}\n` + extra;
   const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
   const p = gl.createProgram();
   gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
@@ -685,7 +788,12 @@ const S = {
   view: 0, pal: 1, chan: -1, exp: 1.0, brush: 24, tool: 0, pchan: -1, stir: 0.35,
   zoom: 1, panx: 0, pany: 0, seed: 1,
   M: new Float32Array(NCH*NCH), blob: new Float32Array(NCH*NB*2),
+  rule: "matrix",                    // or "brain": the trained rule
+  mass: [1, 1, 1, 1, 0, 0, 0, 0],     // what the disc start holds, a fluid each
+  disc: 9,
 };
+/* The trained rule, once loaded: its weights as a texture and its program. */
+let brain = null;
 const CSS_COL = ["#FF5C38", "#6BE676", "#4D94FF", "#FFD64D"];
 
 /* The matrix. Row c, column d: how much fluid c wants to be where d is. A
@@ -712,10 +820,17 @@ const PRESETS = {
 S.M.set(PRESETS.droplets.M);
 function rollMatrix(){
   for(let i = 0; i < S.M.length; i++) S.M[i] = +(Math.random()*2 - 1).toFixed(2);
+  setRule("matrix");
   paintMatrix();
 }
-function rollBlobs(){
-  for(let i = 0; i < S.blob.length; i++) S.blob[i] = Math.random();
+// A run is reproducible when reseed() is given a number: the blob positions
+// and the noise both come from it, so a link can carry a world and its start.
+function mulberry(a){
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; };
+}
+function rollBlobs(rng){
+  for(let i = 0; i < S.blob.length; i++) S.blob[i] = rng();
 }
 // GLSL wants columns: uM[d][c] = M[c][d], so uM*x is sum_d M[c][d] x_d.
 function matrixColumns(){
@@ -736,20 +851,27 @@ function alloc(){
   g.r1 = make2D(N, N, F); g.sA = make2D(N, N, F); g.sB = make2D(N, N, F);
   g.tmp = make2D(N, N, F); g.U = make2D(N, N, F);
   g.rs = g.r1;
+  // The second four fluids, and the pushes: only the trained rule uses them.
+  g.rho2 = make2D(N, N, F); g.rho2B = make2D(N, N, F);
+  g.vx2 = make2D(N, N, F);  g.vx2B = make2D(N, N, F);
+  g.vy2 = make2D(N, N, F);  g.vy2B = make2D(N, N, F);
+  g.r12 = make2D(N, N, F); g.U2 = make2D(N, N, F);
+  g.Fx = make2D(N, N, F); g.Fy = make2D(N, N, F); g.Fx2 = make2D(N, N, F); g.Fy2 = make2D(N, N, F);
   g.pyr = [];
   for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
     g.pyr.push(make2D(n, n, gl.RGBA32F, gl.CLAMP_TO_EDGE));
     if(n === 1) break;
   }
-  g.all = [g.rho, g.rhoB, g.vx, g.vxB, g.vy, g.vyB, g.r1, g.sA, g.sB, g.tmp, g.U, ...g.pyr];
+  g.all = [g.rho, g.rhoB, g.vx, g.vxB, g.vy, g.vyB, g.r1, g.sA, g.sB, g.tmp, g.U,
+           g.rho2, g.rho2B, g.vx2, g.vx2B, g.vy2, g.vy2B, g.r12, g.U2, g.Fx, g.Fy, g.Fx2, g.Fy2, ...g.pyr];
   G = g;
 }
 function memMB(){
   const N = G.N, w = S.prec === 32 ? 2 : 1;
-  return (11*N*N*8*w + G.pyr.reduce((a, t) => a + t.w*t.h*16, 0))/1048576;
+  return (23*N*N*8*w + G.pyr.reduce((a, t) => a + t.w*t.h*16, 0))/1048576;
 }
 
-let meanRho = 1, mass = null, massAt = -1e9, massDue = false;
+let meanRho = 1, mass = null, hiddenMass = 0, massAt = -1e9, massDue = false;
 const invRho = () => 1/Math.max(1e-6, meanRho);
 function common(u){ gl.uniform1f(u.uN, G.N); }
 
@@ -769,6 +891,7 @@ function measure(){
   const m = sumTexture(G.rho);
   const t = m[0] + m[1] + m[2] + m[3];
   if(isFinite(t)){ mass = m; meanRho = Math.max(t/(G.N*G.N), 1e-6); }
+  if(S.rule === "brain"){ const h = sumTexture(G.rho2); hiddenMass = h[0] + h[1] + h[2] + h[3]; }
   massAt = S.frame; massDue = false;
 }
 
@@ -782,6 +905,7 @@ function blur(src, dst){
 /* Smooth and take the pressure. Split off from the step because the picture
    and the seep both want a pressure that matches the density on screen. */
 function field(){
+  if(S.rule === "brain" && brain){ think(); return; }
   blur(G.rho, G.r1);
   let s = G.r1;
   for(let i = 1; i < S.range; i++){ const d = s === G.sA ? G.sB : G.sA; blur(s, d); s = d; }
@@ -793,41 +917,97 @@ function field(){
   gl.uniformMatrix4fv(u.uM, false, matrixColumns());
   target(G.U, G.N, G.N); drawQuad();
 }
-function reseed(){
-  S.seed = (Math.random()*1e9) | 0;
-  rollBlobs();
+/* The disc's weights sum to one over the grid, so it holds its masses exactly. */
+function discNorm(){
+  const N = G.N, r = S.disc;
+  let sum = 0;
+  for(let y = 0; y < N; y++) for(let x = 0; x < N; x++){
+    const d = Math.hypot(x + 0.5 - 0.5*N, y + 0.5 - 0.5*N);
+    sum += Math.max(0, Math.min(1, r + 0.5 - d));
+  }
+  return sum > 0 ? 1/sum : 0;
+}
+function reseed(seed){
+  S.seed = typeof seed === "number" ? seed | 0 : (Math.random()*1e9) | 0;
+  rollBlobs(mulberry(S.seed));
   const u = use(P.seed); common(u);
+  const inv = discNorm();
+  if(S.rule !== "brain"){
+    const cells = Math.PI*S.disc*S.disc;
+    S.mass = [1, 1, 1, 1, 0, 0, 0, 0].map(m => m*S.amt*cells/4);
+  }
   gl.uniform1i(u.uMode, S.seedMode); gl.uniform1i(u.uSeed, S.seed);
-  gl.uniform1f(u.uAmt, S.amt); gl.uniform1f(u.uRad, S.rad); gl.uniform1f(u.uFill, S.fill);
+  gl.uniform1f(u.uAmt, S.amt); gl.uniform1f(u.uRad, S.seedMode === 4 ? S.disc : S.rad);
+  gl.uniform1f(u.uFill, S.fill); gl.uniform1f(u.uDiscInv, inv);
   gl.uniform1fv(u.uBlob, S.blob);
+  gl.uniform4f(u.uMass, S.mass[0], S.mass[1], S.mass[2], S.mass[3]);
   target([G.rho, G.vx, G.vy], G.N, G.N); drawQuad();
+  // The second half is a disc of the hidden masses, or nothing.
+  gl.uniform1i(u.uMode, 4); gl.uniform1f(u.uRad, S.disc);
+  gl.uniform4f(u.uMass, S.mass[4], S.mass[5], S.mass[6], S.mass[7]);
+  target([G.rho2, G.vx2, G.vy2], G.N, G.N); drawQuad();
   S.frame = 0;
   measure();
   field();
 }
 
-function step(){
+/* The trained rule's turn: blur both halves for the equation of state, then
+   the network, once a half. */
+function think(){
   const N = G.N;
-  field();                             // smooth, then pressure
-  {                                    // push
-    const u = use(P.force); common(u);
-    gl.uniform1i(u.uU, tex(0, G.U)); gl.uniform1i(u.uRho, tex(1, G.rho));
-    gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
-    gl.uniform1f(u.uDt, S.dt); gl.uniform1f(u.uCouple, S.couple);
-    gl.uniform1f(u.uVisc, S.visc); gl.uniform1f(u.uDrag, S.drag);
-    gl.uniform1f(u.uVmax, S.vmax);
-    target([G.vxB, G.vyB], N, N); drawQuad();
-    [G.vx, G.vxB] = [G.vxB, G.vx]; [G.vy, G.vyB] = [G.vyB, G.vy];
-  }
-  {                                    // move
-    const u = use(P.move); common(u);
-    gl.uniform1i(u.uRho, tex(0, G.rho)); gl.uniform1i(u.uU, tex(1, G.U));
-    gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
-    gl.uniform1f(u.uInvS2, 1/(S.spread*S.spread)); gl.uniform1f(u.uSeep, S.seep);
-    target([G.rhoB, G.vxB, G.vyB], N, N); drawQuad();
-    [G.rho, G.rhoB] = [G.rhoB, G.rho];
-    [G.vx, G.vxB] = [G.vxB, G.vx]; [G.vy, G.vyB] = [G.vyB, G.vy];
-  }
+  blur(G.rho, G.r1); blur(G.rho2, G.r12);
+  const u = use(brain.prog); common(u);
+  gl.uniform1i(u.uRhoA, tex(0, G.rho)); gl.uniform1i(u.uRhoB, tex(1, G.rho2));
+  gl.uniform1i(u.uVxA, tex(2, G.vx)); gl.uniform1i(u.uVxB, tex(3, G.vx2));
+  gl.uniform1i(u.uVyA, tex(4, G.vy)); gl.uniform1i(u.uVyB, tex(5, G.vy2));
+  gl.uniform1i(u.uR1A, tex(6, G.r1)); gl.uniform1i(u.uR1B, tex(7, G.r12));
+  gl.uniform1i(u.uW, tex(8, brain.tex));
+  gl.uniform1f(u.uStiff, S.stiff); gl.uniform1f(u.uGamma, S.gamma);
+  gl.uniform1i(u.uHalf, 0); target([G.U, G.Fx, G.Fy], N, N); drawQuad();
+  gl.uniform1i(u.uHalf, 1); target([G.U2, G.Fx2, G.Fy2], N, N); drawQuad();
+}
+
+/* One half's push and move. h = 0 is the four fluids you see; h = 1 the
+   hidden four, which only the trained rule has. The push reads BOTH halves'
+   old velocities for the coupling, so both pushes go before either swap. */
+const HALF = [
+  {rho:"rho", rhoB:"rhoB", vx:"vx", vxB:"vxB", vy:"vy", vyB:"vyB", U:"U", Fx:"Fx", Fy:"Fy",
+   o:{rho:"rho2", vx:"vx2", vy:"vy2"}},
+  {rho:"rho2", rhoB:"rho2B", vx:"vx2", vxB:"vx2B", vy:"vy2", vyB:"vy2B", U:"U2", Fx:"Fx2", Fy:"Fy2",
+   o:{rho:"rho", vx:"vx", vy:"vy"}},
+];
+function push(h, both){
+  const N = G.N, H = HALF[h], u = use(P.force); common(u);
+  gl.uniform1i(u.uU, tex(0, G[H.U])); gl.uniform1i(u.uRho, tex(1, G[H.rho]));
+  gl.uniform1i(u.uVx, tex(2, G[H.vx])); gl.uniform1i(u.uVy, tex(3, G[H.vy]));
+  gl.uniform1i(u.uFx, tex(4, G[H.Fx])); gl.uniform1i(u.uFy, tex(5, G[H.Fy]));
+  gl.uniform1i(u.uRhoO, tex(6, G[H.o.rho]));
+  gl.uniform1i(u.uVxO, tex(7, G[H.o.vx])); gl.uniform1i(u.uVyO, tex(8, G[H.o.vy]));
+  gl.uniform1i(u.uUseF, both ? 1 : 0); gl.uniform1i(u.uOther, both ? 1 : 0);
+  gl.uniform1f(u.uDt, S.dt); gl.uniform1f(u.uCouple, S.couple);
+  gl.uniform1f(u.uVisc, S.visc); gl.uniform1f(u.uDrag, S.drag);
+  gl.uniform1f(u.uVmax, S.vmax);
+  target([G[H.vxB], G[H.vyB]], N, N); drawQuad();
+}
+function move(h){
+  const N = G.N, H = HALF[h], u = use(P.move); common(u);
+  gl.uniform1i(u.uRho, tex(0, G[H.rho])); gl.uniform1i(u.uU, tex(1, G[H.U]));
+  gl.uniform1i(u.uVx, tex(2, G[H.vx])); gl.uniform1i(u.uVy, tex(3, G[H.vy]));
+  gl.uniform1f(u.uInvS2, 1/(S.spread*S.spread)); gl.uniform1f(u.uSeep, S.seep);
+  target([G[H.rhoB], G[H.vxB], G[H.vyB]], N, N); drawQuad();
+  [G[H.rho], G[H.rhoB]] = [G[H.rhoB], G[H.rho]];
+  [G[H.vx], G[H.vxB]] = [G[H.vxB], G[H.vx]]; [G[H.vy], G[H.vyB]] = [G[H.vyB], G[H.vy]];
+}
+function swapV(h){
+  const H = HALF[h];
+  [G[H.vx], G[H.vxB]] = [G[H.vxB], G[H.vx]]; [G[H.vy], G[H.vyB]] = [G[H.vyB], G[H.vy]];
+}
+function step(){
+  const both = S.rule === "brain" && !!brain;
+  field();                             // smooth, then pressure -- or the network
+  push(0, both); if(both) push(1, both);
+  swapV(0); if(both) swapV(1);
+  move(0); if(both) move(1);
   S.frame++;
 }
 
@@ -1034,15 +1214,54 @@ function buildMatrix(){
   }
   paintMatrix();
 }
+function setRule(rule){
+  S.rule = rule;
+  rack.querySelectorAll(".mat .mc").forEach(e => e.style.opacity = rule === "brain" ? 0.35 : 1);
+}
 function applyPreset(name){
+  if(name === "gecko"){ loadBrain("fluid-gecko.json"); return; }
   const p = PRESETS[name];
   if(!p) return;
+  setRule("matrix");
   S.M.set(p.M); paintMatrix();
   for(const k of ["g", "range", "stiff", "spread", "seep"]) if(k in p) UI[k].set(p[k]);
   UI.preset.value = name;
 }
+/* The trained rule arrives as JSON: sizes, the scalars it was trained
+   under, the disc it starts from, and the weights, which go into a texture
+   in the order the shader reads them. */
+async function loadBrain(url){
+  let j;
+  try { j = await (await fetch(url)).json(); }
+  catch(e){ $("stat").innerHTML = `could not load <b>${url}</b> &mdash; it needs serving, not opening from disk`; return; }
+  const flat = [];
+  for(const row of j.w1) flat.push(...row);
+  flat.push(...j.b1);
+  for(const row of j.w2) flat.push(...row);
+  flat.push(...j.b2);
+  const rows = Math.ceil(flat.length/4/256);
+  const data = new Float32Array(256*rows*4); data.set(flat);
+  if(brain){ gl.deleteTexture(brain.tex); gl.deleteProgram(brain.prog); }
+  const t = make2D(256, rows, gl.RGBA32F, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, rows, gl.RGBA, gl.FLOAT, data);
+  const W1 = 0, W2 = j.nh*j.nin + j.nh;
+  const prog = program(FS_BRAIN, `#define NIN ${j.nin}\n#define NH ${j.nh}\n#define NOUT ${j.nout}\n#define W1 ${W1}\n#define W2 ${W2}\n`);
+  brain = {tex:t, prog, json:j};
+  for(const k of ["dt", "drag", "visc", "couple", "spread", "seep", "stiff", "gamma", "vmax"])
+    if(k in j.phys) UI[k].set(j.phys[k]);
+  S.mass = j.masses.slice(); S.disc = j.disc;
+  UI.seedMode.value = "4"; S.seedMode = 4;
+  UI.view.value = "5"; S.view = 5; UI.exp.set(1);
+  if(S.N !== j.grid){ S.N = j.grid; UI.N.value = String(j.grid); alloc(); }
+  S.zoom = 1; S.panx = 0; S.pany = 0;
+  setRule("brain");
+  UI.preset.value = "gecko";
+  reseed();
+}
 function roll(){
   const r = (a, b) => a + Math.random()*(b - a);
+  setRule("matrix");
   rollMatrix();
   UI.g.set(+r(0.6, 2.0).toFixed(2));
   UI.range.set(Math.round(r(3, 12)));
@@ -1056,7 +1275,8 @@ function roll(){
 function buildUI(){
   group("matrix");
   buildMatrix();
-  picker("preset", "preset", [{v:"custom",t:"custom"}, ...Object.keys(PRESETS).map(k => ({v:k, t:k}))],
+  picker("preset", "preset", [{v:"custom",t:"custom"}, ...Object.keys(PRESETS).map(k => ({v:k, t:k})),
+                              {v:"gecko",t:"gecko (trained)"}],
          () => applyPreset(S.preset));
   buttons([["random", rollMatrix],
            ["flip", () => { for(let i = 0; i < S.M.length; i++) S.M[i] = -S.M[i]; paintMatrix(); }],
@@ -1080,13 +1300,15 @@ function buildUI(){
   slider("seep", "seep", 0, 2, 0.01, 2);
 
   group("seed");
-  picker("start", "seedMode", [{v:0,t:"blobs"}, {v:1,t:"noise"}, {v:2,t:"quarters"}, {v:3,t:"bands"}], reseed);
+  picker("start", "seedMode", [{v:0,t:"blobs"}, {v:1,t:"noise"}, {v:2,t:"quarters"}, {v:3,t:"bands"},
+                               {v:4,t:"disc"}], () => reseed());
+  slider("disc", "disc", 2, 40, 0.5, 1);
   slider("amount", "amt", 0.2, 6, 0.1, 1);
   slider("blob", "rad", 4, 80, 1, 0);
   slider("fill", "fill", 0.02, 1, 0.01, 2);
 
   group("view");
-  picker("show", "view", [{v:0,t:"fluids"}, {v:1,t:"density"}, {v:2,t:"pressure"},
+  picker("show", "view", [{v:0,t:"fluids"}, {v:5,t:"paint"}, {v:1,t:"density"}, {v:2,t:"pressure"},
                           {v:3,t:"direction"}, {v:4,t:"speed"}]);
   picker("of", "chan", [{v:-1,t:"all four"}, {v:0,t:"fluid 1"}, {v:1,t:"fluid 2"},
                         {v:2,t:"fluid 3"}, {v:3,t:"fluid 4"}]);
@@ -1101,22 +1323,64 @@ function buildUI(){
   slider("stir", "stir", 0.05, 1, 0.01, 2);
 
   group("run");
-  picker("grid", "N", [{v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
+  picker("grid", "N", [{v:64,t:"64"}, {v:128,t:"128"}, {v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
                        {v:1024,t:"1024"}, {v:1536,t:"1536"}, {v:2048,t:"2048"}],
          () => { alloc(); reseed(); });
   picker("precision", "prec", [{v:32,t:"32-bit exact"}, {v:16,t:"16-bit"}],
          () => { alloc(); reseed(); });
   slider("steps/f", "steps", 1, 8, 1, 0);
-  buttons([["roll", roll], ["reseed", reseed]]);
+  buttons([["roll", roll], ["reseed", () => reseed()], ["link", paramLink]]);
   UI.preset.value = "droplets";
 }
 
 $("play").onclick = toggleRun;
 $("step1").onclick = () => { step(); massDue = true; };
-$("reseed").onclick = reseed;
+$("reseed").onclick = () => reseed();
 $("shuffle").onclick = rollMatrix;
 $("full").onclick = toggleFull;
 $("hidep").onclick = () => rack.classList.toggle("hid");
+
+/* ================================================================ params
+   Everything that makes a world, as one object: the matrix, the scalars,
+   and the seed. A link carries it in the hash, so a gallery can point back
+   at a live run. */
+const PKEYS = ["g", "range", "stiff", "gamma", "dt", "drag", "visc", "couple", "vmax",
+               "spread", "seep", "seedMode", "amt", "rad", "fill", "disc"];
+function getParams(){
+  const p = {M: Array.from(S.M, v => +v.toFixed(3)), seed: S.seed};
+  if(S.rule === "brain") p.rule = "gecko";
+  for(const k of PKEYS) p[k] = S[k];
+  return p;
+}
+function setParams(p){
+  if(p.M){ S.M.set(p.M); paintMatrix(); }
+  for(const k of PKEYS){
+    if(!(k in p)) continue;
+    if(UI[k] && UI[k].set) UI[k].set(p[k]);
+    else if(UI[k]){ UI[k].value = String(p[k]); S[k] = p[k]; }
+    else S[k] = p[k];
+  }
+}
+function paramLink(){
+  const j = JSON.stringify(getParams());
+  location.hash = "p=" + encodeURIComponent(j);
+  navigator.clipboard && navigator.clipboard.writeText(location.href).catch(() => {});
+}
+function fromHash(){
+  const m = /[#&]p=([^&]+)/.exec(location.hash);
+  if(!m) return false;
+  try {
+    const p = JSON.parse(decodeURIComponent(m[1]));
+    // A link can also name the grid and open paused, which is what a gallery
+    // or a headless run wants.
+    if(p.N && p.N !== S.N){ S.N = p.N; UI.N.value = String(p.N); alloc(); }
+    if(p.pause){ S.running = false; $("play").textContent = "play"; }
+    if(p.rule === "gecko"){ applyPreset("gecko"); return true; }
+    setParams(p); reseed(p.seed);
+    return true;
+  } catch(e){ return false; }
+}
+addEventListener("hashchange", fromHash);
 
 /* ===================================================================== loop */
 function resize(){
@@ -1148,13 +1412,14 @@ function tick(now){
       `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema, 1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
       `${memMB().toFixed(0)} MB` +
       (mass ? ` &middot; mass <b>${(tot/cells).toFixed(6)}</b> ` +
-              `<span style="opacity:.7">(${mass.map(m => (m/cells).toFixed(3)).join(" ")})</span>` : "");
+              `<span style="opacity:.7">(${mass.map(m => (m/cells).toFixed(3)).join(" ")})</span>` : "") +
+      (S.rule === "brain" ? ` &middot; hidden <b>${(hiddenMass/cells).toFixed(4)}</b> &middot; trained rule` : "");
   }
 }
 
 alloc();
 buildUI();
-reseed();
+if(!fromHash()) reseed();
 resize();
 requestAnimationFrame(tick);
 </script>
