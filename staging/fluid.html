@@ -1398,7 +1398,7 @@ function tick(now){
   resize();
   if(S.running) for(let i = 0; i < S.steps; i++) step();
   render();
-  if(dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
+  if(dt > 0 && dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
   if(S.frame - massAt >= 120 || massDue){ measure(); tPrev = performance.now(); }
   if(now - shown > 420){
     shown = now;
