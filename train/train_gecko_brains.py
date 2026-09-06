@@ -63,7 +63,7 @@ def main():
     ap.add_argument("--wsil", type=float, default=1.5)
     ap.add_argument("--blur", type=float, default=1.0)
     ap.add_argument("--seed", type=int, default=3)
-    ap.add_argument("--out", default="geckoBrains.pt")
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "geckoBrains.pt"))
     ap.add_argument("--resume", default=None)
     a = ap.parse_args()
 
