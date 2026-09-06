@@ -197,8 +197,13 @@ def step(st, rule, cfg):
 
 
 def cap(v, m=16.0):
+    """Branch-free, for the same reason as everything else here: a where around
+    a division differentiates the branch it did not take, and a stalled species
+    has L near zero, so m/L is 1e13 and its gradient is worse. Saturating a
+    ratio has a gradient of exactly zero where the cap is inactive, which is the
+    right answer rather than an enormous wrong one."""
     L = torch.linalg.vector_norm(v, dim=1, keepdim=True)
-    return torch.where(L > m, v*(m/torch.clamp(L, min=1e-12)), v)
+    return v*torch.clamp(m/(L + 1e-6), max=1.0)
 
 
 def brain(x, rule, gain):
