@@ -155,3 +155,64 @@ Nothing has been added to `staging/volume.html` for this, deliberately. The page
 would need the displaced-Gaussian bank, a gather pass, and a seed that is a
 small pattern rather than a ball — a contained change, but not one worth making
 to a page that works until there is a gecko to put in it.
+
+## The brains rule, and why it will not learn a gecko by gradient
+
+`gecko2d.py`, `emoji_gecko.py`, `field_brains.py`, `train_gecko_brains.py` and
+`train_emoji_gecko.py` are the same exercise aimed at `staging/brains.html`: the
+lizard emoji as a target, the rule written again in torch, a fit that unrolls
+from a seed and pushes the error back. It does not work, and the reason is worth
+more than the attempt was.
+
+**The gradient through this rule explodes, at every setting it has.** Gradient
+norm against how many steps carry one, after a fixed warm-up:
+
+    beta speed drag |     t=1       t=8      t=16      t=32
+     7.3   2.8  0.50   2.4e-4   9.9e+07       inf       nan
+     2.0   1.5  0.64   1.9e-4   6.0e+07   1.1e+19       nan
+     1.0   0.8  0.80   8.7e-5   3.7e+04   6.8e+15       nan
+     0.5   0.4  0.90   2.7e-5   1.5e+04   7.0e+13       nan
+     0.2   0.2  0.95   8.2e-6   1.4e+03   9.7e+11       nan
+
+Beta turned down thirty-sixfold, transport nearly off and damping at 0.95, and
+it still passes float32 before twenty steps. This is not a regime that was
+missed, it is the shape of the rule: MaCE divides by a normaliser that is itself
+a function of the state, and that division sits inside every step.
+
+**And a one-step gradient cannot do morphogenesis.** Growing a lizard from a
+disc means putting a tail somewhere because a head is somewhere else, which is
+credit assigned across many steps. Growing NCA backprops through sixty-four to
+ninety-six of them, and its update is a small residual on purpose, which is
+exactly what keeps that possible. One step can only learn a local move.
+
+Measured, both halves hold. A gradient through four steps does not descend at
+all -- 0.0250 to 0.0256 over 320 iterations -- and the only length that does
+descend is one, because it is the only one whose gradient stays under the
+clipping threshold. Fitted at one step the loss falls a long way and the picture
+is a disc: silhouette overlap 0.64 against the emoji, which is about what a
+green disc of the right area scores.
+
+Two blind alleys, both of which looked like the answer:
+
+*The seed being round.* It was not, but the seed WAS a problem: it drew a fresh
+random velocity field every iteration, so every run broke the rotational
+symmetry differently and the fit averaged over all of them. The average of a
+lizard over every angle is a disc. Fixed to one coherent heading per species,
+identical every time -- and it still makes a disc, for the reason above.
+
+*Numerical faults.* Three real ones, none of them the cause. `torch.where`
+differentiates the branch it did not take, so a division guarded by one has an
+infinite gradient -- this was in `cap`, and a stalled species trips it
+constantly. The reverse transport weight cannot be taken as `1/g` when `g`
+bottoms out at `exp(-30)`. The affinity needs a global shift before its
+exponential. With all three fixed the gradient is finite, and still explodes.
+
+What would work, in order of how much of the rule it changes: a gradient-free
+search over the 1680 weights, which does not care that the rule is chaotic and
+does care that there are 1680 of them; or a residual, damped update in place of
+the conservative transport, which is to say a different rule.
+
+The emoji target and its four-colour cut are kept and are reusable: colours in
+field life are species and species separate, so the glyph is clustered by colour
+and each species is given one cluster to own, with the cluster colours as the
+palette.
