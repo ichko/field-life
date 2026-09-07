@@ -189,8 +189,11 @@ Measured, both halves hold. A gradient through four steps does not descend at
 all -- 0.0250 to 0.0256 over 320 iterations -- and the only length that does
 descend is one, because it is the only one whose gradient stays under the
 clipping threshold. Fitted at one step the loss falls a long way and the picture
-is a disc: silhouette overlap 0.64 against the emoji, which is about what a
-green disc of the right area scores.
+is a disc. The final fit reached silhouette overlap 0.73 against the emoji over
+1558 iterations, and the picture at that overlap is a green disc with a faint
+warm smudge where the belly stripe should be -- which is what 0.73 buys you when
+the thing being overlapped is a disc of about the right area. The number kept
+improving and the picture did not.
 
 Two blind alleys, both of which looked like the answer:
 
