@@ -60,7 +60,7 @@ def main():
     ap.add_argument("--wsil", type=float, default=3.0)
     ap.add_argument("--blur", type=float, default=0.8)
     ap.add_argument("--seed", type=int, default=3)
-    ap.add_argument("--out", default="emojiGecko.pt")
+    ap.add_argument("--out", default=os.path.join(os.path.dirname(os.path.abspath(__file__)), "emojiGecko.pt"))
     ap.add_argument("--resume", default=None)
     a = ap.parse_args()
 
