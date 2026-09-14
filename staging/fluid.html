@@ -170,7 +170,7 @@ button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
 
 <div class="app" id="app">
   <canvas id="cv"></canvas>
-  <div id="hint">drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; ctrl-drag to stir &middot; alt-drag to erase</div>
+  <div id="hint">&larr; &rarr; walk the sweep &middot; drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; ctrl-drag to stir &middot; alt-drag to erase</div>
   <div class="hud">
     <div class="seg">
       <button id="play" title="space">pause</button>
@@ -271,7 +271,10 @@ on every page here.</p>
 <i>drag</i> in the panel for a trackpad. Space holds, <b>R</b> reseeds, <b>N</b> rolls a new
 matrix, <b>1</b>&ndash;<b>4</b> pick the fluid to paint, <b>H</b> hides the panel, <b>F</b> is
 fullscreen. <b>Link</b> puts the whole world &mdash; matrix, scalars, seed &mdash; in the
-address bar, and <a href="fluid-sweep.html">the sweep</a> is a shelf of such links.</p>
+address bar. The <b>sweep</b> picker, and the arrow keys, walk twenty-five worlds found by
+running a few hundred random ones headless and keeping the ones that still moved, had
+structure and kept their fluids apart; <a href="fluid-sweep.html">the shelf</a> shows them all
+at once.</p>
 <p style="margin-top:22px;font-size:12px">A staging page.</p>
 </div>
 </div>
@@ -781,12 +784,12 @@ const P = {
 
 /* ===================================================================== state */
 const S = {
-  N: 512, steps: 1, running: true, frame: 0, prec: 32,
+  N: 256, steps: 1, running: true, frame: 0, prec: 32,
   g: 1.2, range: 6, stiff: 1.0, gamma: 2, dt: 0.12, drag: 0.02, visc: 0.15, couple: 0.1,
   vmax: 0.9, spread: 0.45, seep: 0.15,
   seedMode: 0, amt: 2.0, rad: 24, fill: 0.3,
   view: 0, pal: 1, chan: -1, exp: 1.0, brush: 24, tool: 0, pchan: -1, stir: 0.35,
-  zoom: 1, panx: 0, pany: 0, seed: 1,
+  zoom: 1, panx: 0, pany: 0, seed: 1, sweep: -1,
   M: new Float32Array(NCH*NCH), blob: new Float32Array(NCH*NB*2),
   rule: "matrix",                    // or "brain": the trained rule
   mass: [1, 1, 1, 1, 0, 0, 0, 0],     // what the disc start holds, a fluid each
@@ -794,6 +797,10 @@ const S = {
 };
 /* The trained rule, once loaded: its weights as a texture and its program. */
 let brain = null;
+/* The sweep: twenty-five worlds found by running a few hundred random ones
+   headless and keeping what moved, had structure and kept its fluids apart.
+   Best first. Each is a matrix, its scalars and a seed. */
+const SWEEP = [{"M":[0.86,-0.68,-0.32,-0.66,0.56,-0.02,-0.91,-0.44,0.19,0.29,0.45,0.7,-0.17,-0.7,-0.26,0.42],"seed":65024910,"kind":"free","score":0.905,"g":2.19,"range":4,"stiff":0.47,"gamma":1.34,"dt":0.179,"drag":0.042,"visc":0.02,"couple":0.09,"vmax":0.9,"spread":0.39,"seep":0,"seedMode":1,"amt":2.4,"rad":11,"fill":0.29},{"M":[0.46,0.48,-0.95,0.47,0.03,0.85,-0.4,0.4,-0.11,0.65,0.3,-0.56,0.6,0.05,-0.21,0.82],"seed":375686515,"kind":"free","score":0.755,"g":2.96,"range":9,"stiff":0.39,"gamma":2.17,"dt":0.201,"drag":0.006,"visc":0.25,"couple":0.12,"vmax":0.9,"spread":0.45,"seep":0.14,"seedMode":0,"amt":2.7,"rad":26,"fill":0.3},{"M":[0.92,0.47,0.55,0.75,-0.73,0.84,-0.42,-0.07,-0.65,0.14,0.46,-0.18,-0.31,-0.3,-0.36,0.71],"seed":923470906,"kind":"free","score":0.546,"g":2.22,"range":8,"stiff":0.55,"gamma":2.14,"dt":0.168,"drag":0.02,"visc":0.18,"couple":0.12,"vmax":0.9,"spread":0.46,"seep":0.23,"seedMode":0,"amt":2.9,"rad":14,"fill":0.18},{"M":[0.88,0.83,-0.17,-0.17,0.83,0.39,-0.17,-0.17,-0.17,-0.17,0.4,0.83,-0.17,-0.17,0.83,0.63],"seed":165346489,"kind":"pairs","score":0.476,"g":2.96,"range":6,"stiff":0.36,"gamma":2.58,"dt":0.129,"drag":0.033,"visc":0.06,"couple":0.1,"vmax":0.9,"spread":0.3,"seep":0.09,"seedMode":1,"amt":2.7,"rad":27,"fill":0.21},{"M":[0.9,0.98,-0.27,-0.75,-0.75,0.81,0.98,-0.27,-0.27,-0.75,0.58,0.98,0.98,-0.27,-0.75,0.77],"seed":909174662,"kind":"cycle","score":0.46,"g":1.28,"range":4,"stiff":0.44,"gamma":1.51,"dt":0.24,"drag":0.042,"visc":0.11,"couple":0.12,"vmax":0.9,"spread":0.47,"seep":0.46,"seedMode":0,"amt":2,"rad":23,"fill":0.24},{"M":[0.27,0.65,-0.1,-0.75,-0.75,0.24,0.65,-0.1,-0.1,-0.75,0.43,0.65,0.65,-0.1,-0.75,0.99],"seed":298745135,"kind":"cycle","score":0.41,"g":2.06,"range":5,"stiff":0.88,"gamma":2.27,"dt":0.189,"drag":0.006,"visc":0.09,"couple":0.04,"vmax":0.9,"spread":0.39,"seep":0.12,"seedMode":0,"amt":3.1,"rad":25,"fill":0.18},{"M":[0.86,0.18,0.27,0.27,-0.16,0.37,0.05,-0.47,-0.42,0.08,0.87,-0.67,-0.18,0.4,0.91,0.66],"seed":418297313,"kind":"anti","score":0.396,"g":2.96,"range":5,"stiff":0.87,"gamma":1.74,"dt":0.156,"drag":0.015,"visc":0.12,"couple":0.17,"vmax":0.9,"spread":0.48,"seep":0.41,"seedMode":1,"amt":2.2,"rad":24,"fill":0.25},{"M":[0.46,0.74,-0.4,-0.53,0.69,0.96,-0.53,-0.32,-0.3,-0.36,0.69,0.79,-0.4,-0.38,0.7,0.81],"seed":654501595,"kind":"pairs","score":0.35,"g":2.53,"range":4,"stiff":0.8,"gamma":1.63,"dt":0.165,"drag":0.05,"visc":0.22,"couple":0.03,"vmax":0.9,"spread":0.38,"seep":0.05,"seedMode":0,"amt":3.4,"rad":13,"fill":0.2},{"M":[0.88,0.74,-0.54,-0.54,0.74,0.71,-0.54,-0.54,-0.54,-0.54,0.49,0.74,-0.54,-0.54,0.74,1],"seed":94048745,"kind":"pairs","score":0.348,"g":2.17,"range":8,"stiff":0.77,"gamma":1.52,"dt":0.202,"drag":0.047,"visc":0.18,"couple":0.11,"vmax":0.9,"spread":0.32,"seep":0.49,"seedMode":0,"amt":3.3,"rad":27,"fill":0.43},{"M":[0.35,1,-0.67,-0.84,-0.82,0.34,1,-0.73,-0.59,-0.8,0.34,1,0.98,-0.7,-0.7,0.41],"seed":433995676,"kind":"cycle","score":0.347,"g":2.26,"range":7,"stiff":0.47,"gamma":2.95,"dt":0.256,"drag":0.043,"visc":0.24,"couple":0.08,"vmax":0.9,"spread":0.38,"seep":0.48,"seedMode":0,"amt":1.2,"rad":8,"fill":0.14},{"M":[0.6,0.36,0.31,-0.32,-0.37,0.54,0.77,-0.43,-0.48,-0.76,0.77,0.93,0.42,0.57,-0.66,0.86],"seed":281398966,"kind":"anti","score":0.346,"g":1.71,"range":11,"stiff":0.33,"gamma":2.39,"dt":0.095,"drag":0.006,"visc":0.25,"couple":0.08,"vmax":0.9,"spread":0.47,"seep":0.08,"seedMode":0,"amt":1.6,"rad":11,"fill":0.4},{"M":[0.75,-0.59,-0.6,-0.33,0.62,0.95,-0.11,-0.41,-0.89,-0.97,0.9,0.96,-0.06,-0.45,0.2,0.95],"seed":34142337,"kind":"free","score":0.307,"g":2.12,"range":9,"stiff":0.85,"gamma":2.85,"dt":0.219,"drag":0.008,"visc":0.27,"couple":0.01,"vmax":0.9,"spread":0.39,"seep":0.42,"seedMode":0,"amt":3,"rad":25,"fill":0.18},{"M":[0.91,0,0.3,-0.66,0.02,0.38,-0.08,-0.98,0.06,-0.99,0.82,-0.45,-0.61,-0.79,0.23,0.67],"seed":173266522,"kind":"free","score":0.267,"g":1.78,"range":10,"stiff":0.32,"gamma":2.67,"dt":0.182,"drag":0.016,"visc":0.11,"couple":0.05,"vmax":0.9,"spread":0.36,"seep":0.49,"seedMode":0,"amt":1.7,"rad":10,"fill":0.18},{"M":[0.24,0.51,-0.12,-0.98,-0.98,0.24,0.51,-0.12,-0.12,-0.98,0.24,0.51,0.51,-0.12,-0.98,0.24],"seed":841163336,"kind":"cycle","score":0.264,"g":2.08,"range":9,"stiff":0.36,"gamma":2.35,"dt":0.192,"drag":0.023,"visc":0.29,"couple":0.03,"vmax":0.9,"spread":0.34,"seep":0.35,"seedMode":0,"amt":3.3,"rad":16,"fill":0.16},{"M":[0.46,0.34,-0.78,-0.96,0.19,0.36,-0.85,-0.78,-1,-0.96,0.84,0.26,-0.9,-0.99,0.33,0.34],"seed":811656018,"kind":"pairs","score":0.261,"g":1.9,"range":12,"stiff":0.37,"gamma":1.89,"dt":0.128,"drag":0.036,"visc":0.19,"couple":0.03,"vmax":0.9,"spread":0.47,"seep":0.35,"seedMode":0,"amt":2.5,"rad":22,"fill":0.29},{"M":[0.39,0.51,-0.99,-0.84,0.69,0.69,-1,-0.89,-1,-1,0.93,0.58,-0.83,-0.96,0.62,0.81],"seed":485946225,"kind":"pairs","score":0.217,"g":2.47,"range":12,"stiff":0.68,"gamma":2.2,"dt":0.16,"drag":0.026,"visc":0.16,"couple":0.1,"vmax":0.9,"spread":0.31,"seep":0.45,"seedMode":0,"amt":1.7,"rad":16,"fill":0.35},{"M":[0.8,0.46,-0.99,-0.99,0.46,0.84,-0.99,-0.99,-0.99,-0.99,0.33,0.46,-0.99,-0.99,0.46,0.21],"seed":685648864,"kind":"pairs","score":0.211,"g":2.54,"range":4,"stiff":0.85,"gamma":2.13,"dt":0.194,"drag":0.022,"visc":0.2,"couple":0.24,"vmax":0.9,"spread":0.42,"seep":0.12,"seedMode":1,"amt":2.1,"rad":17,"fill":0.17},{"M":[0.57,1,-0.67,0.62,1,0.85,0.28,0.3,-0.67,0.28,0.86,0.13,0.62,0.3,0.13,0.96],"seed":481936935,"kind":"sym","score":0.201,"g":2.13,"range":8,"stiff":0.93,"gamma":1.71,"dt":0.216,"drag":0.049,"visc":0.09,"couple":0.1,"vmax":0.9,"spread":0.47,"seep":0.1,"seedMode":0,"amt":1.7,"rad":27,"fill":0.35},{"M":[0.97,0.36,-0.42,-0.54,0.39,0.52,-0.98,-1,-0.45,-1,0.99,0.01,-0.54,-1,-0.09,0.45],"seed":785960935,"kind":"sym","score":0.193,"g":2.34,"range":5,"stiff":0.74,"gamma":1.84,"dt":0.185,"drag":0.035,"visc":0.01,"couple":0.26,"vmax":0.9,"spread":0.31,"seep":0.44,"seedMode":0,"amt":3.2,"rad":25,"fill":0.2},{"M":[0.74,0.74,-0.69,-0.5,0.8,0.78,-0.67,-0.65,-0.62,-0.48,0.64,0.69,-0.42,-0.68,0.64,0.68],"seed":139360479,"kind":"pairs","score":0.138,"g":1.81,"range":7,"stiff":0.6,"gamma":2.35,"dt":0.183,"drag":0.025,"visc":0.02,"couple":0.25,"vmax":0.9,"spread":0.43,"seep":0.08,"seedMode":1,"amt":1.7,"rad":19,"fill":0.38},{"M":[0.21,-0.07,0.76,0.65,-0.08,0.56,-0.07,0.77,0.5,0.37,0.41,-0.19,-0.2,0.59,0.98,0.65],"seed":728860343,"kind":"free","score":0.136,"g":2.73,"range":9,"stiff":0.63,"gamma":2.17,"dt":0.232,"drag":0.014,"visc":0.06,"couple":0.17,"vmax":0.9,"spread":0.39,"seep":0.32,"seedMode":1,"amt":2.4,"rad":11,"fill":0.43},{"M":[0.92,0.89,0.89,0.89,-0.43,0.96,-0.24,-0.24,-0.43,-0.24,0.4,-0.24,-0.43,-0.24,-0.24,0.71],"seed":756836490,"kind":"hunter","score":0.127,"g":2.64,"range":11,"stiff":1.13,"gamma":2.33,"dt":0.226,"drag":0.03,"visc":0.14,"couple":0.22,"vmax":0.9,"spread":0.46,"seep":0.23,"seedMode":0,"amt":2.6,"rad":14,"fill":0.39},{"M":[-0.66,-0.38,-0.01,-0.68,-0.38,0.28,0.28,-0.59,0.24,0.35,1,0.06,-0.64,-0.6,0.09,-0.84],"seed":27414022,"kind":"sym","score":0.125,"g":2.51,"range":3,"stiff":0.72,"gamma":1.69,"dt":0.136,"drag":0.009,"visc":0.13,"couple":0.02,"vmax":0.9,"spread":0.35,"seep":0.44,"seedMode":0,"amt":2.7,"rad":16,"fill":0.39},{"M":[0.21,-0.72,0.28,-0.95,0.72,0.23,0.7,-0.42,-0.28,-0.7,0.48,0.01,0.95,0.42,-0.01,0.59],"seed":9156730,"kind":"anti","score":0.08,"g":2.02,"range":11,"stiff":0.35,"gamma":1.81,"dt":0.182,"drag":0.005,"visc":0.24,"couple":0.11,"vmax":0.9,"spread":0.48,"seep":0.32,"seedMode":0,"amt":3.1,"rad":17,"fill":0.21},{"M":[0.39,0.2,-0.54,0.7,0.48,0.85,-0.41,-0.95,0.49,-0.53,0.7,0.66,-0.24,0.5,0.5,0.32],"seed":979141299,"kind":"free","score":0.072,"g":2.35,"range":3,"stiff":0.58,"gamma":2.71,"dt":0.118,"drag":0.057,"visc":0.21,"couple":0.36,"vmax":0.9,"spread":0.31,"seep":0.24,"seedMode":0,"amt":2.7,"rad":9,"fill":0.5}];
 const CSS_COL = ["#FF5C38", "#6BE676", "#4D94FF", "#FFD64D"];
 
 /* The matrix. Row c, column d: how much fluid c wants to be where d is. A
@@ -1103,6 +1110,11 @@ addEventListener("keydown", e => {
   else if(k === "h") $("rack").classList.toggle("hid");
   else if(k === "f") toggleFull();
   else if(k >= "1" && k <= "4"){ S.pchan = +k - 1; UI.pchan.value = String(S.pchan); }
+  else if(k === "arrowright" || k === "arrowleft"){
+    e.preventDefault();
+    const n = SWEEP.length, i = ((S.sweep < 0 ? 0 : S.sweep) + (k === "arrowright" ? 1 : n - 1)) % n;
+    openSweep(i);
+  }
 });
 function toggleRun(){ S.running = !S.running; $("play").textContent = S.running ? "pause" : "play"; }
 function toggleFull(){
@@ -1259,6 +1271,14 @@ async function loadBrain(url){
   UI.preset.value = "gecko";
   reseed();
 }
+function openSweep(i){
+  const w = SWEEP[i];
+  if(!w) return;
+  S.sweep = i;
+  setRule("matrix");
+  setParams(w); reseed(w.seed);
+  UI.preset.value = "custom"; UI.sweep.value = String(i);
+}
 function roll(){
   const r = (a, b) => a + Math.random()*(b - a);
   setRule("matrix");
@@ -1278,6 +1298,8 @@ function buildUI(){
   picker("preset", "preset", [{v:"custom",t:"custom"}, ...Object.keys(PRESETS).map(k => ({v:k, t:k})),
                               {v:"gecko",t:"gecko (trained)"}],
          () => applyPreset(S.preset));
+  picker("sweep", "sweep", [{v:-1, t:"\u2014"}, ...SWEEP.map((w, i) =>
+           ({v:i, t:`${i + 1}. ${w.kind} \u00b7 ${w.score.toFixed(2)}`}))], () => openSweep(S.sweep));
   buttons([["random", rollMatrix],
            ["flip", () => { for(let i = 0; i < S.M.length; i++) S.M[i] = -S.M[i]; paintMatrix(); }],
            ["mirror", () => { for(let c = 0; c < NCH; c++) for(let d = c + 1; d < NCH; d++)
@@ -1419,7 +1441,7 @@ function tick(now){
 
 alloc();
 buildUI();
-if(!fromHash()) reseed();
+if(!fromHash()) openSweep(0);
 resize();
 requestAnimationFrame(tick);
 </script>
