@@ -81,7 +81,12 @@ def sample(rng):
         decay=round(float(rng.uniform(0.80, 0.99)), 3),
         diff=round(float(rng.uniform(0, 0.5)), 2),
         moff=round(lg(0.2, 3.0), 2), crowd=round(float(rng.choice([0, 0, 0, rng.uniform(0, 3)])), 2),
-        fill=0.1, ball=0.55)
+        # the START is part of a preset too, so search over it: a ball each, or
+        # specks thrown thin, or one mixed ball. And how much is laid down.
+        mode=int(rng.choice([1, 1, 4, 4, 0])),
+        fill=round(float(np.exp(rng.uniform(np.log(0.03), np.log(0.25)))), 3),
+        ball=round(float(rng.uniform(0.15, 0.95)), 2),
+        gscale=int(rng.integers(10, 90)))
 
 
 def run(args):
