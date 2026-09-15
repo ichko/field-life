@@ -27,24 +27,51 @@ python3 look.py cuteK.pt 18,32,44 40 out.png --target cute
 not overlap and sum to the whole. How many pieces is the target's business: the
 fit reads it off the stack and sizes the field to match.
 
-## Every chemical is part of the animal
+## Every chemical is inside the animal
 
-There are no hidden channels. `--hidden` can add some, but it defaults to none,
-so the field carries exactly as many chemicals as the target has parts and each
-one of them is a piece of the gecko you can see.
+The rule that matters is that nothing lives outside the body. A fit left to
+itself will build scaffolding -- a chemical sitting in the empty space around
+the animal, holding its shape from outside, invisible in the picture and
+load-bearing in the rule. That makes the fit easier and the result a lie: what
+you are looking at is not what is there, and what you would put on the page is
+not what was trained.
 
-That is a real restriction and it is worth being clear about what it costs. A
-fit given spare channels will use them, and what it uses them for is scaffolding
--- a chemical that sits in the empty space around the animal and holds its shape
-from outside, invisible in the picture and load-bearing in the rule. It makes
-the fit easier and it makes the result a lie: what you are looking at is not
-what is there, and the thing you would put on the page is not the thing that was
-trained.
+`--wout` prices it. The loss reports `out`, the fraction of everything the field
+carries that is sitting somewhere the gecko is not, and it applies to every
+channel rather than only the drawn ones. It starts near a half, because a seed
+is a ball and a ball is mostly not a gecko, and a good run takes it under three
+per cent.
 
-So the channels are the parts, and on top of that `--wout` prices any mass that
-ends up outside the body at all. The loss reports it as `out`, the fraction of
-everything the field is carrying that is sitting somewhere the gecko is not. It
-starts near a half, because a seed is a ball and a ball is mostly not a gecko.
+That is a different thing from having no hidden channels at all, and the
+difference turned out to be most of the fit. A hidden channel held inside the
+body breaks no rule -- it is invisible in the picture and it is not outside
+anything -- and those channels are most of what the rule has to think with.
+`--hidden 6` on top of the eight parts is worth more than anything else tried
+here.
+
+## What each piece is worth
+
+Nine hundred iterations each, everything else identical:
+
+| seed | channels | best loss | outside | what grows |
+|---|---|---|---|---|
+| one blob per channel | 8 | 0.778 | 0.095 | a uniform lump, no front |
+| the layout, in the seed | 8 | 0.648 | 0.055 | bands along one axis |
+| the layout, in the seed | 8 + 6 inside | 0.401 | 0.027 | lumpy, with appendages |
+
+Neither of those two changes is a matter of degree. Without the seed hint the
+channels sit on top of each other and what grows has no orientation at all,
+because the step is the same everywhere and the world wraps, so the seed is the
+only thing in the entire run that can say which end is the head. Without the
+hidden channels the best the rule manages is stripes, which is what a system
+with no working memory produces.
+
+And a third thing is worth recording because it is the one that did **not**
+work: running longer. From nine hundred iterations to two thousand the loss fell
+by a third and the picture was the same kind of thing, slightly crisper. The
+same was true of the three-part fit before it. Iterations polish whatever
+attractor has been found; they do not go and find another one. Every real step
+forward here has come from changing what the rule is allowed to do.
 
 ## The kernel bank: rings, orders, and big and small together
 
