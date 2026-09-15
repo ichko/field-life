@@ -6,11 +6,10 @@ the page has no such notion, so the constant is folded into the two numbers
 here. And the fit works in (z, y, x) because that is how torch indexes a volume,
 while the page works in (x, y, z), so every displacement is reversed.
 """
-import argparse, json, math
+import argparse, importlib, json, math
 import torch
 import torch.nn.functional as F
 
-import gecko
 from field3d import Field3D, gauss1d
 
 
@@ -18,20 +17,22 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt")
     ap.add_argument("--N", type=int, default=40)
-    ap.add_argument("--C", type=int, default=8)
+    ap.add_argument("--C", type=int, default=10)
     ap.add_argument("--T", type=int, default=8)
     ap.add_argument("--S", type=int, default=3)
     ap.add_argument("--seedR", type=float, default=3.5)
     ap.add_argument("--steps", type=int, default=40)
-    ap.add_argument("--out", default="gecko-fit.json")
+    ap.add_argument("--target", default="cute")
+    ap.add_argument("--out", default="fit.json")
     a = ap.parse_args()
 
     m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR)
     m.load_state_dict(torch.load(a.ckpt, map_location="cpu"))
 
-    rgb, occ = gecko.build(a.N)
-    vis = torch.from_numpy(rgb).permute(3, 0, 1, 2).unsqueeze(0).sum((0, 2, 3, 4))
-    masses = torch.cat([vis, F.softplus(m.seed_mass.detach())[3:]])
+    parts, _ = importlib.import_module(a.target).build_parts(a.N)
+    vis = torch.from_numpy(parts).unsqueeze(0).sum((0, 2, 3, 4))
+    P = parts.shape[0]
+    masses = torch.cat([vis, F.softplus(m.seed_mass.detach())[P:]])
     dscale = float(a.N**3)/float(masses.sum())
 
     with torch.no_grad():
@@ -44,6 +45,7 @@ def main():
 
     out = {
         "kind": "volume-fit-v1",
+        "target": a.target, "parts": P,
         "N": a.N, "C": a.C, "S": a.S, "T": a.T, "steps": a.steps,
         "sigma": [round(float(s), 5) for s in sig],
         "stencil": half,

@@ -5,7 +5,9 @@ way the flat page's lizard was fitted to an emoji.
 
 | | |
 |---|---|
-| `gecko.py` | the target: a lizard drawn out of signed distances, and the same animal cut into three parts that do not overlap |
+| `cute.py` | **the target**: a cartoon gecko, big head and big eyes, cut into five parts that do not overlap |
+| `gecko.py` | the first target: a realistic lizard, in three parts. Kept for the SDF helpers everything else imports |
+| `dragon.py`, `bake_mesh.py`, `glb.py`, `voxelise.py`, `colour.py` | a free mesh as a target instead: read the glTF, fill it, colour it off its own geometry |
 | `field3d.py` | the page's step written again in torch, so it can be differentiated |
 | `train_gecko.py` | the fit: unroll from a seed, compare, push the error back |
 | `export_fit.py` | writes the fitted rule out in the units the page reads |
@@ -14,11 +16,42 @@ way the flat page's lizard was fitted to an emoji.
 
 ```
 pip install torch numpy pillow
-python3 train_gecko.py --iters 900 --N 40 --C 8 --S 5 --T 12 \
-                       --steps 44 --warm 24 --lr 5e-3 --blur 0.9 --out geckoP.json
-python3 look.py geckoP.pt 18,32,44 40 8 5 12 out.png
-python3 export_fit.py geckoP.pt --N 40 --C 8 --S 5 --T 12 --out gecko-fit.json
+python3 train_gecko.py --target cute --iters 900 --N 40 --C 10 --S 5 --T 12 \
+                       --steps 44 --warm 24 --lr 5e-3 --blur 0.9 --out cuteP.json
+python3 look.py cuteP.pt 18,32,44 40 10 5 12 out.png --target cute
+python3 export_fit.py cuteP.pt --N 40 --C 10 --S 5 --T 12 --out cute-fit.json
 ```
+
+`--target` is any module with a `build_parts(N)` that hands back pieces which do
+not overlap and sum to the whole. How many pieces is the target's business: the
+fit reads it off the stack and scores that many channels.
+
+## Why the target is a cartoon
+
+The blur is the whole of it. At forty cubed a cell is a fortieth of the world
+and the target is softened by about a cell before the fit ever sees it, because
+the kernels are Gaussians a cell or two wide and cannot hold anything finer. So
+detail does not survive. SILHOUETTE does.
+
+That is a hard constraint on what is worth aiming at, and it does not reward
+realism. Here is the Khronos dragon -- a far more intricate animal than anything
+drawn here -- next to the first lizard, each at sixty-four cubed and then at the
+forty cubed the fit runs at:
+
+![candidates](candidates.png)
+
+The dragon loses. All of its interest is in coils and scales at the scale of one
+cell, and its own folds close up under the blur; it arrives as a lump. The
+lizard keeps its legs and its tail, because those are the only things about it
+that were ever bigger than three cells.
+
+A cartoon is the shape that wins this argument outright. A head nearly as big as
+the body, eyes that stand clear of it, four stubby legs, a fat curled tail:
+every mass is large, every gap between them is large, and the thing is designed
+to be recognisable from a distance, which is exactly what a blur leaves you
+with. Cute is, here, the same thing as legible.
+
+![the target](target-cute.png)
 
 ## What the rule had to grow to allow this
 

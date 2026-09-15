@@ -1,9 +1,15 @@
-"""Fit the 3D rule so that a small seed grows into the gecko.
+"""Fit the 3D rule so that a small seed grows into an animal.
 
 The same trick the flat page's lizard was made with: unroll the simulation from
-a seed for a fixed number of steps, compare the first three channels against a
+a seed for a fixed number of steps, compare the leading channels against a
 picture, and push the error back through every step into the rule itself -- the
 matrix, the kernels, the three scalars, and what the seed is made of.
+
+Which animal is `--target`, and it is any module with a `build_parts(N)` that
+hands back a stack of pieces that do not overlap and sum to the whole. How many
+pieces is up to the target; the fit reads it off the stack and scores that many
+channels, so a five-part animal simply needs a couple more channels than a
+three-part one.
 
 Two things make it harder here than on a sheet. Mass is conserved, so the seed
 has to arrive holding exactly what the finished animal weighs; that is not a
@@ -12,12 +18,10 @@ set to the target's. And the error is compared at several late times rather than
 one, because a shape the field passes through on its way somewhere else is not
 a shape you can look at.
 """
-import argparse, json, math, os, time
-import numpy as np
+import argparse, importlib, math, os, time
 import torch
 import torch.nn.functional as F
 
-import gecko
 from field3d import Field3D
 
 
@@ -35,7 +39,7 @@ def soften(x, s):
     return x
 
 
-def target_field(N, blur=0.0):
+def target_field(mod, N, blur=0.0):
     """The picture to grow, softened to something the field can actually hold.
 
     The kernels here are Gaussians a cell or two wide, so the smallest thing the
@@ -45,7 +49,7 @@ def target_field(N, blur=0.0):
     about a cell the animal still reads as an animal -- legs, tail, head -- and
     is inside what the rule can do.
     """
-    parts, occ = gecko.build_parts(N)
+    parts, occ = mod.build_parts(N)
     t = torch.from_numpy(parts).unsqueeze(0).contiguous()
     o = torch.from_numpy(occ).unsqueeze(0).unsqueeze(0).contiguous()
     return soften(t, blur), soften(o, blur)
@@ -75,8 +79,10 @@ def pyramid_loss(x, y, m, levels=3):
 
 def main():
     ap = argparse.ArgumentParser()
+    ap.add_argument("--target", default="cute",
+                    help="which animal: beast, gecko, or dragon")
     ap.add_argument("--N", type=int, default=40)
-    ap.add_argument("--C", type=int, default=8)
+    ap.add_argument("--C", type=int, default=10)
     ap.add_argument("--T", type=int, default=8)
     ap.add_argument("--S", type=int, default=3)
     ap.add_argument("--steps", type=int, default=48)
@@ -108,11 +114,15 @@ def main():
     torch.manual_seed(3)
 
     dev = torch.device(a.device)
-    tgt, occ = target_field(a.N, a.blur)
+    tgt, occ = target_field(importlib.import_module(a.target), a.N, a.blur)
     tgt, occ = tgt.to(dev), occ.to(dev)
+    P = tgt.shape[1]                                      # how many parts, and so
+    if a.C < P + 2:                                       # how many visible channels
+        raise SystemExit("--C %d is too few for a %d-part target" % (a.C, P))
     vis_mass = tgt.sum((0, 2, 3, 4))                      # what the picture weighs
     wmap = 1.0 + 14.0*occ                                 # the animal against the void
-    print("target mass per visible channel:", [round(float(v), 1) for v in vis_mass])
+    print("target:", a.target, "parts:", P,
+          "mass each:", [round(float(v), 1) for v in vis_mass])
 
     m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
                 kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders)
@@ -149,7 +159,7 @@ def main():
     rng = torch.Generator().manual_seed(11)
     for it in range(a.iters):
         masses = F.softplus(m.seed_mass).clone()
-        masses = torch.cat([vis_mass, masses[3:]])        # visible mass is not free
+        masses = torch.cat([vis_mass, masses[P:]])        # visible mass is not free
 
         if pool is None:
             frac = min(1.0, it/(0.55*a.iters))
@@ -184,7 +194,7 @@ def main():
         loss = 0.0
         for k in keep:
             w = 1.0 if k == keep[-1] else 0.6
-            vis = snaps[k][:, :3]
+            vis = snaps[k][:, :P]
             loss = loss + w*(a.wsil*pyramid_loss(vis.sum(1, keepdim=True),
                                                  tgt.sum(1, keepdim=True), wmap)
                              + pyramid_loss(vis, tgt, wmap))
@@ -209,8 +219,8 @@ def main():
             torch.save(m.state_dict(), a.out.replace(".json", "_last.pt"))
         if it % 10 == 0 or it == a.iters - 1:
             with torch.no_grad():
-                err = float(F.mse_loss(snaps[keep[-1]][:, :3], tgt))
-                mx = float(snaps[keep[-1]][:, :3].max())
+                err = float(F.mse_loss(snaps[keep[-1]][:, :P], tgt))
+                mx = float(snaps[keep[-1]][:, :P].max())
             print(f"{it:4d} steps {steps:3d} loss {float(loss):.5f} best {best:.5f} "
                   f"mse {err:.5f} max {mx:.2f} |g| {float(gn):.2f} "
                   f"{(time.time()-t0)/max(it,1):.1f}s/it", flush=True)
