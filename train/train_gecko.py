@@ -82,14 +82,16 @@ def main():
     ap.add_argument("--target", default="cute",
                     help="which animal: beast, gecko, or dragon")
     ap.add_argument("--N", type=int, default=40)
-    ap.add_argument("--C", type=int, default=10)
+    ap.add_argument("--hidden", type=int, default=0,
+                    help="channels beyond the target's parts. Zero means every "
+                         "chemical is a piece of the animal and nothing else exists")
     ap.add_argument("--T", type=int, default=8)
     ap.add_argument("--S", type=int, default=3)
     ap.add_argument("--steps", type=int, default=48)
     ap.add_argument("--warm", type=int, default=20, help="steps at the start of training")
     ap.add_argument("--iters", type=int, default=400)
     ap.add_argument("--lr", type=float, default=3e-3)
-    ap.add_argument("--seedR", type=float, default=3.5)
+    ap.add_argument("--seedR", type=float, default=2.6)
     ap.add_argument("--hold", type=int, default=8, help="also match this many steps later")
     ap.add_argument("--out", default="gecko_fit.json")
     ap.add_argument("--resume", default="")
@@ -100,7 +102,15 @@ def main():
     ap.add_argument("--pool", type=int, default=0,
                     help="keep this many grown states and restart from them")
     ap.add_argument("--chunk", type=int, default=14, help="steps run from a pool state")
-    ap.add_argument("--fresh", type=float, default=0.22, help="how often to start from the seed")
+    ap.add_argument("--fresh", type=float, default=0.25,
+                    help="how often to start from the seed, at the end of the run")
+    ap.add_argument("--fresh0", type=float, default=0.85,
+                    help="and at the start of it")
+    ap.add_argument("--wfresh", type=float, default=1.6,
+                    help="how much a run from the seed outweighs a restart")
+    ap.add_argument("--batch", type=int, default=4, help="pool states run at once")
+    ap.add_argument("--wout", type=float, default=6.0,
+                    help="penalty on chemical sitting outside the animal")
     ap.add_argument("--recycle", type=int, default=14, help="retire a pool state after this many visits")
     ap.add_argument("--kernel", default="gauss", choices=("gauss", "cppn"),
                     help="displaced Gaussians, or a network over the offset vector")
@@ -117,14 +127,20 @@ def main():
     tgt, occ = target_field(importlib.import_module(a.target), a.N, a.blur)
     tgt, occ = tgt.to(dev), occ.to(dev)
     P = tgt.shape[1]                                      # how many parts, and so
-    if a.C < P + 2:                                       # how many visible channels
-        raise SystemExit("--C %d is too few for a %d-part target" % (a.C, P))
+    C = P + a.hidden                                      # how many channels
     vis_mass = tgt.sum((0, 2, 3, 4))                      # what the picture weighs
     wmap = 1.0 + 14.0*occ                                 # the animal against the void
-    print("target:", a.target, "parts:", P,
+    # Where the animal is not. Nothing is allowed to live here: no chemical
+    # standing outside the body holding its shape up from a distance, which a
+    # fit will happily invent if nothing stops it and which means the thing you
+    # see is not the thing that is there. Dilated by a cell, because the edge
+    # has to be allowed to breathe.
+    outside = 1.0 - torch.clamp(soften(occ, 1.0)*3.0, 0.0, 1.0)
+    tot = float(vis_mass.sum())
+    print("target:", a.target, "parts:", P, "channels:", C,
           "mass each:", [round(float(v), 1) for v in vis_mass])
 
-    m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
+    m = Field3D(C=C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
                 kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders)
     m = m.to(dev)
     if a.resume and os.path.exists(a.resume):
@@ -137,7 +153,7 @@ def main():
         return torch.where(x > 20.0, x, torch.log(torch.expm1(x.clamp(max=20.0))))
     if not a.resume:
         with torch.no_grad():
-            m.seed_mass.copy_(inv_softplus(torch.full((a.C,), float(vis_mass.mean()))))
+            m.seed_mass.copy_(inv_softplus(torch.full((C,), float(vis_mass.mean()))))
 
     opt = torch.optim.Adam(m.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.iters, eta_min=a.lr*0.08)
@@ -151,7 +167,7 @@ def main():
     # dozen steps later, which is the only way a fixed point gets learned.
     pool = None
     if a.pool > 0:
-        pool = torch.zeros(a.pool, a.C, a.N, a.N, a.N, device=dev)
+        pool = torch.zeros(a.pool, C, a.N, a.N, a.N, device=dev)
         pool_age = torch.zeros(a.pool, dtype=torch.long)
 
     best = float("inf")
@@ -161,30 +177,49 @@ def main():
         masses = F.softplus(m.seed_mass).clone()
         masses = torch.cat([vis_mass, masses[P:]])        # visible mass is not free
 
+        wt, mode = 1.0, "run "
         if pool is None:
             frac = min(1.0, it/(0.55*a.iters))
             steps = int(round(a.warm + (a.steps - a.warm)*frac))
             keep = tuple(sorted({steps, steps + a.hold//2, steps + a.hold}))
             rho, snaps = m.run(masses, keep[-1], keep=keep)
         else:
-            j = int(torch.randint(a.pool, (1,), generator=rng))
-            fresh = bool(pool_age[j] == 0) or float(torch.rand(1, generator=rng)) < a.fresh
             m.dscale.fill_(float(a.N**3)/float(masses.sum().detach()))
-            rho = m.seed(masses) if fresh else pool[j:j+1].clone()
-            # a longer run from the seed, a short one from a state already grown
-            steps = a.warm if fresh else a.chunk
+            live = (pool_age > 0).nonzero().flatten()
+            # Hold the fresh fraction high at the start and let it fall. Only
+            # the run from the seed ever has to BUILD anything; a restart only
+            # has to keep what is already there, and a rule asked to hold before
+            # it can make will hold the simplest thing it can find -- which is
+            # exactly what happened the last time this was fixed at a fifth.
+            pf = a.fresh0 + (a.fresh - a.fresh0)*min(1.0, it/max(1, a.iters - 1))
+            fresh = len(live) == 0 or float(torch.rand(1, generator=rng)) < pf
+            if fresh:
+                rho, slots, steps, wt = m.seed(masses), None, a.warm, a.wfresh
+                mode = "seed"
+            else:
+                # Several restarts at once. They all run the same number of
+                # steps, so they go through the unroll together as a batch, and
+                # the gradient per second is multiplied for nearly nothing.
+                pick = live[torch.randperm(len(live), generator=rng)[:a.batch]]
+                rho, slots, steps = pool[pick].clone(), pick, a.chunk
+                mode = "pool"
             keep = tuple(sorted({max(1, steps - a.hold//2), steps}))
-            snaps = {}
+            snaps, kbank = {}, m.bank()
             for i in range(1, steps + 1):
-                rho = m.step(rho)
+                rho = m.step(rho, kbank)
                 if i in keep: snaps[i] = rho
             with torch.no_grad():
-                # age 0 means the slot is empty. A slot that has been visited
-                # too many times is retired rather than kept for ever, so the
-                # pool never drifts away from states the seed can actually reach.
-                pool[j] = rho[0].detach()
-                pool_age[j] = 1 if fresh else pool_age[j] + 1
-                if pool_age[j] > a.recycle: pool_age[j] = 0
+                # age 0 means the slot is empty. A slot visited too many times
+                # is retired rather than kept for ever, so the pool never drifts
+                # away from states the seed can actually reach.
+                if slots is None:
+                    j = int(torch.randint(a.pool, (1,), generator=rng))
+                    pool[j] = rho[0].detach()
+                    pool_age[j] = 1
+                else:
+                    pool[slots] = rho.detach()
+                    pool_age[slots] += 1
+                    pool_age[slots[pool_age[slots] > a.recycle]] = 0
 
         # Shape first, colour second. Left to itself the fit spends its early
         # effort deciding where red sits against where green sits -- which comes
@@ -194,11 +229,16 @@ def main():
         loss = 0.0
         for k in keep:
             w = 1.0 if k == keep[-1] else 0.6
-            vis = snaps[k][:, :P]
+            r = snaps[k]
+            vis = r[:, :P]
+            # the fraction of everything the field is carrying that has ended up
+            # outside the animal, which should be none of it
+            spill = (r*outside).sum()/(r.shape[0]*tot)
             loss = loss + w*(a.wsil*pyramid_loss(vis.sum(1, keepdim=True),
                                                  tgt.sum(1, keepdim=True), wmap)
-                             + pyramid_loss(vis, tgt, wmap))
-        loss = loss/len(keep)
+                             + pyramid_loss(vis, tgt, wmap)
+                             + a.wout*spill)
+        loss = wt*loss/len(keep)
 
         opt.zero_grad(set_to_none=True)
         loss.backward()
@@ -219,10 +259,12 @@ def main():
             torch.save(m.state_dict(), a.out.replace(".json", "_last.pt"))
         if it % 10 == 0 or it == a.iters - 1:
             with torch.no_grad():
-                err = float(F.mse_loss(snaps[keep[-1]][:, :P], tgt))
-                mx = float(snaps[keep[-1]][:, :P].max())
-            print(f"{it:4d} steps {steps:3d} loss {float(loss):.5f} best {best:.5f} "
-                  f"mse {err:.5f} max {mx:.2f} |g| {float(gn):.2f} "
+                rk = snaps[keep[-1]]
+                err = float(F.mse_loss(rk[:, :P], tgt))
+                sp = float((rk*outside).sum()/(rk.shape[0]*tot))
+            print(f"{it:4d} {mode} {steps:3d} "
+                  f"loss {float(loss):.5f} best {best:.5f} mse {err:.5f} "
+                  f"out {sp:.3f} |g| {float(gn):.2f} "
                   f"{(time.time()-t0)/max(it,1):.1f}s/it", flush=True)
     print("done, best", best, "in %.1f min" % ((time.time() - t0)/60))
 

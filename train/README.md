@@ -5,7 +5,8 @@ way the flat page's lizard was fitted to an emoji.
 
 | | |
 |---|---|
-| `cute.py` | **the target**: a cartoon gecko, big head and big eyes, cut into five parts that do not overlap |
+| `cute.py` | **the target**: a cartoon gecko, big head and big eyes, cut into eight parts that do not overlap |
+| `kernel_cppn.py` | the kernel bank: rings and angular orders drawn by a small network, each channel with its own reach |
 | `gecko.py` | the first target: a realistic lizard, in three parts. Kept for the SDF helpers everything else imports |
 | `dragon.py`, `bake_mesh.py`, `glb.py`, `voxelise.py`, `colour.py` | a free mesh as a target instead: read the glTF, fill it, colour it off its own geometry |
 | `field3d.py` | the page's step written again in torch, so it can be differentiated |
@@ -16,15 +17,76 @@ way the flat page's lizard was fitted to an emoji.
 
 ```
 pip install torch numpy pillow
-python3 train_gecko.py --target cute --iters 900 --N 40 --C 10 --S 5 --T 12 \
-                       --steps 44 --warm 24 --lr 5e-3 --blur 0.9 --out cuteP.json
-python3 look.py cuteP.pt 18,32,44 40 10 5 12 out.png --target cute
-python3 export_fit.py cuteP.pt --N 40 --C 10 --S 5 --T 12 --out cute-fit.json
+python3 train_gecko.py --target cute --kernel cppn --K 7 --N 40 \
+    --iters 900 --warm 26 --chunk 12 --pool 16 --batch 4 \
+    --lr 4e-3 --wsil 2.5 --wout 6.0 --blur 0.9 --seedR 2.6 --out cuteK.json
+python3 look.py cuteK.pt 18,32,44 40 8 5 12 out.png --target cute --kernel cppn --K 7
 ```
 
 `--target` is any module with a `build_parts(N)` that hands back pieces which do
 not overlap and sum to the whole. How many pieces is the target's business: the
-fit reads it off the stack and scores that many channels.
+fit reads it off the stack and sizes the field to match.
+
+## Every chemical is part of the animal
+
+There are no hidden channels. `--hidden` can add some, but it defaults to none,
+so the field carries exactly as many chemicals as the target has parts and each
+one of them is a piece of the gecko you can see.
+
+That is a real restriction and it is worth being clear about what it costs. A
+fit given spare channels will use them, and what it uses them for is scaffolding
+-- a chemical that sits in the empty space around the animal and holds its shape
+from outside, invisible in the picture and load-bearing in the rule. It makes
+the fit easier and it makes the result a lie: what you are looking at is not
+what is there, and the thing you would put on the page is not the thing that was
+trained.
+
+So the channels are the parts, and on top of that `--wout` prices any mass that
+ends up outside the body at all. The loss reports it as `out`, the fraction of
+everything the field is carrying that is sitting somewhere the gecko is not. It
+starts near a half, because a seed is a ball and a ball is mostly not a gecko.
+
+## The kernel bank: rings, orders, and big and small together
+
+The flat page writes a kernel as a sum of lobes, each one
+`a * exp(-((r - r0)/w)^2) * cos(m*theta + phase)`: a ring at some radius, times
+an angular order about some phase. Both halves matter and neither survives the
+move to three dimensions unchanged.
+
+**The angular part.** `cos(m*theta + phase)` needs a single angle, and in three
+dimensions there isn't one. What does generalise is the thing the phase stood in
+for: a DIRECTION. Project the offset onto a learned unit axis and take Chebyshev
+polynomials of the projection, and that is exactly `cos(m * angle to that axis)`
+-- an angular order about an axis that can point anywhere, where a phase could
+only slide round one circle.
+
+**The radial part.** A tanh network over `r` is smooth and a ring is not, so the
+radius goes in as a Fourier basis: cos and sin of a few multiples of `pi*r`.
+Each is already a set of concentric shells across the kernel's reach, and a
+weighted sum of them is any ring pattern the fit wants, sharp ones included.
+
+**Big and small.** Each channel carries its own reach, and the reaches start
+spread right across the range rather than clustered: at `K=7` that is a kernel
+about two cells across at one end of the bank and thirteen at the other. One
+stencil holds both, because a channel's offsets are measured in units of its own
+reach before they reach the network.
+
+Those features, the raw offset and a per-channel embedding go into a small MLP
+with a per-channel readout, which is evaluated at every offset to draw that
+channel's kernel. `python3 kernviz.py cuteK.pt kernels.png` draws the bank.
+
+Three things make it affordable, and without them it is not:
+
+- **The bank is baked once per unroll, not once per step.** It does not change
+  inside one, and drawing it costs more than using it. This alone was most of
+  the cost.
+- **The convolution goes through an FFT.** The world is a torus, so the wrapped
+  convolution the page wants is exactly what a transform gives. A dense
+  fifteen-cubed stencil is three thousand multiplies a voxel done directly.
+- **The crowding blur adds the channels up before blurring rather than after.**
+  A blur is linear, so it is the same number for a fraction of the work, and
+  the twenty-seven neighbour sum is three shifts along each axis rather than a
+  twenty-seven tap convolution, for the same reason.
 
 ## Why the target is a cartoon
 
@@ -147,11 +209,13 @@ high and decay it slowly rather than fixing it at a fifth; weight the fresh
 iterations up in the loss; and keep the silhouette term climbing while the pool
 term holds, so persistence is bought without paying for it in shape.
 
-```
-python3 train_gecko.py --iters 2400 --N 40 --C 8 --S 5 --T 12 \
-    --pool 16 --warm 30 --chunk 14 --lr 3e-3 --wsil 2.0 --blur 0.9 \
-    --resume geckoP_best.pt --out geckoQ.json
-```
+Those are all in now. The fresh fraction starts at `--fresh0` and decays to
+`--fresh` over the run, so the early iterations are nearly all building and the
+late ones are nearly all holding; `--wfresh` weights a run from the seed above a
+restart in the loss; and the restarts go through the unroll as a `--batch`
+rather than one at a time, since they all run the same number of steps. Whether
+that is enough is a question about iterations, and the answer to that one is
+below.
 
 ## Running it on a GPU
 
@@ -159,10 +223,10 @@ Everything here is device-agnostic now — the model asks its own parameters whe
 they live rather than remembering a string, so `.to("cuda")` works:
 
 ```
-python3 train_gecko.py --device cuda --iters 20000 --N 48 --C 8 \
-    --kernel cppn --K 7 --steps 44 --warm 30 --lr 3e-3 --wsil 2.0 --blur 0.9 \
-    --resume geckoK2.pt --out geckoG.json
-python3 look.py geckoG.pt 20,34,48 48 8 3 8 out.png
+python3 train_gecko.py --device cuda --target cute --kernel cppn --K 7 \
+    --N 48 --iters 20000 --warm 30 --chunk 14 --pool 32 --batch 16 \
+    --lr 3e-3 --wsil 2.5 --wout 6.0 --blur 0.9 --out cuteG.json
+python3 look.py cuteG.pt 20,34,48 48 8 5 12 out.png --kernel cppn --K 7
 ```
 
 `geckoK2.pt` and `geckoP_best.pt` are committed so a run can pick up where the
@@ -177,10 +241,9 @@ from runs of a few hundred iterations. Fits of this kind normally get tens of
 thousands, and the one thing every result here points at is that the fit has not
 had enough of them.
 
-The next thing to add once there is a GPU to test it on is a **batch**. The pool
-restarts are batch-one, which wastes most of a card; running sixteen pool states
-at once is nearly free there and multiplies the gradient signal per second again.
-It is not written yet because it cannot be tested here.
+`--batch` is written now, and on a card it is close to free -- sixteen restarts
+through the unroll at once where the processor does four. That is where the
+number above comes from.
 
 ## Not on the page yet
 

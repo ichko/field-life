@@ -142,18 +142,29 @@ class Field3D(torch.nn.Module):
         rho[0, :, c0-r:c0+r+1, c0-r:c0+r+1, c0-r:c0+r+1] = pat
         return rho
 
+    def bank(self):
+        """The kernel bank, drawn once. Constant through an unroll, and dearer
+        to draw than to use, so it is drawn here and passed to every step."""
+        if self.kind != "cppn": return None
+        return self.kern.prep(self.kern.bake(), self.N//2)
+
     # ------------------------------------------------------------- one step
-    def step(self, rho):
+    def step(self, rho, kbank=None):
         C, N = self.C, self.N
         half = F.avg_pool3d(rho, 2)                        # the half-pitch copy
         sig = torch.exp(self.log_sig)
 
+        crowd = None
         if self.kind == "cppn":
-            # one tight blur, only for the crowding term; the kernels are the
-            # network's own business
+            # One tight blur, only for the crowding term, and the channels are
+            # added up BEFORE it rather than after. A blur is linear, so the two
+            # give the same number to the last digit, and this way the blur runs
+            # once instead of once per colour.
             w = gauss1d(sig[0], min(max(2, int(math.ceil(4.0*float(sig[0].detach())))),
                                     N//4 - 1), rho.device, rho.dtype)
-            bank = [blur3(blur3(blur3(half, w, 0), w, 1), w, 2)]
+            s1 = half.sum(1, keepdim=True)
+            crowd = blur3(blur3(blur3(s1, w, 0), w, 1), w, 2)
+            bank = []
         else:
             bank = []
             for s in range(self.S):
@@ -167,7 +178,7 @@ class Field3D(torch.nn.Module):
         # over every channel at once -- the displacement is the only thing that
         # differs between channels, and grid_sample will take it per batch item.
         if self.kind == "cppn":
-            Kc = self.kern(half)
+            Kc = self.kern(half, kbank)
         else:
             # The lobe weights are normalised to sum to one in absolute value,
             # as the flat page normalises each baked kernel: without it the
@@ -180,7 +191,8 @@ class Field3D(torch.nn.Module):
                               self.gpad, self.base_grid)
                 Kc = Kc + g*amp[:, t].view(1, C, 1, 1, 1)
 
-        crowd = bank[0].sum(1, keepdim=True)               # tightest blur, all colours
+        if crowd is None:
+            crowd = bank[0].sum(1, keepdim=True)           # tightest blur, all colours
         # Both terms are divided by the field's mean density before force and
         # repel are applied, so those two read the same whatever the object
         # weighs or however large the grid is. In three dimensions an animal is
@@ -199,10 +211,18 @@ class Field3D(torch.nn.Module):
         bA = torch.exp(self.log_beta)*A
         E = torch.exp(11.0*torch.tanh(bA/11.0) if self.soft else torch.clamp(bA, -11.0, 11.0))
 
-        ones = torch.ones(C, 1, 3, 3, 3, device=rho.device, dtype=rho.dtype)
         def box27(x):
-            x = F.pad(x, (1, 1, 1, 1, 1, 1), mode="circular")
-            return F.conv3d(x, ones, groups=C)
+            """The sum over the 27 neighbours, as three passes of three.
+
+            It is the one part of the step that runs at full pitch and it runs
+            twice, so it is worth not doing as a twenty-seven tap convolution:
+            the box is separable, and three shifts along each axis is six adds
+            where the dense form is twenty-seven multiply-adds. Same number to
+            the last digit, and the wrap comes free with the shift.
+            """
+            for ax in (2, 3, 4):
+                x = x + torch.roll(x, 1, ax) + torch.roll(x, -1, ax)
+            return x
 
         Z = box27(E)
         S_ = rho/Z.clamp_min(1e-30)
@@ -212,9 +232,9 @@ class Field3D(torch.nn.Module):
         # mass per cell, averaged over the cube: the yardstick the affinity uses
         self.dscale.fill_(float(self.N**3)/float(masses.sum().detach()))
         rho = self.seed(masses)
-        out = {}
+        out, kbank = {}, self.bank()
         for i in range(1, steps + 1):
-            rho = self.step(rho)
+            rho = self.step(rho, kbank)
             if i in keep:
                 out[i] = rho
         return rho, out

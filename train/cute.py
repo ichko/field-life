@@ -97,42 +97,60 @@ def _occ(d, N):
 
 
 def _masks(p, f, occ):
-    """Five pieces that do not overlap and sum to the animal.
+    """Eight pieces that do not overlap and sum to the animal.
 
     Colours in field life are species, and species separate; three channels
     holding red, green and blue at the same voxel is a picture the rule is built
-    not to hold. So each channel is given a region of the animal outright --
-    eyes, head, back, belly and legs, tail -- and the picture is put back
-    together at the far end by colouring the parts, which is what every other
-    world on the page already does.
+    not to hold. So each channel is given a region of the animal outright, and
+    the picture is put back together at the far end by colouring the parts,
+    which is what every other world on the page already does.
+
+    Eight rather than five for two reasons. More colour, which is the obvious
+    one. And every channel the fit has is now a piece of the gecko, so there is
+    no chemical anywhere that is not part of the animal -- no invisible
+    scaffolding standing outside it holding the shape up. What grows is all
+    there is.
+
+    The cut is a cascade: the pieces that are unmistakably themselves are taken
+    first, and what is left over at each stage goes to the next, so the eight
+    sum to the whole exactly rather than nearly.
     """
     N = occ.shape[0]
     soft = 1.6/N
     sel = lambda d: np.clip(0.5 - d/(2.4*soft), 0.0, 1.0)
-    smoothstep = lambda u: (lambda t: t*t*(3 - 2*t))(np.clip(u, 0, 1))
+    step = lambda u: (lambda t: t*t*(3 - 2*t))(np.clip(u, 0, 1))
+    Y, X = p[..., 1], p[..., 0]
 
     eyes = sel(f["eyes"])
-    head = sel(f["head"] - 0.010)
     tail = sel(f["tail"] - 0.010)
     legs = sel(f["legs"] - 0.010)
-    # belly: below the body's own axis, which runs level, plus the feet
-    belly = smoothstep((-0.012 - p[..., 1])/0.085)
-    belly = np.maximum(belly, legs)
+    head = sel(f["head"] - 0.010)
+    # the head is most of this animal, so it is worth three colours: the top of
+    # the skull, the snout in front of the eyes, and the jaw under them
+    crown = head*step((Y - HEAD[1] - 0.015)/0.060)
+    snout = head*step((X - HEAD[1] - 0.130)/0.060)
+    # what is left of the body splits by height
+    back = step((Y + 0.020)/0.070)
 
     take, left = [], np.ones_like(occ)
-    for m in (eyes, head, tail, belly):
+    for m in (eyes, tail, legs, crown, snout, head, back):
         g = np.clip(m, 0, 1)*left
         take.append(g)
         left = np.clip(left - g, 0, 1)
-    take.insert(3, left)                       # the back is whatever is left
-    return [np.clip(m*occ, 0, 1).astype(np.float32) for m in take]
+    take.append(left)                                    # the belly is the rest
+    # eyes, crown, snout, jaw, back, belly, legs, tail
+    order = [take[0], take[3], take[4], take[5], take[6], take[7], take[2], take[1]]
+    return [np.clip(m*occ, 0, 1).astype(np.float32) for m in order]
 
 
-PAL = [np.array([0.06, 0.05, 0.09], np.float32),    # eyes, near black
-       np.array([0.45, 0.76, 0.32], np.float32),    # head, bright green
-       np.array([0.96, 0.80, 0.34], np.float32),    # tail, gold
-       np.array([0.20, 0.56, 0.28], np.float32),    # back, deeper green
-       np.array([0.94, 0.90, 0.72], np.float32)]    # belly and legs, cream
+PAL = [np.array([0.05, 0.05, 0.08], np.float32),    # eyes, near black
+       np.array([0.42, 0.78, 0.30], np.float32),    # crown, bright green
+       np.array([0.66, 0.88, 0.44], np.float32),    # snout, lighter green
+       np.array([0.30, 0.68, 0.52], np.float32),    # jaw, teal
+       np.array([0.16, 0.52, 0.26], np.float32),    # back, deep green
+       np.array([0.95, 0.91, 0.74], np.float32),    # belly, cream
+       np.array([0.88, 0.80, 0.58], np.float32),    # legs and feet, sand
+       np.array([0.97, 0.78, 0.30], np.float32)]    # tail, gold
 
 
 def build(N=64):
@@ -152,8 +170,8 @@ def build_parts(N=64):
 
 
 if __name__ == "__main__":
-    parts, occ = build_parts(64)
-    print("voxels", occ.shape, "filled %.3f" % (occ > 0.5).mean(),
-          "mass %.0f" % occ.sum())
-    print("parts", parts.shape, "sum err %.4f" % float(np.abs(parts.sum(0) - occ).max()),
-          "mass", [round(float(m.sum())) for m in parts])
+    for N in (64, 40):
+        parts, occ = build_parts(N)
+        print("N", N, "filled %.3f" % (occ > 0.5).mean(), "mass %.0f" % occ.sum(),
+              "sum err %.4f" % float(np.abs(parts.sum(0) - occ).max()))
+        print("   parts", [round(float(m.sum())) for m in parts])

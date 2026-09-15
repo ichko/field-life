@@ -14,7 +14,16 @@ to v). So an angular order about a learned axis is the 3D form of the flat
 page's order-and-phase, and it is richer: the axis can point anywhere, where a
 phase could only slide round one circle.
 
-Those projections, the radius, and a per-channel embedding go into a small MLP,
+The other half of the flat page's lobe is the RING: `exp(-((r - r0)/w)^2)`, a
+shell of attraction at one radius with nothing at the others. A plain MLP over
+r has to work to make one of those -- a tanh network is smooth and a ring is not
+-- so the radius goes in as a Fourier basis, cos and sin of a few multiples of
+pi*r. Each of those is already a set of concentric shells across the reach, and
+a weighted sum of them is any ring pattern the fit wants, sharp ones included.
+Rings for the radial part, Chebyshev for the angular part: between them they
+span what the flat page writes by hand, and the network only has to choose.
+
+Those features, the raw offset, and a per-channel embedding go into a small MLP,
 which is evaluated at every offset in the stencil to draw that channel's kernel.
 A CPPN over the neighbourhood, in other words, informed by rotations of the
 offset vector. It is baked once per step into a dense stencil and convolved; the
@@ -31,9 +40,9 @@ import torch.nn.functional as F
 
 
 class KernelCPPN(nn.Module):
-    def __init__(self, C, K=7, axes=4, orders=3, emb=10, hidden=48, seed=5):
+    def __init__(self, C, K=7, axes=4, orders=3, rings=5, emb=10, hidden=48, seed=5):
         super().__init__()
-        self.C, self.K, self.A, self.MO = C, K, axes, orders
+        self.C, self.K, self.A, self.MO, self.R = C, K, axes, orders, rings
         g = torch.Generator().manual_seed(seed)
 
         # the offsets the stencil covers, in cells, once
@@ -44,12 +53,13 @@ class KernelCPPN(nn.Module):
         self.axis = nn.Parameter(torch.randn(axes, 3, generator=g))
         self.embed = nn.Parameter(torch.randn(C, emb, generator=g)*1.4)
         # Reach per channel, as a fraction of the stencil. Spread the starting
-        # values across the range so the bank begins with big kernels and small
-        # ones rather than C copies of the same middling one.
-        start = torch.linspace(-1.4, 1.4, C)
-        self.log_reach = nn.Parameter(start)
+        # values right across the range so the bank begins with big kernels and
+        # small ones rather than C copies of the same middling one -- at K=7
+        # that is a couple of cells at one end and thirteen at the other, which
+        # is the span the flat page's radius bank covers.
+        self.log_reach = nn.Parameter(torch.linspace(-2.6, 2.6, C))
 
-        nin = 2 + 3 + axes*orders + emb
+        nin = 2 + 3 + axes*orders + 2*rings + emb
         self.net = nn.Sequential(
             nn.Linear(nin, hidden), nn.Tanh(),
             nn.Linear(hidden, hidden), nn.Tanh())
@@ -67,8 +77,8 @@ class KernelCPPN(nn.Module):
         self.register_buffer("rr", r)
 
     def reach(self):
-        """Each channel's radius as a fraction of the stencil, 0.22 to 1."""
-        return 0.22 + 0.78*torch.sigmoid(self.log_reach)
+        """Each channel's radius as a fraction of the stencil, 0.10 to 1."""
+        return 0.10 + 0.90*torch.sigmoid(self.log_reach)
 
     def bake(self):
         """Draw every channel's kernel. Returns (C,1,2K+1,2K+1,2K+1)."""
@@ -89,8 +99,14 @@ class KernelCPPN(nn.Module):
             cheb.append(2*p*cheb[-1] - cheb[-2])
         ang = torch.stack(cheb[:self.MO], -1).reshape(C, P, self.A*self.MO)
 
+        # Concentric shells across the reach: the radial half of a lobe, as a
+        # basis rather than as one hand-placed Gaussian.
+        k = torch.arange(1, self.R + 1, device=r.device, dtype=r.dtype)
+        kr = math.pi*r.unsqueeze(-1)*k
+        ring = torch.cat([torch.cos(kr), torch.sin(kr)], -1)
+
         e = self.embed.unsqueeze(1).expand(C, P, -1)
-        x = torch.cat([r.unsqueeze(-1), (r*r).unsqueeze(-1), u, ang, e], -1)
+        x = torch.cat([r.unsqueeze(-1), (r*r).unsqueeze(-1), u, ang, ring, e], -1)
         h = self.net(x.reshape(C*P, -1)).reshape(C, P, -1)
         w = torch.einsum("cph,ch->cp", h, self.head) + self.head_b.unsqueeze(1)
 
@@ -110,9 +126,44 @@ class KernelCPPN(nn.Module):
         w = w/w.abs().sum(1, keepdim=True).clamp_min(1e-6)
         return w.reshape(C, 1, 2*K + 1, 2*K + 1, 2*K + 1)
 
-    def forward(self, x):
-        """x: (1,C,D,H,W) at half pitch. Returns the kernel integrals."""
-        k = self.bake()
-        K = self.K
-        x = F.pad(x, (K,)*6, mode="circular")
-        return F.conv3d(x, k, groups=self.C)
+    def prep(self, k, M):
+        """The bank, transformed once and ready to multiply.
+
+        The kernel does not change inside an unroll either, so its transform is
+        taken here rather than forty times over. Returns the spatial stencil
+        unchanged when it is too big for the volume, and the direct path picks
+        that up by asking whether what it was handed is complex.
+        """
+        K, C, S = self.K, self.C, 2*self.K + 1
+        if S > M:
+            return k
+        kf = k.new_zeros(C, M, M, M)
+        kf[:, :S, :S, :S] = k[:, 0].flip(-1).flip(-2).flip(-3)
+        return torch.fft.rfftn(torch.roll(kf, (-K, -K, -K), (-3, -2, -1)),
+                               dim=(-3, -2, -1))
+
+    def forward(self, x, k=None):
+        """x: (B,C,D,H,W) at half pitch. Returns the kernel integrals.
+
+        `k` is what `prep` handed back: the bank drawn and transformed once.
+        The bank does not change inside an unroll, and drawing and transforming
+        it cost more than using it, so both happen once per iteration and the
+        result is handed down; the gradient reaches the network through the one
+        bake either way.
+
+        Through an FFT, because the world is a torus and so the wrapped
+        convolution the page wants is exactly the one a transform gives for
+        nothing. A dense fifteen-cubed stencil against a twenty-cubed volume is
+        three thousand multiplies a voxel done directly and a handful done this
+        way, and the difference is the difference between a kernel bank you can
+        afford to differentiate through forty times a step and one you cannot.
+        """
+        M = x.shape[-1]
+        if k is None:
+            k = self.prep(self.bake(), M)
+        if not k.is_complex():          # the stencil did not fit: do it directly
+            return F.conv3d(F.pad(x, (self.K,)*6, mode="circular"), k,
+                            groups=self.C)
+        dims = (-3, -2, -1)
+        return torch.fft.irfftn(torch.fft.rfftn(x, dim=dims)*k.unsqueeze(0),
+                                s=(M, M, M), dim=dims)
