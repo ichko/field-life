@@ -157,6 +157,34 @@ class Field3D(torch.nn.Module):
                              torch.stack([gx, gy, gz], -1).unsqueeze(0))   # (1,M,M,M,3)
 
     # ---------------------------------------------------------------- seeding
+    def hint_seed(self, dirs, spread=0.55, width=0.55):
+        """Put each channel where its part belongs, in miniature.
+
+        The animal is lopsided and the rule is not: the step is the same
+        everywhere and the world wraps, so the only thing in the entire run that
+        can say which end is the head is what the seed has inside it. Left to
+        find that for itself the fit does not -- after nine hundred iterations
+        every channel sat within a fifth of a cell of every other, eight copies
+        of one concentric blob, which is a thing with no front and can only grow
+        into a lump.
+
+        So the seed starts as a small copy of the animal's layout: each
+        channel's mass placed in the direction its part lies in, at `spread` of
+        the seed's radius. It is a hint about orientation and nothing more --
+        every value here stays free, and the fit moves them wherever it likes.
+
+        dirs: (C,3) unit vectors in (z,y,x), one per channel.
+        """
+        r, R = self.seed_half, self.seedR
+        dev, dt = self.seed_raw.device, self.seed_raw.dtype
+        zz = torch.arange(-r, r + 1, device=dev, dtype=dt)
+        p = torch.stack(torch.meshgrid(zz, zz, zz, indexing="ij"), -1)   # (D,D,D,3)
+        c = dirs.to(dev, dt)*(spread*R)
+        d2 = ((p.unsqueeze(0) - c.view(-1, 1, 1, 1, 3))**2).sum(-1)
+        bump = torch.exp(-0.5*d2/(width*R)**2).clamp_min(1e-3)
+        with torch.no_grad():
+            self.seed_raw.copy_(torch.log(torch.expm1(bump)))
+
     def seed(self, masses):
         """masses: (C,) total mass to place. Returns rho (1,C,N,N,N)."""
         N, C, r = self.N, self.C, self.seed_half

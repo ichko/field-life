@@ -92,6 +92,9 @@ def main():
     ap.add_argument("--iters", type=int, default=400)
     ap.add_argument("--lr", type=float, default=3e-3)
     ap.add_argument("--seedR", type=float, default=2.6)
+    ap.add_argument("--seedhint", type=float, default=0.55,
+                    help="start each channel this far out in its part's direction, "
+                         "as a fraction of the seed radius. 0 for one blob per channel")
     ap.add_argument("--hold", type=int, default=8, help="also match this many steps later")
     ap.add_argument("--out", default="gecko_fit.json")
     ap.add_argument("--resume", default="")
@@ -161,6 +164,22 @@ def main():
     if not a.resume:
         with torch.no_grad():
             m.seed_mass.copy_(inv_softplus(torch.full((C,), float(vis_mass.mean()))))
+
+    # Tell the seed which way round the animal goes. Nothing else in the run
+    # can: the rule is the same everywhere and the world wraps, so a seed whose
+    # channels all sit on top of each other has no front, and the most a lump.
+    if a.seedhint > 0 and not a.resume:
+        with torch.no_grad():
+            ax = torch.arange(a.N, dtype=torch.float32, device=dev)
+            grid = torch.stack(torch.meshgrid(ax, ax, ax, indexing="ij"), -1)
+            w = tgt[0]
+            cen = torch.einsum("pzyx,zyxk->pk", w, grid)
+            cen = cen/w.sum((1, 2, 3)).clamp_min(1e-9).unsqueeze(-1)
+            cen = cen - cen.mean(0)
+            u = cen/cen.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+            m.hint_seed(u, a.seedhint)
+        print("seed hinted, part directions (z,y,x):",
+              [[round(float(v), 2) for v in row] for row in u])
 
     opt = torch.optim.Adam(m.parameters(), lr=a.lr)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, a.iters, eta_min=a.lr*0.08)
