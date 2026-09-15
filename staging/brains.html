@@ -1599,6 +1599,31 @@ const PRESETS = [
    p: {shape: 0, mirror: 1, dist: 3, size: 1.5, spread: 58, feather: 0.72, gain: 0.72, speed: 0.8, beta: 5.95, drag: 0.764, force: 0.18, swerve: 0.24, strafe: 0.04, moff: 0.41, crowd: 0, decay: 0.824, diff: 0.44, fill: 0.04, ball: 0.45, sweep: 0, mode: 1, gscale: 22, view: 1}},
   {name: "cavern", brain: 540855119, world: 625435210,
    p: {shape: 0, mirror: 1, dist: 1.5, size: 3, spread: 89, feather: 0.99, gain: 0.52, speed: 0.5, beta: 15.05, drag: 0.114, force: 1.02, swerve: 1.06, strafe: 0.52, moff: 1.05, crowd: 2, decay: 0.833, diff: 0.2, fill: 0.21, ball: 0.38, sweep: 0, mode: 1, gscale: 54, view: 1}},
+  // The two axes the search had never touched. USE below four is a regime none
+  // of the earlier nineteen hundred runs could reach: one species is four times
+  // the mass with nobody to argue with, and it makes a compact creature on black
+  // rather than a texture over the whole frame. SWEEP runs the gain across the
+  // world, so one frame holds several behaviours at once.
+  {name: "cell", brain: 710866095, world: 569453919,
+   p: {shape: 2, mirror: 0, dist: 1.71, size: 3.02, spread: 78, feather: 0.56, gain: 0.236, sweep: 0, speed: 1.84, beta: 9.47, drag: 0.84, force: 0.782, swerve: 0.425, strafe: 0.034, moff: 1.94, crowd: 0, decay: 0.809, diff: 0.48, fill: 0.093, ball: 0.39, use: 1, mode: 1, gscale: 66, view: 1}},
+  {name: "raspberry", brain: 125713053, world: 176153499,
+   p: {shape: 1, mirror: 0, dist: 6.99, size: 1.03, spread: 36, feather: 0.51, gain: 0.453, sweep: 0, speed: 0.12, beta: 10.69, drag: 0.868, force: 1.093, swerve: 0.739, strafe: 0.251, moff: 0.26, crowd: 0, decay: 0.947, diff: 0.34, fill: 0.142, ball: 0.23, use: 1, mode: 0, gscale: 53, view: 1}},
+  {name: "dendrite", brain: 898700205, world: 146235177,
+   p: {shape: 2, mirror: 0, dist: 2.29, size: 2.25, spread: 83, feather: 0.61, gain: 2.807, sweep: 0, speed: 3.98, beta: 19.36, drag: 0.436, force: 1.016, swerve: 0.987, strafe: 0.644, moff: 0.86, crowd: 0, decay: 0.914, diff: 0.31, fill: 0.104, ball: 0.5, use: 1, mode: 1, gscale: 43, view: 1}},
+  {name: "medusa", brain: 227068055, world: 793645486,
+   p: {shape: 0, mirror: 1, dist: 4.49, size: 2.41, spread: 104, feather: 0.85, gain: 0.237, sweep: 1.12, speed: 2.59, beta: 7.46, drag: 0.523, force: 0.63, swerve: 0.367, strafe: 0.772, moff: 1.42, crowd: 0, decay: 0.926, diff: 0, fill: 0.093, ball: 0.3, use: 4, mode: 0, gscale: 75, view: 1}},
+  {name: "provinces", brain: 762064737, world: 731219368,
+   p: {shape: 0, mirror: 1, dist: 1.93, size: 2.62, spread: 144, feather: 0.1, gain: 0.222, sweep: 2.14, speed: 3.82, beta: 4.28, drag: 0.537, force: 0.499, swerve: 0.55, strafe: 0.4, moff: 0.3, crowd: 0, decay: 0.872, diff: 0.36, fill: 0.244, ball: 0.79, use: 4, mode: 1, gscale: 69, view: 1}},
+  {name: "raft", brain: 355259415, world: 952993487,
+   p: {shape: 1, mirror: 1, dist: 3.87, size: 2.38, spread: 118, feather: 0.38, gain: 0.649, sweep: 0, speed: 0.37, beta: 3.22, drag: 0.065, force: 0.377, swerve: 0.701, strafe: 0.236, moff: 1.23, crowd: 0, decay: 0.856, diff: 0.46, fill: 0.071, ball: 0.35, use: 1, mode: 4, gscale: 33, view: 1}},
+  {name: "mycelium", brain: 186467232, world: 108508032,
+   p: {shape: 1, mirror: 1, dist: 4.45, size: 2.75, spread: 29, feather: 0.3, gain: 0.691, sweep: 0, speed: 0.38, beta: 13.06, drag: 0.819, force: 0.169, swerve: 0.092, strafe: 0.307, moff: 0.45, crowd: 0.13, decay: 0.857, diff: 0.48, fill: 0.046, ball: 0.35, use: 1, mode: 4, gscale: 59, view: 1}},
+  {name: "shedding", brain: 514239455, world: 721897027,
+   p: {shape: 2, mirror: 0, dist: 1.68, size: 1.27, spread: 35, feather: 0.34, gain: 0.461, sweep: 0, speed: 4.79, beta: 3.6, drag: 0.2, force: 0.814, swerve: 0.877, strafe: 0.233, moff: 0.8, crowd: 0, decay: 0.89, diff: 0.27, fill: 0.188, ball: 0.31, use: 1, mode: 1, gscale: 52, view: 1}},
+  {name: "halo", brain: 457157967, world: 348350359,
+   p: {shape: 1, mirror: 1, dist: 4.18, size: 2.53, spread: 113, feather: 0.06, gain: 0.21, sweep: 0, speed: 0.19, beta: 3.14, drag: 0.821, force: 1.267, swerve: 0.253, strafe: 0.54, moff: 1.66, crowd: 1.26, decay: 0.912, diff: 0.06, fill: 0.031, ball: 0.46, use: 1, mode: 1, gscale: 61, view: 1}},
+  {name: "terraces", brain: 463518982, world: 81275893,
+   p: {shape: 1, mirror: 0, dist: 1.91, size: 1.25, spread: 155, feather: 0.25, gain: 0.299, sweep: 0.98, speed: 0.5, beta: 21, drag: 0.251, force: 1.438, swerve: 1.419, strafe: 0.697, moff: 0.65, crowd: 0, decay: 0.964, diff: 0.15, fill: 0.041, ball: 0.87, use: 2, mode: 1, gscale: 42, view: 1}},
   // FITTED, not found. train/train_gecko_brains.py pushes the error between
   // what the rule grows and a lizard back through one step of the rule, a few
   // thousand times. It carries its own weights because there is no seed that
@@ -1722,7 +1747,14 @@ function applyPreset(i){
     if(UI[k]) UI[k].set(P.p[k]);
     else if(SEL[k]) SEL[k].value = String(P.p[k]);
   }
-  if(P.frq){
+  // A fitted preset's weights are sized for the NS, NC and NIN it was fitted
+  // at. Change any of those and set() throws "offset is out of bounds" and the
+  // page dies on a preset click, so check rather than trust.
+  const fitOK = P.frq && P.frq.length === NS*NC*NIN && P.amp.length === NS*NC*NOUT;
+  if(P.frq && !fitOK)
+    console.warn(`preset "${P.name}" was fitted for a different rule shape `
+      + `(${P.frq.length} weights, this build wants ${NS*NC*NIN}) -- skipped`);
+  if(fitOK){
     // A FITTED rule. Every other preset names a brain seed and the page draws
     // the weights from it, which is why one is three numbers. A fit has no
     // seed -- its weights are wherever the fit put them -- so they travel with
