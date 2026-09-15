@@ -146,18 +146,19 @@ class Brains:
         yy, xx = np.mgrid[0:N, 0:N]
         fp = np.stack([xx + 0.5, yy + 0.5], -1).astype(np.float32)
         mode = int(P.get("mode", 1))
+        use = max(1, min(NS, int(P.get("use", NS))))
         if mode == 1:
             # a ball each, on a grid: everyone starts alone and has to travel
-            gw, gh, best = 1, NS, 1e9
-            for w in range(1, NS + 1):
-                h = -(-NS // w)
-                sc = (w * h - NS) * 2.5 + abs(w - h)
+            gw, gh, best = 1, use, 1e9
+            for w in range(1, use + 1):
+                h = -(-use // w)
+                sc = (w * h - use) * 2.5 + abs(w - h)
                 if sc < best:
                     best, gw, gh = sc, w, h
             rad = P["ball"] * N * 0.5 / max(gw, gh)
-            amp = P["fill"] * N * N / max(np.pi * rad * rad * NS, 1)
+            amp = P["fill"] * N * N / max(np.pi * rad * rad * use, 1)
             cell = N / np.array([gw, gh], np.float32)
-            for s in range(NS):
+            for s in range(use):
                 mid = (np.array([s % gw, s // gw], np.float32) + 0.5) * cell
                 d = fp - mid
                 d -= N * np.floor(d / N + 0.5)
@@ -179,8 +180,8 @@ class Brains:
                 d -= N * np.floor(d / N + 0.5)
                 inside = np.hypot(d[..., 0], d[..., 1]) < rad
                 sd = np.minimum((glsl_rnd(gw_[..., 0], gw_[..., 1], 3, P["seed"]) + 0.5)
-                                * NS, NS - 1).astype(np.int32)
-                for s in range(NS):
+                                * use, use - 1).astype(np.int32)
+                for s in range(use):
                     self.C[..., s] += np.where(inside & (sd == s), amp, 0)
         elif mode == 5:
             # a fitted layout: a blob per species where its part of the animal
@@ -195,10 +196,10 @@ class Brains:
         else:
             # one ball in the middle, every species evenly mixed inside it
             rad = P["ball"] * N * 0.5
-            amp = P["fill"] * N * N / max(np.pi * rad * rad, 1) / NS
+            amp = P["fill"] * N * N / max(np.pi * rad * rad, 1) / use
             d = fp - N * 0.5
             inside = np.hypot(d[..., 0], d[..., 1]) < rad
-            for s in range(NS):
+            for s in range(use):
                 self.C[..., s] = np.where(inside, amp, 0)
         # each species faces its own way -- the seed shader's own hash
         a = np.stack([(glsl_rnd(xx, yy, 16 + s, P["seed"]) + 0.5) * 2 * np.pi
@@ -214,7 +215,16 @@ class Brains:
         P, N = self.P, self.N
         cnorm = 1.0 / max(1e-6, P["fill"])
         mnorm = (1 - P["decay"]) / max(1e-6, P["moff"] * P["fill"])
+        # SWEEP runs the gain across the world instead of holding it fixed, the
+        # way Fluoddity sweeps a parameter over its canvas. One frame then shows
+        # a whole gradient of behaviour under one set of rules. Never searched
+        # before now, and it is the axis Fluoddity leans on hardest.
         gain = np.float32(P["gain"] * 2.0 / np.sqrt(self.nin))
+        if P.get("sweep", 0.0) > 0:
+            # _brain works flattened, (species, cell, centre), so the per-cell
+            # factor has to arrive shaped to broadcast on the cell axis.
+            gx = (self.px / N - 0.5) * 2.0
+            gain = gain * np.exp(np.float32(P["sweep"]) * gx).reshape(1, N * N, 1)
         lod = max(0.0, np.log2(max(P["size"], 1.0)) + P["feather"] * 1.6)
         Mb = blur(self.M, 0.42 * (2.0 ** lod))
         Mf = Mb.reshape(N * N, K)

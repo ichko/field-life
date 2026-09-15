@@ -72,6 +72,12 @@ def sample(rng):
         shape=int(rng.integers(0, 3)), mirror=int(rng.integers(0, 2)),
         gain=round(lg(0.2, 5.0), 3), speed=round(float(rng.uniform(0, 5)), 2),
         beta=round(lg(3.0, 35.0), 2),
+        # Two axes the page has always had and the search never touched: the
+        # gain gradient across the world, and how many species are put down at
+        # all. One species is not a smaller version of four -- it is four times
+        # the mass with nobody to argue with.
+        sweep=round(float(rng.choice([0.0, 0.0, 0.0, rng.uniform(0.3, 2.4)])), 2),
+        use=int(rng.choice([4, 4, 4, 3, 2, 1])),
         drag=round(float(rng.uniform(0.05, 0.95)), 3),
         force=round(float(rng.uniform(0, 1.5)), 3),
         swerve=round(float(rng.uniform(0, 1.5)), 3),
