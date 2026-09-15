@@ -1,0 +1,1585 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field Life — Fluid</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.92em'%20font-size='92'%3E%F0%9F%A7%AB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#E8EDEF; --panel:#FFFFFF; --panel2:#EEF3F4; --ink:#0E1A1F; --ink2:#586A70;
+  --line:#D0DBDE; --line2:#E1EAEC; --well:#C4D0D6; --accent:#6246C8; --focus:#7355E0;
+  --screen:#04080B;
+  --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%230E1A1F'%20stroke-opacity='.13'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+  --shadow:2px 2px 0 rgba(15,22,32,.055);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#060C0F; --panel:#0D161A; --panel2:#121C21; --ink:#E1EBEF; --ink2:#87999F;
+    --line:#1D2930; --line2:#161F24; --well:#151F25; --accent:#A78BFA; --focus:#A78BFA;
+    --screen:#04080B;
+    --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%23A78BFA'%20stroke-opacity='.10'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+    --shadow:2px 2px 0 rgba(0,0,0,.34);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#060C0F; --panel:#0D161A; --panel2:#121C21; --ink:#E1EBEF; --ink2:#87999F;
+  --line:#1D2930; --line2:#161F24; --well:#151F25; --accent:#A78BFA; --focus:#A78BFA;
+  --screen:#04080B;
+  --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%23A78BFA'%20stroke-opacity='.10'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+  --shadow:2px 2px 0 rgba(0,0,0,.34);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); background-color:var(--bg);
+  background-image:var(--gridimg); background-repeat:repeat; background-attachment:fixed;
+  font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1040px; margin:0 auto; padding:22px 20px 90px;
+  display:flex; flex-direction:column; gap:16px}
+header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
+   font-size:clamp(24px,3.2vw,33px); letter-spacing:-.035em; margin:0}
+.tag{color:var(--ink2); font-size:12px; letter-spacing:.02em}
+.tag b{color:var(--ink); font-weight:500}
+.tag a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.tag a:hover{border-bottom-color:var(--accent)}
+
+/* ------------------------------------------------------------- app shell */
+.app{position:relative; width:100%; aspect-ratio:7/5; overflow:hidden;
+  background:var(--screen); border:1px solid var(--line);
+  border-radius:6px 8px 7px 7px; box-shadow:var(--shadow);
+  --panel:#0A0B0D; --panel2:#14171B; --ink:#E9E6E0; --ink2:#6B7076;
+  --line:#23272C; --line2:#181B1F; --accent:#A78BFA; --focus:#A78BFA;
+  --rowh:23px; --lab:52px;}
+@media (pointer:coarse){ .app{ --rowh:31px; --lab:64px; } }
+.app:fullscreen{aspect-ratio:auto; width:100vw; height:100vh; border:0; border-radius:0}
+#cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:none; cursor:grab}
+#cv.painting{cursor:crosshair}
+#cv.dragging{cursor:grabbing}
+
+/* --------------------------------------------------------------- panels */
+.rack{position:absolute; top:8px; right:8px; width:186px; z-index:3;
+  background:color-mix(in srgb, var(--panel) 88%, transparent);
+  border:1px solid var(--line); padding:3px 6px 5px;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+  max-height:calc(100% - 16px); overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+.rack::-webkit-scrollbar{width:6px}
+.rack::-webkit-scrollbar-thumb{background:var(--line)}
+.rack.hid{display:none}
+.grp{font-size:8px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  padding:7px 0 3px; border-bottom:1px solid var(--line2); margin-bottom:1px}
+.grp:first-child{padding-top:2px}
+.row{position:relative; display:grid; grid-template-columns:var(--lab) minmax(0,1fr);
+  align-items:center; gap:5px; min-height:var(--rowh);
+  border-bottom:1px solid var(--line2); padding:0 1px}
+label.lab{font-size:8.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.val{position:absolute; right:4px; top:0; height:100%; z-index:1;
+  display:flex; align-items:center; pointer-events:none;
+  font-variant-numeric:tabular-nums; font-size:9.5px; font-weight:500;
+  color:#fff; -webkit-text-stroke:.5px #000; paint-order:stroke fill; text-shadow:0 0 2px #000}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; min-width:0;
+  height:calc(var(--rowh) - 8px); background:transparent; cursor:ew-resize; margin:0; --p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-moz-range-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:2px;
+  height:calc(var(--rowh) - 8px); background:var(--ink); opacity:.7; border:0}
+input[type=range]::-moz-range-thumb{width:2px; height:calc(var(--rowh) - 8px);
+  background:var(--ink); opacity:.55; border:0}
+input:focus-visible, select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+select{font:inherit; font-size:10.5px; line-height:1.1; color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 13px 0 4px; width:100%; min-width:0; height:calc(var(--rowh) - 3px);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
+                   linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
+  background-position:calc(100% - 9px) center, calc(100% - 5px) center;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat}
+button{font:inherit; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--ink); background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 5px; height:calc(var(--rowh) - 5px); cursor:pointer; white-space:nowrap}
+button:hover{border-color:var(--ink2)}
+button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
+.btns{display:flex; gap:3px; padding:4px 0 1px; flex-wrap:wrap}
+.btns button{flex:1 1 0; min-width:0; padding:0 3px; letter-spacing:.01em;
+  overflow:hidden; text-overflow:ellipsis}
+.seg{display:flex; border:1px solid var(--line2); overflow:hidden}
+.seg button{border:0; border-right:1px solid var(--line2); flex:1 1 0; padding:0 3px}
+.seg button:last-child{border-right:0}
+
+/* bottom-left transport + readout */
+.hud{position:absolute; left:8px; bottom:8px; z-index:3; display:flex; align-items:center;
+  gap:6px; flex-wrap:wrap; max-width:calc(100% - 210px)}
+.hud .box{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  border:1px solid var(--line); padding:2px 6px; font-size:9.5px; color:var(--ink2);
+  letter-spacing:.04em; font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+.hud .box b{color:var(--ink); font-weight:500}
+.hud .seg{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+@media (max-width:560px){ .hud{max-width:calc(100% - 16px)} .hud .box{display:none} }
+#hint{position:absolute; left:8px; top:8px; z-index:3; font-size:9.5px; color:var(--ink2);
+  background:color-mix(in srgb, var(--panel) 84%, transparent); border:1px solid var(--line);
+  padding:3px 7px; letter-spacing:.03em; pointer-events:none; transition:opacity .5s}
+#hint.gone{opacity:0}
+#err{position:absolute; inset:0; display:none; place-items:center; padding:30px;
+  color:#FF9E80; background:#04080B; font-size:11px; line-height:1.6; text-align:center; z-index:9}
+
+/* --------------------------------------------------------------- writing */
+.below{max-width:880px; margin:0 auto; color:var(--ink2);
+  font-family:"IBM Plex Sans", system-ui, sans-serif; font-size:13.5px; line-height:1.65}
+.below h2{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-size:11px;
+  font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  margin:26px 0 10px}
+.below h2:first-child{margin-top:0}
+.below p{margin:0 0 10px}
+.below b{color:var(--ink); font-weight:500}
+.below code{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink)}
+.below a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.below a:hover{border-bottom-color:var(--accent)}
+.below table{width:100%; border-collapse:collapse; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; margin:0 0 12px}
+.below th{text-align:left; font-weight:500; color:var(--ink2); font-size:9px;
+  letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid var(--line);
+  padding:4px 8px 4px 0}
+.below td{padding:3px 8px 3px 0; border-bottom:1px solid var(--line2)}
+.below td:first-child{color:var(--ink)}
+
+/* ---------------------------------------------------------------- matrix */
+.mat{display:grid; grid-template-columns:13px repeat(4, minmax(0,1fr)); gap:2px;
+  padding:5px 0 3px; align-items:stretch}
+.mat .sw{width:9px; height:9px; align-self:center; justify-self:center}
+.mat .cn{font-size:7.5px; color:var(--ink2); text-align:center; align-self:center;
+  letter-spacing:.02em}
+.mat .mc{height:21px; display:flex; align-items:center; justify-content:center;
+  font-size:8.5px; font-variant-numeric:tabular-nums; cursor:ns-resize; user-select:none;
+  -webkit-user-select:none; touch-action:none; border:1px solid var(--line2);
+  color:#fff; text-shadow:0 0 2px #000; background:var(--panel2)}
+.mat .mc:hover{border-color:var(--ink2)}
+.mat .mc.on{border-color:var(--accent)}
+.legend{font-size:8px; color:var(--ink2); padding:0 0 4px; letter-spacing:.03em; line-height:1.4}
+</style>
+
+<div class="page">
+<header>
+  <h1>Field Life &mdash; Fluid</h1>
+  <span class="tag"><b>Four fluids on one grid, and a matrix that says who pushes whom.</b>
+  Twenty-five worlds from a sweep under <b>sweep</b>, a rule trained to grow a gecko under <b>preset</b>.
+  <a href="fluid-sweep.html">the shelf</a> &middot; <a href="index.html">the flat one</a></span>
+</header>
+
+<div class="app" id="app">
+  <canvas id="cv"></canvas>
+  <div id="hint">&larr; &rarr; walk the sweep &middot; drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; ctrl-drag to stir &middot; alt-drag to erase</div>
+  <div class="hud">
+    <div class="seg">
+      <button id="play" title="space">pause</button>
+      <button id="step1" title="one step">step</button>
+      <button id="reseed" title="R">reseed</button>
+      <button id="shuffle" title="N">matrix</button>
+      <button id="gecko" title="G">gecko</button>
+      <button id="full" title="F">full</button>
+      <button id="hidep" title="H">ui</button>
+    </div>
+    <div class="box" id="stat">&mdash;</div>
+  </div>
+  <div class="rack" id="rack"></div>
+  <div id="err"></div>
+</div>
+
+<div class="below" id="notes">
+<h2>What a cell is</h2>
+<p><b>Twelve numbers.</b> Four are <b>density</b>: how much of each of four fluids sits in the
+cell. Eight are <b>velocity</b>, a vector for each fluid, because the four do not have to be
+going the same way. <b>Pressure</b> is worked out fresh every step, one number per fluid, and
+is not kept. That is the whole state &mdash; twice that under the trained rule below, which
+has four more fluids you cannot see. Everything a cell learns, it learns from the cell next
+door.</p>
+
+<h2>One step</h2>
+<p>&mdash; <b>Smooth.</b> Each density is blurred by a small binomial stencil, <b>range</b>
+times over. The blurred copy is what the <i>other</i> fluids feel: a few passes of a local
+blur is the same as one wider kernel, so the reach of the interaction is a slider without any
+cell ever reading further than two neighbours out.</p>
+<p>&mdash; <b>Pressure.</b> For fluid <code>c</code> in a cell:
+<code>U<sub>c</sub> = stiff&middot;&rho;<sup>&gamma;</sup> &minus; g&middot;&Sigma;<sub>d</sub> M[c][d]&middot;&rho;&#771;<sub>d</sub></code>.
+The first term is an equation of state on the <i>total</i> density, the same for every fluid
+&mdash; it is what stops anything piling up, and <b>gamma</b> is how hard it says no. The second
+is the matrix: fluid <code>c</code> is pulled towards wherever the smoothed density of
+<code>d</code> is high when <code>M[c][d]</code> is positive, and shoved off it when negative.
+<code>U</code> is high wherever the fluid does not want to be.</p>
+<p>&mdash; <b>Push.</b> Velocity takes <code>&minus;dt&middot;&nabla;U</code>, a central
+difference on the cell's four neighbours. Then the four fluids in a cell drag on one another,
+each relaxing towards the cell's mass-weighted mean by <b>couple</b>; neighbouring cells drag
+by <b>visc</b>; <b>drag</b> bleeds a little off everything; and a cap keeps every speed under
+one cell a step, which is what keeps the next part honest.</p>
+<p>&mdash; <b>Move.</b> This is the MaCE rule. Each fluid in each cell splits its mass among
+its nine neighbours, itself included, giving neighbour <code>k</code> a share proportional to
+<code>exp(A<sub>k</sub>)</code>, where the affinity is</p>
+<p style="text-align:center"><code>A<sub>k</sub> = &minus;|o<sub>k</sub> &minus; v|&sup2; / 2&middot;spread&sup2; &nbsp;&minus;&nbsp; seep&middot;(U<sub>k</sub> &minus; U<sub>here</sub>)</code></p>
+<p>The first term is a Gaussian sat on the cell's own velocity, read off at the nine offsets:
+mass goes where the velocity carries it, spread by <b>spread</b>. The second leans the shares
+towards lower pressure directly, without waiting for the velocity to get there. The nine shares
+are normalised <i>at the source</i>, so they sum to exactly one, so <b>every unit that leaves
+a cell arrives somewhere</b>. The total of each fluid does not change for the life of the run;
+the readout at the bottom measures it on the GPU. The velocity rides along: what a cell holds
+after the move is the mass-weighted mean of what arrived, so momentum is carried, not just
+mass.</p>
+
+<h2>How many</h2>
+<p>Four fluids is the default and what the sweep was run on, but <b>fluids</b> under <i>run</i>
+goes from two to eight. Past four, the second set of textures that the trained rule keeps its
+hidden fluids in carries fluids five to eight instead, drawn in four more colours, with an
+eight-by-eight matrix; the pressure is still one equation of state on the total of all of them.
+Fewer than four simply leaves the rest empty. New fluids arrive with a random row and column.</p>
+
+<h2>The matrix</h2>
+<p>Row <code>c</code>, column <code>d</code>: how much fluid <code>c</code> wants to be where
+<code>d</code> is. Drag a cell up or down to set it; double-click to zero it. The matrix need
+not be symmetric &mdash; red can chase green while green flees red &mdash; and that is where
+the chasing and the orbiting come from, exactly as in particle life. The diagonal is a fluid's
+opinion of itself: positive and it beads into drops, negative and it spreads thin. Two fluids
+that dislike each other do not mix, and the boundary between them is a real interface, held by
+pressure on one side and the matrix on the other.</p>
+
+<h2>The trained one</h2>
+<p>The preset called <b>gecko</b> takes the matrix away and puts a small network in its place.
+Each cell reads, for each of <b>eight</b> fluids, the density, its two Sobel gradients and its
+Laplacian, and the velocity &mdash; forty-eight numbers &mdash; through one hidden layer of
+sixty-four, and answers with a potential and a push per fluid. The equation of state is still
+added on top, the velocity still takes the gradient, and the move is still the same nine
+shares, so it is the same fluid with a different opinion about where to go. Four of the eight
+fluids are <b>hidden</b>: never drawn, but moved by the same rule and conserved the same way,
+and they are the rule's memory &mdash; a marker that has spread this far says how far the edge
+is.</p>
+<p>It was fitted, in <code>train/fluid_gecko.py</code>, so that a <b>disc</b> nine cells across
+grows into the lizard emoji and then holds. Mass is conserved here, so the disc has to arrive
+already holding what the picture costs, colour by colour, plus an amount of each hidden fluid
+that the training chose. The fitting ran the very step the page runs, written out in JAX, with
+a pool of half-grown geckos so that holding still is learned along with growing; the page
+reproduces that step to the last rounding. The <b>paint</b> view is the one it was fitted to:
+each fluid its colour, added.</p>
+
+<h2>Watching it</h2>
+<p>The <b>gecko</b> button (or <b>G</b>) loads the rule, sets the disc, and slows the clock to a
+step every other frame; <b>speed</b>, under <i>run</i>, goes down to a step every eight frames if
+you want to see the first fifty steps unfold. The <b>paint</b> view is the picture, the four
+fluids as their colours. <b>All eight</b> lays every fluid out in its own panel &mdash; the four
+you see along the top, the hidden four beneath, each scaled to its own mean, since the hidden
+ones hold a hundredth of the mass. Set <i>of</i> to a hidden fluid and <i>show</i> to
+<b>direction</b> or <b>speed</b> to watch how it moves; <b>pressure</b> shows the potential the
+network wrote for it, which is where the shape is really decided.</p>
+
+<h2>What is kept and what is not</h2>
+<p><b>Mass</b> is exact, per fluid, at 32-bit &mdash; the shares are computed by the same
+arithmetic at every one of the nine cells that use them, so what the destinations add up to is
+what the source had, to the last rounding. At 16-bit the storage rounds and the readout will
+drift in the fourth place. <b>Momentum</b> is not conserved and is not meant to be: drag and
+coupling are there to take it away, and the pressure force does work.</p>
+<p>What this is <b>not</b> is incompressible. There is no projection step, no Poisson solve;
+a stiff equation of state stands in for the constraint, and a hard shove sends a ripple rather
+than an instantaneous rearrangement. And a nine-way softmax is a <b>diffusion</b>: narrow
+<b>spread</b> and the mass stays put until the velocity is a good fraction of a cell, wide
+<b>spread</b> and everything smears. That knob is the whole trade, and it is the same trade as
+on every page here.</p>
+
+<h2>Handling it</h2>
+<p>Drag to pan, wheel to zoom. <b>Shift-drag</b> paints the fluid picked under <i>paint</i>
+(or a random one), <b>ctrl-drag</b> stirs, <b>alt-drag</b> erases; the same three are under
+<i>drag</i> in the panel for a trackpad. Space holds, <b>R</b> reseeds, <b>N</b> rolls a new
+matrix, <b>1</b>&ndash;<b>4</b> pick the fluid to paint, <b>H</b> hides the panel, <b>F</b> is
+fullscreen. <b>Link</b> puts the whole world &mdash; matrix, scalars, seed &mdash; in the
+address bar. The <b>sweep</b> picker holds twenty-five worlds found by running a few hundred
+random ones headless and keeping the ones that still moved, had structure, and kept their
+fluids apart; each is a matrix, its scalars and a seed, so what you see is what was found, and
+<a href="fluid-sweep.html">the shelf</a> shows them all at once.</p>
+<p style="margin-top:22px;font-size:12px">A staging page. Needs WebGL2 with float render targets. The gecko's weights are in the
+page, so it works opened from disk; <code>fluid-gecko.json</code> is the same numbers, for the trainer.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cv = $("cv");
+const gl = cv.getContext("webgl2", {antialias:false, alpha:false, depth:false,
+                                    preserveDrawingBuffer:false, powerPreference:"high-performance"});
+function fatal(msg){
+  const e = $("err");
+  e.style.display = "grid"; e.textContent = msg;
+  e.style.whiteSpace = "pre-wrap"; e.style.font = "11px/1.6 monospace";
+  throw new Error(msg);
+}
+if(!gl) fatal("This page needs WebGL2, which this browser did not provide.");
+if(!gl.getExtension("EXT_color_buffer_float"))
+  fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
+
+const NCH = 4;      // fluids: four to a texture, so four
+const NB = 5;       // blobs each fluid starts as
+
+/* ==================================================================== glsl
+   Twelve numbers a cell: four densities (one RGBA), four velocities (an RGBA
+   of x and an RGBA of y). Pressure is one more RGBA, remade every step.
+   Everything is torus-wrapped. The nine offsets are the cell and its eight
+   neighbours, and the only transport in here is the MaCE one: hand your
+   contents to those nine in shares that sum to one.                        */
+
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+uniform float uN;
+const float PI = 3.14159265359;
+const float TAU = 6.28318530718;
+// k = 0 is staying put; 1..8 are the neighbours, anticlockwise from east.
+const ivec2 OFF[9] = ivec2[9](ivec2( 0, 0),
+  ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
+  ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
+const vec3 COL[8] = vec3[8](vec3(1.00, 0.36, 0.22), vec3(0.42, 0.90, 0.46),
+                            vec3(0.30, 0.58, 1.00), vec3(1.00, 0.84, 0.30),
+                            vec3(0.78, 0.56, 0.96), vec3(0.40, 0.88, 0.86),
+                            vec3(0.96, 0.62, 0.46), vec3(0.80, 0.80, 0.78));
+// Integer % with a negative operand is UNDEFINED in GLSL ES 3.00.
+ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+`;
+
+const HASH = `
+uint hash(uint x){
+  x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+  return x;
+}
+float rnd(ivec2 p, int k, int f){
+  uint h = hash(uint(p.x) * 0x9e3779b9u ^ hash(uint(p.y) * 0x85ebca6bu
+              ^ hash(uint(k) * 0xc2b2ae35u ^ uint(f))));
+  return float(h) * (1.0/4294967296.0) - 0.5;
+}`;
+
+/* ------------------------------------------------------------- 1: smooth
+   A five-tap binomial, one axis at a time. Run once it is the density the
+   pressure reads -- the raw grid decoupled from itself under a central
+   difference, and this closes the odd and even cells back together. Run
+   RANGE times it is the density the other fluids feel from a distance.   */
+const FS_BLUR = HEAD + `
+uniform sampler2D uSrc;
+uniform ivec2 uDir;
+out vec4 o;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  o = (      texelFetch(uSrc, wrap(p - 2*uDir), 0)
+       + 4.0*texelFetch(uSrc, wrap(p -   uDir), 0)
+       + 6.0*texelFetch(uSrc, p, 0)
+       + 4.0*texelFetch(uSrc, wrap(p +   uDir), 0)
+       +     texelFetch(uSrc, wrap(p + 2*uDir), 0))*(1.0/16.0);
+}`;
+
+/* ----------------------------------------------------------- 2: pressure
+   One number a fluid a cell, high where that fluid does not want to be. An
+   equation of state on the TOTAL, shared by all four, minus what the matrix
+   says about the smoothed densities of the four. Densities are read in
+   units of the grid's mean, so the sliders mean the same at any fill.     */
+const FS_PRESS = HEAD + `
+uniform sampler2D uR1A, uR1B, uRsA, uRsB;
+uniform float uStiff, uGamma, uRn, uG;
+uniform mat4 uMa, uMb;                  // this half's rows of the matrix, against half A and half B:
+out vec4 oU;                            // uMa*x gives, per fluid c, sum_d M[c][d] x_d over d in A
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float tot = max((dot(texelFetch(uR1A, p, 0), vec4(1.0)) + dot(texelFetch(uR1B, p, 0), vec4(1.0)))*uRn, 0.0);
+  float press = uStiff*pow(tot, uGamma);
+  oU = vec4(press) - uG*(uMa*(texelFetch(uRsA, p, 0)*uRn) + uMb*(texelFetch(uRsB, p, 0)*uRn));
+}`;
+
+/* --------------------------------------------------------------- 3: push
+   Velocity takes the pressure gradient, then loses some of itself three
+   ways: to the other fluids in the cell (they relax towards the cell's
+   mass-weighted mean, which leaves the cell's momentum alone), to the
+   neighbours (a mass-weighted blur), and to drag. The cap at the end is
+   what makes the move step's Gaussian land on a neighbour and not past it. */
+const FS_FORCE = HEAD + `
+uniform sampler2D uU, uRho, uVx, uVy;         // this half
+uniform sampler2D uFx, uFy;                   // a push the trained rule adds
+uniform sampler2D uRhoO, uVxO, uVyO;          // the other half, for the coupling
+uniform int uUseF, uOther;
+uniform float uDt, uCouple, uVisc, uDrag, uVmax;
+layout(location = 0) out vec4 oVx;
+layout(location = 1) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 gx = 0.5*(texelFetch(uU, wrap(p + OFF[1]), 0) - texelFetch(uU, wrap(p + OFF[5]), 0));
+  vec4 gy = 0.5*(texelFetch(uU, wrap(p + OFF[3]), 0) - texelFetch(uU, wrap(p + OFF[7]), 0));
+  if(uUseF == 1){ gx -= texelFetch(uFx, p, 0); gy -= texelFetch(uFy, p, 0); }
+  vec4 vx0 = texelFetch(uVx, p, 0), vy0 = texelFetch(uVy, p, 0);
+  vec4 vx = vx0 - uDt*gx, vy = vy0 - uDt*gy;
+  vec4 r = texelFetch(uRho, p, 0);
+  // The coupling and the viscosity read the velocities the step started
+  // with -- the cell's own and its neighbours' -- which is all one pass
+  // can see of the others.
+  if(uCouple > 0.0){
+    // the cell's mass-weighted mean, over all the fluids there are
+    float tot = dot(r, vec4(1.0)), sx = dot(r, vx0), sy = dot(r, vy0);
+    if(uOther == 1){
+      vec4 ro = texelFetch(uRhoO, p, 0);
+      tot += dot(ro, vec4(1.0));
+      sx += dot(ro, texelFetch(uVxO, p, 0)); sy += dot(ro, texelFetch(uVyO, p, 0));
+    }
+    float inv = 1.0/(tot + 1e-9);
+    vx = mix(vx, vec4(sx*inv), uCouple); vy = mix(vy, vec4(sy*inv), uCouple);
+  }
+  if(uVisc > 0.0){
+    vec4 sx = vec4(0.0), sy = vec4(0.0), sw = vec4(0.0);
+    for(int dy = -1; dy <= 1; dy++)
+      for(int dx = -1; dx <= 1; dx++){
+        float w = float((2 - abs(dx))*(2 - abs(dy)));
+        ivec2 q = wrap(p + ivec2(dx, dy));
+        vec4 rq = w*texelFetch(uRho, q, 0);
+        sx += rq*texelFetch(uVx, q, 0); sy += rq*texelFetch(uVy, q, 0); sw += rq;
+      }
+    // A fluid with nothing around it has no neighbour to be dragged by.
+    vec4 has = step(1e-9, sw);
+    sw = max(sw, 1e-9);
+    vx = mix(vx, sx/sw, uVisc*has); vy = mix(vy, sy/sw, uVisc*has);
+  }
+  vx *= 1.0 - uDrag; vy *= 1.0 - uDrag;
+  vec4 sp = sqrt(vx*vx + vy*vy + 1e-12);
+  vec4 sc = min(vec4(1.0), uVmax/sp);
+  oVx = vx*sc; oVy = vy*sc;
+}`;
+
+/* --------------------------------------------------------------- 4: move
+   A gather. Each cell collects what its nine neighbours are sending it. For
+   each source the NINE affinities are worked out here, in full, and the
+   share is one of them over their sum: the same fetches and the same
+   arithmetic at every destination, so the nine destinations of one source
+   agree on its normaliser to the bit, and what they add up to is what the
+   source had. Nothing is stored between the source and the destination
+   that could have been rounded differently on the way.
+   The velocity rides with the mass: the destination's new velocity is the
+   momentum that arrived over the mass that arrived.                        */
+const FS_MOVE = HEAD + `
+uniform sampler2D uRho, uVx, uVy, uU;
+uniform float uInvS2, uSeep;
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 m = vec4(0.0), mx = vec4(0.0), my = vec4(0.0);
+  for(int k = 0; k < 9; k++){
+    ivec2 q = wrap(p - OFF[k]);
+    vec4 rq = texelFetch(uRho, q, 0);
+    vec4 vx = texelFetch(uVx, q, 0), vy = texelFetch(uVy, q, 0);
+    vec4 Uq = texelFetch(uU, q, 0);
+    vec4 l[9];
+    vec4 top = vec4(-1.0e30);
+    for(int j = 0; j < 9; j++){
+      vec2 o = vec2(OFF[j]);
+      // The Gaussian's |v|^2 is the same for all nine and drops out.
+      vec4 a = (o.x*vx + o.y*vy - 0.5*dot(o, o))*uInvS2
+             - uSeep*(texelFetch(uU, wrap(q + OFF[j]), 0) - Uq);
+      a = clamp(a, -60.0, 60.0);
+      l[j] = a; top = max(top, a);
+    }
+    vec4 z = vec4(0.0);
+    for(int j = 0; j < 9; j++) z += exp(l[j] - top);
+    vec4 w = exp(l[k] - top)/z;
+    vec4 got = w*rq;
+    m += got; mx += got*vx; my += got*vy;
+  }
+  oRho = m;
+  // Momentum over mass. A cell that received nothing comes out still.
+  vec4 inv = 1.0/(m + 1e-12);
+  oVx = mx*inv; oVy = my*inv;
+}`;
+
+/* ---------------------------------------------------- 4b: the trained rule
+   What the matrix used to do, done by a small network instead. Each cell
+   reads, for all eight fluids, the density, its Sobel gradients and its
+   Laplacian, and the velocity; one hidden layer; and answers with a
+   potential and a push per fluid. The equation of state is still added on
+   top, so the fluid is still a fluid. The weights live in a texture. The
+   hidden layer is the same for both halves and is worked out twice, once a
+   half, which is cheaper than six outputs at once on a GPU that offers four.
+   Feature order and every stencil here match train/fluid_gecko.py. */
+const FS_BRAIN = HEAD + `
+uniform sampler2D uRhoA, uRhoB, uVxA, uVxB, uVyA, uVyB, uR1A, uR1B, uW;
+uniform int uHalf;
+uniform float uStiff, uGamma;
+layout(location = 0) out vec4 oU;
+layout(location = 1) out vec4 oFx;
+layout(location = 2) out vec4 oFy;
+float W(int i){ return texelFetch(uW, ivec2((i >> 2) & 255, i >> 10), 0)[i & 3]; }
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  float x[NIN];
+  for(int h = 0; h < 2; h++){
+    vec4 sx = vec4(0.0), sy = vec4(0.0), lp = vec4(0.0), c = vec4(0.0);
+    for(int dy = -1; dy <= 1; dy++)
+      for(int dx = -1; dx <= 1; dx++){
+        ivec2 q = wrap(p + ivec2(dx, dy));
+        vec4 r = h == 0 ? texelFetch(uRhoA, q, 0) : texelFetch(uRhoB, q, 0);
+        float wy = dy == 0 ? 2.0 : 1.0, wx = dx == 0 ? 2.0 : 1.0;
+        sx += float(dx)*wy*r; sy += float(dy)*wx*r;
+        lp += (dx == 0 && dy == 0 ? -12.0 : wx*wy)*r;
+        if(dx == 0 && dy == 0) c = r;
+      }
+    vec4 vx = h == 0 ? texelFetch(uVxA, p, 0) : texelFetch(uVxB, p, 0);
+    vec4 vy = h == 0 ? texelFetch(uVyA, p, 0) : texelFetch(uVyB, p, 0);
+    for(int i = 0; i < 4; i++){
+      int cc = 4*h + i;
+      x[cc] = c[i]; x[8 + cc] = sx[i]/8.0; x[16 + cc] = sy[i]/8.0; x[24 + cc] = lp[i]/16.0;
+      x[32 + cc] = vx[i]; x[40 + cc] = vy[i];
+    }
+  }
+  float hid[NH];
+  for(int i = 0; i < NH; i++){
+    float s = W(W1 + NH*NIN + i);
+    for(int j = 0; j < NIN; j++) s += W(W1 + i*NIN + j)*x[j];
+    hid[i] = max(s, 0.0);
+  }
+  vec4 U, Fx, Fy;
+  for(int i = 0; i < 4; i++){
+    int cc = 4*uHalf + i;
+    float su = W(W2 + NOUT*NH + cc), sfx = W(W2 + NOUT*NH + 8 + cc), sfy = W(W2 + NOUT*NH + 16 + cc);
+    for(int j = 0; j < NH; j++){
+      float hj = hid[j];
+      su += W(W2 + cc*NH + j)*hj; sfx += W(W2 + (8 + cc)*NH + j)*hj; sfy += W(W2 + (16 + cc)*NH + j)*hj;
+    }
+    U[i] = su; Fx[i] = sfx; Fy[i] = sfy;
+  }
+  float tot = dot(texelFetch(uR1A, p, 0), vec4(1.0)) + dot(texelFetch(uR1B, p, 0), vec4(1.0));
+  float press = uStiff*pow(max(tot, 0.0), uGamma);
+  oU = vec4(press) + U; oFx = Fx; oFy = Fy;
+}`;
+
+/* ------------------------------------------------------------ 5: seed/paint */
+const FS_SEED = HEAD + HASH + `
+uniform int uMode, uSeed, uHalf, uNf;
+uniform float uAmt, uRad, uFill, uDiscInv;
+uniform vec4 uMass;                              // the disc's mass, a fluid each
+uniform float uBlob[2*NCH*NB*2];
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 x = vec2(p) + 0.5;
+  vec4 r = vec4(0.0);
+  int c0 = 4*uHalf;                                // this half's first fluid
+  if(uMode == 0){                                  // blobs
+    for(int c = 0; c < NCH; c++)
+      for(int b = 0; b < NB; b++){
+        int cc = c0 + c;
+        vec2 ctr = vec2(uBlob[(cc*NB + b)*2], uBlob[(cc*NB + b)*2 + 1])*uN;
+        vec2 d = x - ctr;
+        d -= uN*floor(d/uN + 0.5);                 // shortest way round the torus
+        r[c] += exp(-0.5*dot(d, d)/(uRad*uRad));
+      }
+    r *= uAmt;
+  } else if(uMode == 1){                           // noise
+    for(int c = 0; c < NCH; c++)
+      r[c] = (rnd(p, c0 + c, uSeed) + 0.5) < uFill ? uAmt : 0.0;
+  } else if(uMode == 2){                           // quarters
+    vec2 f = x/uN;
+    int c = ((f.x < 0.5 ? 0 : 1) + (f.y < 0.5 ? 0 : 2)) % uNf - c0;
+    if(c >= 0 && c < NCH) r[c] = uAmt;
+  } else if(uMode == 3){                           // bands
+    int c = int(floor(x.y/uN*float(2*uNf))) % uNf - c0;
+    if(c >= 0 && c < NCH) r[c] = uAmt;
+  } else {                                         // a disc, holding exactly uMass
+    vec2 d = x - 0.5*uN;
+    float w = clamp(uRad + 0.5 - length(d), 0.0, 1.0)*uDiscInv;
+    oRho = uMass*w; oVx = vec4(0.0); oVy = vec4(0.0);
+    return;
+  }
+  // A little grain, or an even mixture is a symmetry nothing ever breaks
+  // and it sits there grey instead of unmixing. And nothing in a fluid past
+  // the count.
+  for(int c = 0; c < NCH; c++) r[c] *= (c0 + c < uNf ? 1.0 : 0.0)*(1.0 + 0.08*rnd(p, 7 + c0 + c, uSeed));
+  oRho = r; oVx = vec4(0.0); oVy = vec4(0.0);
+}`;
+
+const FS_PAINT = HEAD + `
+uniform sampler2D uRho, uVx, uVy;
+uniform vec2 uAt, uPush;
+uniform float uRad, uAmt, uVmax;
+uniform int uMode, uChan;
+layout(location = 0) out vec4 oRho;
+layout(location = 1) out vec4 oVx;
+layout(location = 2) out vec4 oVy;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 r = texelFetch(uRho, p, 0), vx = texelFetch(uVx, p, 0), vy = texelFetch(uVy, p, 0);
+  vec2 d = vec2(p) + 0.5 - uAt;
+  d -= uN*floor(d/uN + 0.5);
+  float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
+  if(t > 0.0){
+    if(uMode == 0) r[uChan] += uAmt*t;
+    else if(uMode == 1) r *= 1.0 - t;
+    else {
+      vx += uPush.x*t; vy += uPush.y*t;
+      vec4 sp = sqrt(vx*vx + vy*vy);
+      vec4 sc = min(vec4(1.0), uVmax/max(sp, 1e-9));
+      vx *= sc; vy *= sc;
+    }
+  }
+  oRho = r; oVx = vx; oVy = vy;
+}`;
+
+/* ----------------------------------------------------------- 6: the picture */
+const FS_DRAW = HEAD + `
+uniform sampler2D uRho, uU, uVx, uVy;            // the four you see
+uniform sampler2D uRho2, uU2, uVx2, uVy2;        // the hidden four
+uniform vec2 uRes, uPan;
+uniform float uZoom, uExp, uRn, uVmax;
+uniform vec4 uNormA, uNormB;                     // one over each fluid's mean density
+uniform int uView, uPal, uChan;
+out vec4 oCol;
+uniform int uNf;                                 // how many fluids are drawn
+vec3 ramp(float t){
+  t = clamp(t, 0.0, 1.0);
+  if(uPal == 0) return vec3(t);
+  if(uPal == 1) return clamp(vec3(1.35*t + 0.10*t*t, 1.30*t*t - 0.05, 2.4*t*t*t*t - 0.02), 0.0, 1.0);
+  if(uPal == 2) return clamp(vec3(1.5*t*t*t, 0.85*t*t + 0.22*t, 0.55*t + 0.55*t*t), 0.0, 1.0);
+  return clamp(vec3(0.5 + 0.5*cos(TAU*(t*0.85 + 0.00)),
+                    0.5 + 0.5*cos(TAU*(t*0.85 + 0.28)),
+                    0.5 + 0.5*cos(TAU*(t*0.85 + 0.58))), 0.0, 1.0)*smoothstep(0.0, 0.12, t);
+}
+vec3 hue(float h){
+  return clamp(abs(mod(h*6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+void main(){
+  vec3 bg = vec3(0.03, 0.035, 0.045);
+  if(uView == 6){
+    // All eight, each in its own panel: the four you see along the top, the
+    // hidden four beneath, each scaled to its own mean so a faint one shows.
+    vec2 ps = uRes/vec2(4.0, 2.0);
+    ivec2 pi = ivec2(floor(gl_FragCoord.xy/ps));
+    vec2 lf = gl_FragCoord.xy - vec2(pi)*ps;
+    int c = pi.x + 4*(1 - pi.y);
+    if(lf.x < 1.5 || lf.y < 1.5){ oCol = vec4(0.16, 0.18, 0.21, 1.0); return; }
+    vec2 uv = (lf - 0.5*ps)/(uZoom*min(ps.x, ps.y)) + uPan/uN + 0.5;
+    if(uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0){ oCol = vec4(0.016, 0.031, 0.043, 1.0); return; }
+    ivec2 pc = ivec2(floor(uv*uN));
+    float d = c < 4 ? texelFetch(uRho, pc, 0)[c]*uNormA[c] : texelFetch(uRho2, pc, 0)[c - 4]*uNormB[c - 4];
+    oCol = vec4(mix(bg, COL[c], 1.0 - exp(-d*0.35*uExp)), 1.0);
+    return;
+  }
+  // The simulation wraps; the picture does not.
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/(uZoom*uRes.y) + uPan/uN + 0.5;
+  if(uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0){
+    vec2 e = max(abs(uv - 0.5) - 0.5, 0.0)*uZoom*uRes.y;
+    float edge = 1.0 - smoothstep(0.0, 1.5, max(e.x, e.y));
+    oCol = vec4(mix(vec3(0.016, 0.031, 0.043), vec3(0.16, 0.18, 0.21), edge), 1.0);
+    return;
+  }
+  ivec2 pc = ivec2(floor(uv*uN));
+  vec4 ra = texelFetch(uRho, pc, 0), rb = uNf > 4 ? texelFetch(uRho2, pc, 0) : vec4(0.0);
+  vec4 r = ra*uRn;
+  float tot = (dot(ra, vec4(1.0)) + dot(rb, vec4(1.0)))*uRn;
+  // One fluid is read in units of its own mean: a hidden one holds so little.
+  bool hid = uChan >= 4;
+  int ch = hid ? uChan - 4 : uChan;
+  float here = uChan < 0 ? tot : 0.25*(hid ? texelFetch(uRho2, pc, 0)[ch]*uNormB[ch] : ra[ch]*uNormA[ch]);
+  if(uView == 0){
+    // Four fluids, four colours, mixed by how much of each is here. All one
+    // fluid comes out saturated; an even blend of the four comes out grey.
+    if(tot < 1e-6){ oCol = vec4(bg, 1.0); return; }
+    vec3 col; float v;
+    if(uChan < 0){
+      float inv = 1.0/(tot/uRn), best = 0.0;
+      col = vec3(0.0);
+      for(int i = 0; i < 4; i++){
+        float fa = ra[i]*inv, fb = rb[i]*inv;
+        col += COL[i]*fa + COL[4 + i]*fb; best = max(best, max(fa, fb));
+      }
+      float nf = float(uNf);
+      float sat = clamp((best*nf - 1.0)/max(nf - 1.0, 1.0), 0.0, 1.0);
+      col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
+      v = 1.0 - exp(-tot*uExp);
+    } else {
+      col = COL[uChan]; v = 1.0 - exp(-here*uExp);
+    }
+    oCol = vec4(clamp(mix(bg, col*1.15, v), 0.0, 1.0), 1.0);
+    return;
+  }
+  if(uView == 1){                                  // density
+    oCol = vec4(ramp(1.0 - exp(-here*uExp)), 1.0);
+    return;
+  }
+  if(uView == 5){
+    // The four fluids as paint: each its colour, added, in absolute units.
+    // This is the view the trained rule was fitted to.
+    vec4 pa = texelFetch(uRho, pc, 0)*uExp, pb = uNf > 4 ? texelFetch(uRho2, pc, 0)*uExp : vec4(0.0);
+    vec3 c = COL[0]*pa.x + COL[1]*pa.y + COL[2]*pa.z + COL[3]*pa.w
+           + COL[4]*pb.x + COL[5]*pb.y + COL[6]*pb.z + COL[7]*pb.w;
+    oCol = vec4(clamp(c, 0.0, 1.0), 1.0);
+    return;
+  }
+  if(uView == 2){                                  // pressure, diverging
+    vec4 U = hid ? texelFetch(uU2, pc, 0) : texelFetch(uU, pc, 0);
+    float u = uChan < 0 ? dot(U, vec4(0.25)) : U[ch];
+    float t = tanh(u*uExp*0.35);
+    vec3 warm = vec3(1.00, 0.46, 0.25), cool = vec3(0.30, 0.60, 1.00);
+    oCol = vec4(t > 0.0 ? mix(bg, warm, t) : mix(bg, cool, -t), 1.0);
+    return;
+  }
+  vec4 vx = hid ? texelFetch(uVx2, pc, 0) : texelFetch(uVx, pc, 0);
+  vec4 vy = hid ? texelFetch(uVy2, pc, 0) : texelFetch(uVy, pc, 0);
+  vec2 v = uChan < 0 ? vec2(dot(r, vx), dot(r, vy))/max(dot(r, vec4(1.0)), 1e-9) : vec2(vx[ch], vy[ch]);
+  // Speeds run well under the cap most of the time, so the picture is
+  // exposed for a tenth of it and the slider takes it from there.
+  float sp = 1.0 - exp(-length(v)/uVmax*10.0*uExp);
+  float presence = 1.0 - exp(-here*4.0);          // an empty cell's velocity is nobody's
+  if(uView == 3){                                  // which way it is going
+    oCol = vec4(hue(atan(v.y, v.x)/TAU + 0.5)*sp*presence + bg, 1.0);
+    return;
+  }
+  oCol = vec4(ramp(sp*presence), 1.0);
+}`;
+
+/* Four channels summed at once, so the readout has each fluid's mass. */
+const FS_SUM = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform int uSrcN;
+out vec4 oS;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy)*4;
+  vec4 s = vec4(0.0);
+  for(int dy = 0; dy < 4; dy++)
+    for(int dx = 0; dx < 4; dx++){
+      ivec2 q = p + ivec2(dx, dy);
+      if(q.x < uSrcN && q.y < uSrcN) s += texelFetch(uSrc, q, 0);
+    }
+  oS = s;
+}`;
+
+/* ================================================================== plumbing */
+function compile(src, type){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    const n = /ERROR: \d+:(\d+)/.exec(log);
+    const ctx = n ? src.split("\n").slice(Math.max(0, n[1] - 3), +n[1] + 2).join("\n") : "";
+    fatal("Shader would not compile:\n\n" + log + "\n" + ctx);
+  }
+  return sh;
+}
+function program(fs, extra = ""){
+  const defs = `#define NCH ${NCH}\n#define NB ${NB}\n` + extra;
+  const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(put(fs), gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, "a");
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal("Link failed:\n" + gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < n; i++){
+    const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, "");
+    u[nm] = gl.getUniformLocation(p, nm);
+  }
+  p.u = u;
+  return p;
+}
+let curP = null;
+function use(p){ if(curP !== p){ gl.useProgram(p); curP = p; } return p.u; }
+function tex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); return unit; }
+
+const quadVAO = gl.createVertexArray();
+{
+  gl.bindVertexArray(quadVAO);
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+}
+const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+
+const fbo = gl.createFramebuffer();
+const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
+if(MAXBUF < 3)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers.\nThe move pass writes three at once: the densities and\nthe two halves of the velocities.");
+const BUFS = [];
+for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
+function target(list, w, h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  const a = Array.isArray(list) ? list : [list];
+  for(let i = 0; i < MAXBUF; i++)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D,
+                            i < a.length ? a[i] : null, 0);
+  gl.drawBuffers(BUFS[a.length - 1]);
+  gl.viewport(0, 0, w, h);
+}
+function make2D(w, h, ifmt, wrapMode = gl.REPEAT){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, ifmt, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+  t.w = w; t.h = h;
+  return t;
+}
+
+const P = {
+  blur: program(FS_BLUR), press: program(FS_PRESS), force: program(FS_FORCE),
+  move: program(FS_MOVE), seed: program(FS_SEED), paint: program(FS_PAINT),
+  draw: program(FS_DRAW), sum: program(FS_SUM),
+};
+
+/* ===================================================================== state */
+const S = {
+  N: 512, steps: 1, running: true, frame: 0, prec: 32,
+  g: 1.2, range: 6, stiff: 1.0, gamma: 2, dt: 0.12, drag: 0.02, visc: 0.15, couple: 0.1,
+  vmax: 0.9, spread: 0.45, seep: 0.15,
+  seedMode: 0, amt: 2.0, rad: 24, fill: 0.3,
+  view: 0, pal: 1, chan: -1, exp: 1.0, brush: 24, tool: 0, pchan: -1, stir: 0.35,
+  zoom: 1, panx: 0, pany: 0, seed: 1, sweep: -1,
+  nf: 4,                             // how many fluids, up to eight
+  M: new Float32Array(64), blob: new Float32Array(2*NCH*NB*2),
+  rule: "matrix",                    // or "brain": the trained rule
+  mass: [1, 1, 1, 1, 0, 0, 0, 0],     // what the disc start holds, a fluid each
+  disc: 9,
+};
+/* The trained rule, once loaded: its weights as a texture and its program. */
+let brain = null;
+/* Its weights, in the page: three thousand rounds of train/fluid_gecko.py. */
+const GECKO = {"what":"the fluid page's rule, trained to grow a gecko from a disc","C":8,"visible":4,"hidden":4,"nin":48,"nh":64,"nout":24,"grid":64,"disc":9.0,"phys":{"dt":0.15,"drag":0.05,"visc":0.1,"couple":0.05,"spread":0.35,"seep":0.5,"stiff":0.5,"gamma":2.0,"vmax":0.9},"masses":[8.3522367477417,243.60452270507812,0.24273227155208588,29.17581558227539,1.5236932039260864,1.5898717641830444,1.2261945009231567,1.0967118740081787],"features":"rho, sobel_x/8, sobel_y/8, laplacian/16, vx, vy per fluid; relu; U, Fx, Fy per fluid","w1":[[-0.003369000041857362,-0.569936990737915,0.26367101073265076,-0.23751500248908997,-0.0452210009098053,0.7159810066223145,-0.06811700016260147,-0.6847350001335144,-0.37774500250816345,-0.3732840120792389,-0.5813559889793396,-0.16747599840164185,0.1698009967803955,-0.29200300574302673,-0.5329899787902832,-0.16041299700737,0.052583999931812286,-0.30647900700569153,0.646032989025116,0.04321499913930893,-0.19463999569416046,-0.06474100053310394,1.0829479694366455,1.0098570585250854,0.41843700408935547,0.20492500066757202,0.22153699398040771,0.21188700199127197,-0.1282300055027008,-0.8893439769744873,-0.09384900331497192,-0.7838879823684692,-0.1311980038881302,0.6324210166931152,0.17578400671482086,-0.036837998777627945,-0.17524099349975586,-0.0639130026102066,-0.47339099645614624,0.3153199851512909,0.5252259969711304,0.1395999938249588,-0.04350600019097328,0.11289700120687485,-0.13935600221157074,0.05527200177311897,0.13973300158977509,0.18294000625610352],[0.21297700703144073,0.046539999544620514,-0.30170300602912903,0.4454909861087799,-0.19448700547218323,0.7117409706115723,0.5809450149536133,-0.6317189931869507,0.30339300632476807,-0.3462510108947754,-0.11563599854707718,0.019958000630140305,0.2098730057477951,0.014635000377893448,-0.3354189991950989,-0.16894400119781494,-0.7205700278282166,-0.42087700963020325,-0.8041980266571045,0.610372006893158,-1.2202550172805786,-0.7421299815177917,-0.02926499955356121,-1.6830500364303589,-0.6805139780044556,0.6197559833526611,-0.9028379917144775,0.024793000891804695,0.014073999598622322,-0.9250249862670898,-0.23069700598716736,0.8928260207176208,-0.00636899983510375,0.4295949935913086,0.09272199869155884,-0.09280599653720856,-0.18462300300598145,0.5226259827613831,-0.046188000589609146,0.542497992515564,-0.14973899722099304,0.36903101205825806,-0.0953340008854866,0.4793899953365326,0.07058999687433243,0.005789999850094318,0.48578599095344543,0.0388530008494854],[-0.25032100081443787,0.1547120064496994,0.3921149969100952,-0.28093600273132324,-0.19174300134181976,0.10324600338935852,-0.12364800274372101,0.8116250038146973,-0.5051800012588501,0.04642999917268753,-2.258035898208618,-0.15233400464057922,-1.0879119634628296,-0.9527490139007568,-1.0137439966201782,0.6350989937782288,-0.3148449957370758,0.24001899361610413,0.913079023361206,-0.02761000022292137,1.4380830526351929,0.36863699555397034,0.46575498580932617,-0.7600979804992676,-0.3167409896850586,0.37801501154899597,-0.5028809905052185,-0.0032399999909102917,-0.3662880063056946,-1.1426470279693604,-0.5132660269737244,-0.6877639889717102,-0.3621940016746521,-0.2615079879760742,0.47821998596191406,0.17201800644397736,-0.1566449999809265,0.11433099955320358,-0.17156900465488434,0.13703900575637817,0.1084280014038086,0.6005060076713562,0.005024000070989132,0.13738900423049927,0.5799509882926941,0.34349799156188965,-0.3657979965209961,-0.3697989881038666],[-0.11408299952745438,-0.016096999868750572,-0.4259850084781647,-0.09329400211572647,-0.08627899736166,-0.1558780074119568,-0.09625399857759476,-0.12189500033855438,0.7185800075531006,-0.5482519865036011,0.7544469833374023,-0.16702599823474884,0.27534499764442444,-0.16967999935150146,1.0481760501861572,0.1391489952802658,-0.6030750274658203,-0.9267500042915344,-1.680798053741455,-0.23292799293994904,-0.9132689833641052,-0.034536998718976974,-1.1385769844055176,-0.7034599781036377,1.1341079473495483,0.6531199812889099,0.4084770083427429,0.5801500082015991,1.3581759929656982,0.8248379826545715,-0.13123999536037445,0.6410319805145264,-0.129830002784729,0.24320100247859955,0.2971450090408325,-0.16987699270248413,-0.5427770018577576,-0.0037499999161809683,-0.1838340014219284,0.44996199011802673,0.3982450067996979,-0.2553960084915161,0.4146279990673065,0.12711800634860992,0.2561120092868805,0.3948020040988922,0.32684600353240967,0.6010019779205322],[0.3258860111236572,0.22401900589466095,0.6909480094909668,-0.08713699877262115,0.2547909915447235,0.1515599936246872,0.10319499671459198,-0.14705100655555725,0.38753101229667664,0.61558598279953,0.6433230042457581,0.07686399668455124,-0.27298301458358765,0.5442370176315308,0.12378399819135666,-0.33433398604393005,0.38221800327301025,0.4068009853363037,-0.5041639804840088,-0.1344899982213974,0.9927999973297119,-0.6231210231781006,0.6131240129470825,-0.8047969937324524,0.46267399191856384,0.4012030065059662,-0.017760999500751495,-0.09835299849510193,1.2840700149536133,0.34863001108169556,0.259660005569458,0.017609000205993652,-0.08063100278377533,0.2723979949951172,-0.14174099266529083,-0.016311999410390854,-0.5572850108146667,-0.12563000619411469,-0.08996099978685379,-0.5309950113296509,-0.08264099806547165,0.389039009809494,0.15751199424266815,0.24034300446510315,-0.16890999674797058,-0.4214229881763458,0.03657599911093712,0.00203399988822639],[-0.1382099986076355,-0.34708699584007263,0.21748299896717072,0.45182499289512634,0.2781040072441101,-0.28355100750923157,-0.2990509867668152,0.3414439857006073,-0.1723870038986206,-0.05375099927186966,0.16579200327396393,-0.4071039855480194,0.08227399736642838,-0.7302650213241577,-0.358132004737854,0.06879699975252151,-0.2788800001144409,0.2808069884777069,0.8644220232963562,-0.6245030164718628,1.6111160516738892,0.599049985408783,0.3405649960041046,0.44896799325942993,0.06599300354719162,-0.06697200238704681,0.3291879892349243,0.14917999505996704,0.0667319968342781,-0.8802059888839722,0.13661900162696838,0.7286440134048462,-0.02499699965119362,0.19419600069522858,0.2872540056705475,0.1059269979596138,-0.0856499969959259,0.04219900071620941,0.2682819962501526,0.015038999728858471,0.2296680063009262,0.2391500025987625,-0.0735279992222786,-0.12058600038290024,0.3236039876937866,0.34409499168395996,0.04457399994134903,0.1554429978132248],[-0.006506999954581261,0.2887130081653595,0.608089029788971,-0.2919130027294159,0.31912198662757874,0.11165600270032883,0.4443790018558502,0.9485170245170593,0.9565200209617615,0.2059209942817688,-0.6653259992599487,0.7857170104980469,-0.6456609964370728,0.6279039978981018,0.14999699592590332,-0.5981370210647583,0.4225049912929535,-0.03890899941325188,-0.9501469731330872,0.14707599580287933,0.4084100127220154,-0.5121309757232666,-0.24423199892044067,0.2812420129776001,0.21498499810695648,-0.03010999970138073,-1.1294100284576416,0.530597984790802,-0.19961899518966675,-1.6761720180511475,-0.9861429929733276,-1.3780460357666016,0.6383280158042908,-0.33357200026512146,0.1494240015745163,-0.139041006565094,-0.2160699963569641,-0.14722999930381775,-0.2833450138568878,-0.7636590003967285,0.05327799916267395,0.15499399602413177,-0.23260299861431122,0.4257560074329376,0.21041500568389893,-0.04194900020956993,-0.03242100030183792,-0.2177630066871643],[0.0808819979429245,0.23901599645614624,0.30299198627471924,0.16938799619674683,0.7648100256919861,0.6172469854354858,0.5211169719696045,0.6348739862442017,-0.06824400275945663,0.23389999568462372,-0.6024010181427002,-0.12747099995613098,0.6831660270690918,0.6758430004119873,0.022797999903559685,0.6062679886817932,0.0834830030798912,-0.27791300415992737,0.0014430000446736813,0.014353999868035316,0.25973498821258545,0.02676899917423725,0.4758799970149994,0.17428700625896454,-0.5897349715232849,0.025303000584244728,-0.3134489953517914,-0.30690398812294006,-0.4456230103969574,-0.5255979895591736,-1.1229469776153564,-0.03407999873161316,-0.2632499933242798,-0.1721380054950714,0.5295050144195557,-0.23037700355052948,-0.06579600274562836,0.07672099769115448,-0.13633599877357483,-0.008628999814391136,0.4691700041294098,-0.25722500681877136,-0.1214120015501976,-0.4182780086994171,-0.05225599929690361,0.14577800035476685,0.08210700005292892,-0.06721500307321548],[-0.29655900597572327,-0.37717700004577637,0.1590059995651245,0.07186300307512283,-0.23699399828910828,0.6033700108528137,-0.2669979929924011,-0.7376949787139893,0.2650740146636963,0.6196539998054504,-0.728643000125885,0.16259999573230743,0.11735399812459946,0.5164629817008972,-0.27109798789024353,0.5746260285377502,0.302825003862381,-0.36900201439857483,-0.3405799865722656,0.7087460160255432,-0.8887460231781006,0.41169100999832153,0.3103969991207123,0.0023159999400377274,-0.49085599184036255,0.2442989945411682,-0.8815159797668457,-0.3521229922771454,0.6843159794807434,-1.0577850341796875,0.17973899841308594,0.4515700042247772,-0.03569699823856354,-0.32426801323890686,0.012564999982714653,-0.18047699332237244,-0.06657599657773972,-0.14115799963474274,-0.01369400043040514,-0.0451119989156723,-0.025851000100374222,0.16969700157642365,-0.522051990032196,-0.22829200327396393,-0.22702600061893463,0.2376520037651062,0.6781439781188965,0.15981699526309967],[0.13860100507736206,-0.029513999819755554,-0.11790800094604492,-0.4783659875392914,0.27434098720550537,-0.057096000760793686,0.10851900279521942,-0.07566999644041061,0.16793100535869598,0.3201119899749756,-0.20926900207996368,-0.02181199938058853,0.1634649932384491,-0.6299260258674622,0.20556600391864777,-1.4741450548171997,0.2354000061750412,0.08198300004005432,0.9607700109481812,0.39730098843574524,0.17574000358581543,0.16128799319267273,-0.2152010053396225,0.02393300086259842,-0.1746470034122467,-0.6436709761619568,0.5361930131912231,-0.12503699958324432,-0.6704130172729492,0.11530599743127823,0.10871800035238266,-0.1319960057735443,-0.06513500213623047,-0.28833499550819397,-0.45308899879455566,0.27013900876045227,-0.20541800558567047,-0.11222100257873535,-0.33145201206207275,-0.050891999155282974,-0.11820299923419952,-0.14959199726581573,-0.008829999715089798,-0.21780000627040863,-0.09378399699926376,-0.21420900523662567,-0.27216100692749023,-0.18230600655078888],[0.011769000440835953,-0.21616600453853607,0.05112000182271004,-0.5095540285110474,-0.3593840003013611,-0.05515800043940544,0.027324000373482704,-0.624347984790802,1.590777039527893,0.5554550290107727,0.257191002368927,0.16256600618362427,-0.18905100226402283,0.40552300214767456,0.7209540009498596,-1.608152985572815,0.026406999677419662,0.638355016708374,0.7090970277786255,-0.45391198992729187,0.40697699785232544,-2.368230104446411,-1.4511829614639282,-1.5983200073242188,0.0006469999789260328,-0.39097800850868225,2.008415937423706,-0.2661319971084595,1.0855319499969482,1.1080609560012817,0.7923719882965088,-0.7239940166473389,0.08025400340557098,0.10352800041437149,-0.06055599823594093,0.22630299627780914,-0.018647000193595886,-0.09143699705600739,-0.14656099677085876,0.18228299915790558,-0.3705660104751587,0.20407399535179138,-0.031665999442338943,-0.3711329996585846,-0.13231900334358215,-0.24911199510097504,-0.24899299442768097,0.19134899973869324],[0.1544640064239502,0.06696300208568573,0.17225000262260437,0.22221900522708893,0.20716099441051483,-0.12737099826335907,0.20235100388526917,-0.09239599853754044,0.45661601424217224,-0.499004989862442,-1.2954070568084717,0.09741900116205215,0.6913310289382935,-0.10120099782943726,0.04349299892783165,0.259552001953125,0.029051000252366066,0.08213499933481216,-0.15385399758815765,-0.16475699841976166,-0.35634300112724304,-0.25894099473953247,0.8257409930229187,-0.30456799268722534,-0.7679370045661926,-0.038127999752759933,-0.898298978805542,-0.2646139860153198,0.027286000549793243,-1.0776439905166626,-0.5330719947814941,0.2459390014410019,0.3882319927215576,0.2855699956417084,0.19788800179958344,-0.12881599366664886,0.06301499903202057,0.3402310013771057,-0.1061059981584549,0.23825900256633759,-0.048163000494241714,0.0684410035610199,-0.39364299178123474,0.06543300300836563,0.14880399405956268,0.12538999319076538,0.2909959852695465,0.23471400141716003],[0.14919599890708923,-0.08738700300455093,-0.12971800565719604,-1.2172319889068604,-0.5856040120124817,-0.7380130290985107,-0.4739310145378113,-0.1467590034008026,1.3828840255737305,0.2294519990682602,-0.787559986114502,-0.0009769999887794256,1.001512050628662,-1.1498509645462036,-0.6851459741592407,0.8076599836349487,0.08355599641799927,-0.202223002910614,-1.5054630041122437,0.008790000341832638,-0.3610149919986725,-0.7158600091934204,-0.601144015789032,0.023406000807881355,1.0122339725494385,-0.5125749707221985,-0.46564599871635437,0.3013550043106079,0.5343419909477234,2.319282054901123,0.542464017868042,2.780395030975342,-0.07959599792957306,0.6829699873924255,-0.5435180068016052,0.17313900589942932,-0.1271670013666153,-0.28522899746894836,-0.0572270005941391,-0.43784099817276,-0.1732500046491623,0.1712779998779297,-0.04592199996113777,-0.22385600209236145,-0.2757200002670288,0.22794799506664276,-0.2769100069999695,0.05900700017809868],[0.01684200018644333,0.38098201155662537,0.3783870041370392,0.17300499975681305,0.5569210052490234,0.5470809936523438,0.4197959899902344,0.14725300669670105,0.16866900026798248,0.1664769947528839,-0.5486900210380554,0.25282400846481323,-0.6814749836921692,0.10964000225067139,0.13885299861431122,-0.5712800025939941,-0.2244880050420761,-0.34046798944473267,-1.0232369899749756,0.05350499972701073,0.10059899836778641,-0.034772999584674835,0.24454699456691742,0.34393998980522156,-0.23154599964618683,0.20560599863529205,0.2669009864330292,-0.01270500011742115,-1.1867940425872803,-1.5248279571533203,-0.3454189896583557,-0.7763710021972656,-0.28727400302886963,-0.03493800014257431,-0.039877999573946,-0.04453999921679497,-0.7390609979629517,-0.3364959955215454,0.06384400278329849,-0.4294559955596924,0.24398399889469147,0.289341002702713,-0.01749500073492527,0.23434500396251678,-0.030107000842690468,0.015830999240279198,0.09745799750089645,-0.3984200060367584],[-0.9344189763069153,-0.39384299516677856,0.3162890076637268,-0.6462579965591431,0.2741219997406006,-0.32719600200653076,-0.7021380066871643,-0.4764780104160309,-0.24368900060653687,-0.21078599989414215,0.17347699403762817,-0.10017900168895721,0.6993669867515564,-0.7718589901924133,-0.3550969958305359,-0.28649601340293884,-1.0058410167694092,-0.11515899747610092,-0.8945059776306152,-0.2706100046634674,-1.0434939861297607,0.15787799656391144,-1.792917013168335,0.3308050036430359,0.6188730001449585,-0.10795599967241287,0.21986599266529083,0.07384499907493591,-0.2167380005121231,1.0789519548416138,-0.36599698662757874,0.02231599949300289,0.2952669858932495,0.9735419750213623,-0.20123599469661713,-0.6880549788475037,-0.3476490080356598,0.2910659909248352,0.24398699402809143,-0.122359998524189,0.001918999943882227,0.4117259979248047,0.21570199728012085,-0.1978529989719391,0.22037500143051147,0.39309099316596985,0.5225849747657776,0.6544719934463501],[-0.41130000352859497,-0.3511529862880707,0.07757700234651566,-0.15972499549388885,0.21140800416469574,0.512237012386322,-0.5312269926071167,0.26425600051879883,0.2580699920654297,-0.013911000452935696,-0.360709011554718,-0.13326899707317352,-0.04067600145936012,-1.2005170583724976,0.024973999708890915,-0.4808889925479889,0.20304299890995026,1.0281130075454712,0.8736870288848877,0.006219999864697456,0.5755770206451416,0.8797399997711182,0.6963040232658386,0.718500018119812,-0.17697599530220032,0.03611199930310249,0.6521180272102356,0.2307250052690506,0.14137999713420868,-0.16424700617790222,1.2677969932556152,0.32020699977874756,-0.1298930048942566,0.2862890064716339,0.2074269950389862,0.05178999900817871,-0.14435000717639923,-0.08639200031757355,0.10073799639940262,0.14402100443840027,-0.026166999712586403,-0.03959599882364273,-0.041783999651670456,-0.2735559940338135,-0.11833799630403519,-0.3555830121040344,0.09711500257253647,0.22260800004005432],[0.26989901065826416,-0.09110800176858902,0.2844969928264618,0.2628999948501587,-0.40281400084495544,-0.4300209879875183,-0.2448430061340332,-0.09672799706459045,-0.4076710045337677,0.23354999721050262,0.9643719792366028,0.22297300398349762,0.07310900092124939,1.6385020017623901,0.875016987323761,-0.34326300024986267,-0.0026340000331401825,0.016109999269247055,1.218224048614502,0.7440710067749023,-0.21632899343967438,0.341948002576828,-0.10905800014734268,0.4953320026397705,-0.3660460114479065,-0.33869799971580505,-0.2590300142765045,-0.460534006357193,-0.3642840087413788,-0.03468700125813484,0.693606972694397,-0.5456200242042542,0.20196300745010376,0.02399599924683571,0.12355899810791016,-0.317095011472702,-0.2565790116786957,-0.2129489928483963,0.1992429941892624,-0.1079849973320961,-0.32537001371383667,0.1934320032596588,-0.0577629990875721,0.12971800565719604,-0.1599300056695938,-0.42729899287223816,-0.09464500099420547,-0.12965600192546844],[-0.30614998936653137,-0.44770801067352295,-0.16141100227832794,-0.3062019944190979,-0.12738999724388123,-0.2877880036830902,0.24089999496936798,-0.3401300013065338,0.0992169976234436,-0.1470170021057129,0.0036349999718368053,-0.19123700261116028,0.7770879864692688,-0.2608799934387207,-0.8095250129699707,0.6531530022621155,-0.006849000230431557,-0.3009510040283203,-0.2828280031681061,-0.8392189741134644,-2.016179084777832,-0.8990010023117065,0.5798130035400391,-0.21446600556373596,0.766514003276825,0.369500994682312,-0.4719400107860565,0.5147709846496582,1.7811670303344727,-1.6207280158996582,0.7414780259132385,-0.5229910016059875,0.16313299536705017,0.3645800054073334,-0.00841899961233139,0.12104299664497375,-0.2488429993391037,-0.2334820032119751,-0.22504200041294098,-0.6192010045051575,-0.3443570137023926,0.1117440015077591,-0.21787700057029724,0.4808639883995056,-0.07317200303077698,-0.2194799929857254,-0.018404999747872353,0.2615079879760742],[0.19640399515628815,-0.1004749983549118,-0.8492709994316101,0.2595289945602417,0.4230419993400574,-0.16418899595737457,-0.26707300543785095,0.4552670121192932,-0.15081100165843964,-0.3279789984226227,1.1244310140609741,-0.3405739963054657,-0.24285399913787842,0.40316900610923767,-0.3902679979801178,-1.7325409650802612,-0.8145340085029602,-0.31170499324798584,-0.2084220051765442,-0.12469600141048431,-0.5464680194854736,-0.6695079803466797,-1.7025179862976074,0.3266560137271881,0.2060219943523407,-0.4714609980583191,-0.02263299934566021,0.8304499983787537,-0.44140100479125977,0.9306340217590332,0.26273301243782043,0.36850500106811523,0.2321690022945404,-0.0988750010728836,-0.45767199993133545,-0.4785279929637909,-0.3898540139198303,0.38502898812294006,-0.051263999193906784,-0.9395760297775269,0.6076340079307556,0.004044999834150076,0.5270619988441467,-0.2762959897518158,0.7761960029602051,0.17831499874591827,0.31244298815727234,0.19580599665641785],[-0.5303059816360474,-0.29661500453948975,-0.377810001373291,-0.25108298659324646,0.060196999460458755,0.2107899934053421,-0.39424601197242737,-0.597894012928009,-0.0956680029630661,0.5398430228233337,1.2954349517822266,-0.02382499910891056,-0.07044699788093567,0.6896219849586487,0.38916799426078796,0.7795630097389221,-0.035471998155117035,-0.0653270035982132,2.1056289672851562,-0.13802200555801392,0.3671010136604309,0.2625170052051544,-0.0973069965839386,1.5242700576782227,0.11431299895048141,0.48288100957870483,-1.2037780284881592,0.490556001663208,1.4310580492019653,-1.0495569705963135,0.44252699613571167,-1.1850850582122803,0.16064000129699707,-0.22376799583435059,-0.37588199973106384,-0.07418999820947647,0.09481500089168549,-0.4378589987754822,-0.09324400126934052,-0.3295300006866455,0.024361999705433846,-0.01649799942970276,0.10946399718523026,0.3019010126590729,0.1271360069513321,-0.02838899940252304,0.06833100318908691,-0.2367659956216812],[0.38779398798942566,-0.10480300337076187,0.45704299211502075,-0.3458310067653656,-0.30277401208877563,0.0026809999253600836,0.040261998772621155,0.2367520034313202,0.3972049951553345,-0.21070300042629242,-0.7534130215644836,0.29562899470329285,-0.15039600431919098,0.2957249879837036,-0.15386100113391876,0.34273800253868103,0.03178500011563301,0.4075019955635071,0.3173980116844177,-0.06373099982738495,0.47763800621032715,0.02437799982726574,-0.14230599999427795,0.9022169709205627,0.01450200006365776,-0.23062099516391754,0.22696000337600708,0.10239499807357788,0.45221400260925293,-0.4051649868488312,0.05584799870848656,-0.8965929746627808,-0.09867099672555923,-0.2714479863643646,-0.2510490119457245,-0.15700900554656982,-0.07511799782514572,-0.062359001487493515,-0.5548620223999023,-0.08718100190162659,0.1251409947872162,0.13899999856948853,-0.4436909854412079,0.07930099964141846,-0.07255099713802338,-0.20145800709724426,-0.07572100311517715,-0.17868399620056152],[0.18177099525928497,0.19062399864196777,0.14847999811172485,-0.18539200723171234,-0.2582550048828125,0.21517300605773926,0.3769820034503937,-0.18237900733947754,-0.2676999866962433,-0.31346699595451355,0.13018199801445007,-0.39102301001548767,-0.7295569777488708,-0.08827900141477585,-0.20153899490833282,-1.3712600469589233,0.5176270008087158,0.10072699934244156,-0.16354000568389893,0.04128099977970123,-0.35295501351356506,-0.1412619948387146,-0.05383099988102913,-1.4964029788970947,0.04601899906992912,0.7027590274810791,-0.47604799270629883,0.4489839971065521,-0.732388973236084,0.8316019773483276,-0.06702200323343277,0.918848991394043,-0.07310699671506882,0.11735799908638,0.03826399892568588,0.2680410146713257,0.08634400367736816,0.16388800740242004,0.11956299841403961,0.11211200058460236,0.05288200080394745,-0.01923299953341484,0.2086630016565323,0.00047599998652003706,0.028630999848246574,0.43181198835372925,-0.10143300145864487,-0.0372299998998642],[0.25151899456977844,-0.03710699826478958,0.33861199021339417,0.40197598934173584,0.010319000110030174,0.20156200230121613,-0.2733910083770752,0.019339000806212425,-0.15977400541305542,-0.2539080083370209,0.19863300025463104,-0.11198899894952774,0.015011000446975231,-1.271672010421753,-0.757889986038208,0.3600119948387146,0.033656999468803406,-0.0738610029220581,-0.7515100240707397,-0.10850299894809723,-0.8635900020599365,0.7538340091705322,-0.7165719866752625,-0.04942300170660019,-0.45568200945854187,-0.751321017742157,-1.3431199789047241,-0.19122099876403809,-0.8415430188179016,-1.4450980424880981,-0.5219039916992188,-0.255605012178421,0.14780500531196594,0.029350999742746353,0.17798200249671936,0.4997189939022064,0.15084800124168396,0.01497500017285347,-0.08921399712562561,0.14591699838638306,0.43749698996543884,0.35433799028396606,0.4822480082511902,0.10830800235271454,-0.17402100563049316,0.252267986536026,0.06853199750185013,0.2124129980802536],[0.19720900058746338,-0.01398099958896637,-0.11113400012254715,0.2197439968585968,-0.2779040038585663,-0.10407800227403641,-0.08460099995136261,-0.10226400196552277,0.24447299540042877,-0.47312599420547485,0.18310199677944183,0.0507889986038208,1.3033889532089233,0.4741489887237549,-0.4793420135974884,-1.414823055267334,-0.3474699854850769,-0.5283939838409424,-0.09593000262975693,-0.4663670063018799,-0.9115449786186218,-1.1737550497055054,-0.45395800471305847,-0.94268798828125,-0.6900920271873474,0.013907000422477722,-0.453575998544693,0.11611799895763397,-0.044992998242378235,0.18331600725650787,0.4402160048484802,-0.21307800710201263,-0.15639999508857727,-0.12525799870491028,-0.3557150065898895,-0.09032099694013596,-0.3945629894733429,-0.0248429998755455,-0.18341700732707977,-0.6180959939956665,-0.3783999979496002,0.08384399861097336,0.5173289775848389,0.28502899408340454,0.13561399281024933,0.581483006477356,0.3729709982872009,0.38100600242614746],[-0.3059520125389099,0.34313198924064636,0.10362900048494339,0.11347100138664246,-0.07061299681663513,0.2718069851398468,-1.8000000636675395e-05,-0.11462000012397766,-0.005067999940365553,-0.012733000330626965,-0.8149999976158142,0.3827039897441864,0.20047399401664734,-0.621878981590271,-1.1825809478759766,-0.31627601385116577,0.22883200645446777,0.4747380018234253,-0.8040410280227661,-0.6418579816818237,1.487488031387329,-0.3256649971008301,0.5440790057182312,0.6302310228347778,-0.4640809893608093,0.3997710049152374,0.3134390115737915,-0.7865689992904663,0.6001290082931519,-0.4889349937438965,-0.10614299774169922,0.750012993812561,-0.12416999787092209,-0.22488799691200256,0.258868008852005,0.2677929997444153,-0.7196059823036194,-0.31893301010131836,-0.3791860044002533,-0.15503999590873718,-0.04037199914455414,0.29851600527763367,-0.17419399321079254,0.02434000000357628,-0.22157099843025208,-0.34140801429748535,0.08919800072908401,-0.47457200288772583],[0.23951800167560577,0.08127900213003159,-0.009789999574422836,0.2553359866142273,-0.056262001395225525,-0.29725000262260437,-0.3274089992046356,-0.468656986951828,-0.01815900020301342,-0.05323600023984909,1.5121710300445557,-0.23173099756240845,0.7153139710426331,0.43518900871276855,0.5739660263061523,-0.5281670093536377,-0.3494119942188263,-0.20473399758338928,-0.10768499970436096,-0.0011699999449774623,-0.5286629796028137,-1.570019006729126,-0.29526200890541077,0.13062399625778198,0.13920800387859344,0.012462999671697617,0.047164998948574066,0.3092460036277771,-0.2191859930753708,2.2238409519195557,0.8210089802742004,-0.05767500028014183,0.16209399700164795,0.01092700008302927,-0.03090599924325943,-0.4543769955635071,-0.015562999993562698,-0.0025710000190883875,0.16038499772548676,0.12781299650669098,-0.23042699694633484,0.6971819996833801,-0.016253000125288963,-0.09134499728679657,0.33409199118614197,0.08534500002861023,-0.38295501470565796,0.9515249729156494],[0.07537399977445602,0.35973799228668213,0.5018290281295776,-0.17949700355529785,0.002877000020816922,0.3342269957065582,0.3708130121231079,-0.1896129995584488,0.023354999721050262,-0.19174499809741974,0.47585800290107727,-0.008395000360906124,0.04435800015926361,-0.34056198596954346,-0.11590299755334854,-0.18377499282360077,-0.17733900249004364,0.5927109718322754,-0.03788299858570099,0.2540459930896759,0.5018550157546997,-0.14093199372291565,0.01312199980020523,1.122897982597351,0.07145600020885468,0.9456989765167236,-0.2834109961986542,0.5587769746780396,0.5975300073623657,-0.5803419947624207,-0.7268649935722351,-0.33530399203300476,0.5007230043411255,-0.45545798540115356,-0.032944001257419586,0.018769999966025352,-0.3574160039424896,0.1277260035276413,0.25261399149894714,-0.24284599721431732,-0.07180699706077576,0.10310599952936172,-0.23190900683403015,-0.33976098895072937,-0.03267199918627739,0.06294000148773193,0.37125301361083984,0.038499001413583755],[0.47752198576927185,-0.037804000079631805,-0.04693799838423729,-0.12654800713062286,-0.3472430109977722,-0.14105099439620972,0.012041999958455563,-0.39456799626350403,0.07802499830722809,0.21558700501918793,0.22670599818229675,-0.7355309724807739,0.6124950051307678,-0.1603419929742813,0.3203069865703583,-0.8013960123062134,0.23127299547195435,0.18274199962615967,1.1673049926757812,0.17390500009059906,0.871595025062561,-1.265705943107605,-0.13177600502967834,-1.0758379697799683,-0.19000500440597534,-0.024661000818014145,-0.11205899715423584,0.03406200185418129,0.1318950057029724,0.3943620026111603,0.03789899870753288,0.3309690058231354,-0.029100000858306885,0.2206059992313385,-0.16789400577545166,0.3806909918785095,-0.20163799822330475,0.047442998737096786,0.1087070032954216,-0.22407899796962738,-0.30032700300216675,-0.2841250002384186,-0.2790899872779846,0.06860300153493881,-0.526190996170044,-0.5085150003433228,-0.4484789967536926,-0.19926400482654572],[-0.3618839979171753,-0.17317500710487366,0.0392489992082119,-0.32878899574279785,0.016123000532388687,-0.039503999054431915,-0.060704998672008514,-0.3991219997406006,0.3339869976043701,0.8052849769592285,1.6241669654846191,0.1770620048046112,0.40231001377105713,0.9208369851112366,2.0224099159240723,-0.2964319884777069,0.3588089942932129,0.42007699608802795,1.156411051750183,0.44863200187683105,0.7499169707298279,0.3544650077819824,0.5461030006408691,1.281831979751587,-0.008251000195741653,0.03949499875307083,-0.5311480164527893,0.4260860085487366,-0.4126780033111572,-1.0053900480270386,-0.7531660199165344,-1.4196280241012573,-0.14945800602436066,-0.08570799976587296,-0.1990640014410019,0.2865630090236664,-0.32767000794410706,-0.14542199671268463,-0.30776000022888184,-0.28636398911476135,0.018758999183773994,-0.047488000243902206,0.13360099494457245,0.41518598794937134,-0.04365500062704086,0.22639299929141998,-0.2555930018424988,-0.5658810138702393],[-0.060065001249313354,-0.08865199983119965,0.02877900004386902,0.007992999628186226,-0.20021599531173706,-0.5018410086631775,-0.34088701009750366,-0.2374739944934845,0.07033400237560272,-0.24079300463199615,0.1508300006389618,0.232696995139122,-0.29001501202583313,-0.06634899973869324,-0.4065459966659546,-0.2487269937992096,0.3656480014324188,0.27726298570632935,2.365173101425171,0.09893599897623062,-0.0074880002066493034,1.0145039558410645,-0.06646300107240677,0.28368398547172546,0.682108998298645,0.2044450044631958,-0.28116801381111145,-0.021354999393224716,-1.0489799976348877,0.9475229978561401,1.9137660264968872,-0.7852020263671875,-0.32153698801994324,-0.0110489996150136,-0.24721600115299225,-0.2514309883117676,0.22112999856472015,-0.39467400312423706,-0.3734540045261383,0.17515000700950623,0.07608199864625931,-0.4598950147628784,0.3116849958896637,-0.5567790269851685,-0.444909006357193,0.2011999934911728,-0.7666770219802856,-0.29920899868011475],[-0.03557199984788895,-0.07897300273180008,-0.1460230052471161,0.26752999424934387,-0.14619000256061554,-0.12911799550056458,-0.1494559943675995,0.06065899878740311,0.07830999791622162,0.36355701088905334,0.07750199735164642,-0.2946079969406128,0.5696250200271606,0.026503000408411026,0.6420210003852844,0.9442359805107117,0.03362099826335907,0.3651359975337982,0.7951350212097168,0.2722409963607788,-0.10631299763917923,1.1037429571151733,0.784060001373291,1.0534069538116455,-0.5628960132598877,-0.08590800315141678,-1.272258996963501,-0.6489760279655457,-0.7731339931488037,-0.9866870045661926,-0.2144480049610138,0.33598101139068604,-0.25393301248550415,-0.025408999994397163,-0.0675240010023117,0.07149499654769897,0.002503999974578619,-0.1582220047712326,-0.31279098987579346,-0.35906198620796204,-0.05488000065088272,-0.07342600077390671,0.1391260027885437,-0.21543599665164948,-0.39660900831222534,-0.39820998907089233,-0.15755200386047363,-0.20194000005722046],[-0.06806699931621552,0.7114899754524231,0.08295000344514847,0.5471259951591492,0.8101069927215576,0.33414900302886963,0.6423590183258057,0.18947499990463257,0.151295006275177,0.48771899938583374,-0.33812201023101807,0.1928510069847107,0.44685599207878113,0.9142019748687744,1.2321909666061401,1.2429859638214111,0.23893600702285767,-0.08559499680995941,-0.6849259734153748,0.427700012922287,0.6755959987640381,0.8976430296897888,-0.3490560054779053,1.6664459705352783,-0.5411750078201294,-0.3532339930534363,1.4648900032043457,-0.681663990020752,-0.22522300481796265,0.8670120239257812,1.2595980167388916,0.7963190078735352,0.05227699875831604,0.22031700611114502,0.1317339986562729,-0.39164999127388,-0.2072020024061203,-0.14163300395011902,0.13655200600624084,-0.09128200262784958,-0.2342270016670227,-0.15786199271678925,0.0620109997689724,0.4853920042514801,-0.021428000181913376,0.3097609877586365,-0.20459100604057312,0.2721000015735626],[-0.041315000504255295,-0.2645629942417145,0.34915998578071594,-0.024304000660777092,-0.3970170021057129,0.7960339784622192,0.4422920048236847,-0.273485004901886,-0.19013799726963043,-0.5296549797058105,-0.24603499472141266,-0.17777800559997559,-0.6405029892921448,0.26424598693847656,0.1584639996290207,0.2624810039997101,0.15732400119304657,0.624288022518158,-1.021914005279541,-0.005956999957561493,-0.005975000094622374,0.3104560077190399,0.3536669909954071,-0.599465012550354,-0.9971389770507812,0.18522100150585175,-0.6870089769363403,0.5036560297012329,0.08347400277853012,-0.9866330027580261,-0.7845450043678284,0.8890489935874939,0.4538789987564087,0.07682400196790695,0.242467999458313,-0.3848170042037964,0.05140199884772301,0.1296740025281906,0.29776400327682495,0.03250199928879738,-0.10616199672222137,-0.1484210044145584,0.006252999883145094,0.17651399970054626,-0.19233299791812897,-0.08854299783706665,-0.3496539890766144,-0.011049999855458736],[0.6515020132064819,-0.20541800558567047,0.8975390195846558,-0.3564710021018982,-0.49099600315093994,-0.35901200771331787,-0.5313270092010498,-1.3124300241470337,-0.4794299900531769,-0.05700499936938286,0.5891479849815369,0.46663200855255127,-0.41876500844955444,0.19112800061702728,1.3877079486846924,-2.6535699367523193,0.8870279788970947,0.10771899670362473,2.0926079750061035,-0.05249800160527229,0.6118699908256531,0.745947003364563,-0.5763099789619446,-2.3395040035247803,-0.2345999926328659,0.10771899670362473,0.9177899956703186,0.575747013092041,0.06119899824261665,1.5127860307693481,-0.1805489957332611,2.723172903060913,-0.23641400039196014,0.371071994304657,-0.11776799708604813,0.6084409952163696,-0.16436299681663513,-0.047155000269412994,-0.02211499959230423,0.07385899871587753,-0.4557900130748749,-0.5297300219535828,0.007036000024527311,-0.06511600315570831,0.14433099329471588,-0.05377399921417236,-0.661175012588501,-0.27127400040626526],[-0.09728500247001648,0.34409400820732117,0.39719799160957336,-0.011095999740064144,0.18615500628948212,0.5397390127182007,0.30331701040267944,0.4001159965991974,0.6260780096054077,0.22089600563049316,-0.5067530274391174,0.07364299893379211,0.04793599992990494,0.78301602602005,0.2934199869632721,0.29241999983787537,0.3305180072784424,0.052483998239040375,-0.9811099767684937,0.4803520143032074,0.0009469999931752682,0.9076489806175232,0.2797220051288605,-0.09426400065422058,0.06906300038099289,-0.16155800223350525,-0.47793400287628174,0.24737299978733063,-0.12383300065994263,-0.09527099877595901,-0.4254879951477051,-0.03626500070095062,-0.2668739855289459,0.04342599958181381,0.3927620053291321,-0.2216069996356964,0.26146399974823,0.053171999752521515,-0.2622990012168884,-0.13048699498176575,-0.1438950002193451,0.14613400399684906,0.03853299841284752,0.21778400242328644,-0.07540500164031982,-0.19735999405384064,0.23300999402999878,-0.05636899918317795],[-0.005758999846875668,0.056210000067949295,0.34798499941825867,-0.38113200664520264,-0.05237499997019768,0.06775300204753876,0.02555900067090988,-0.29019901156425476,-0.32168298959732056,0.4741530120372772,1.1650179624557495,-0.03996700048446655,0.4371800124645233,0.7282040119171143,0.200203999876976,-0.8477090001106262,0.12703999876976013,0.5869560241699219,1.0800609588623047,0.19903899729251862,0.5092120170593262,1.0792540311813354,0.6108629703521729,-0.3281779885292053,-0.4617510139942169,-0.09813500195741653,-1.239527940750122,0.22265499830245972,-1.4088040590286255,-1.2157089710235596,0.4435789883136749,-0.3354269862174988,-0.09144599735736847,-0.35054200887680054,0.036688998341560364,0.1600400060415268,-0.1478949934244156,-0.4351179897785187,-0.11688800156116486,-0.2274779975414276,-0.1915140002965927,0.04756300151348114,-0.09319300204515457,0.13189400732517242,-0.24426500499248505,-0.21039000153541565,-0.5817139744758606,-0.42875000834465027],[0.03790400177240372,0.144336998462677,0.4536319971084595,0.03913800045847893,0.46136099100112915,0.550885021686554,0.05442599952220917,0.6638140082359314,-0.5146939754486084,-0.4556710124015808,0.11980599910020828,-0.11381199955940247,-0.23455800116062164,0.2271299958229065,-0.7721970081329346,0.11419899761676788,0.3157860040664673,0.3507179915904999,0.8770959973335266,-0.045791998505592346,1.977942943572998,-0.4853450059890747,0.6545990109443665,1.8902729749679565,1.4527519941329956,0.2884790003299713,-0.7140539884567261,0.6547750234603882,0.16854800283908844,-0.874360978603363,-0.7661420106887817,-0.48598799109458923,0.1704549938440323,-0.0773480013012886,0.24725499749183655,0.23541000485420227,0.21637700498104095,-0.1943420022726059,-0.07814399898052216,-0.16277900338172913,0.1695690006017685,0.33457300066947937,-0.6282479763031006,0.010413000360131264,0.04279800131917,0.2963620126247406,-0.012130999937653542,-0.162649005651474],[0.2594909965991974,0.5139300227165222,0.48113200068473816,0.11782100051641464,0.7030360102653503,0.5889679789543152,0.3096599876880646,0.21226200461387634,0.05631199851632118,0.001069999998435378,-1.4831249713897705,0.012895000167191029,-0.490325003862381,0.14100299775600433,-0.5436189770698547,0.0557980015873909,-0.3046700060367584,-0.47930601239204407,-0.2376910001039505,-0.16273200511932373,0.5384830236434937,-0.22732099890708923,0.1400420069694519,0.6710019707679749,-0.34918999671936035,0.07780499756336212,0.44638198614120483,0.23018699884414673,-0.6355400085449219,-1.4133540391921997,-0.46580401062965393,-1.0053679943084717,-0.003449999960139394,-0.20013000071048737,0.33040300011634827,0.20017600059509277,-0.20614400506019592,0.012000000104308128,-0.03616800159215927,-0.326647013425827,0.6389840245246887,0.6040570139884949,0.5224699974060059,-0.12230700254440308,0.04490099847316742,0.45194900035858154,-0.19502000510692596,0.08604700118303299],[-0.17799000442028046,0.49552100896835327,0.04297599941492081,0.05361400172114372,0.4745180010795593,0.053491998463869095,0.04317200183868408,0.547203004360199,0.40133899450302124,-0.015518000349402428,1.0385119915008545,0.26073598861694336,0.2419459968805313,1.0977449417114258,1.8832809925079346,2.2160120010375977,-0.5084120035171509,0.0756239965558052,-0.9320899844169617,0.6163600087165833,0.02496499940752983,0.7370070219039917,0.31321200728416443,1.8754229545593262,0.29774200916290283,-0.16015200316905975,1.4770450592041016,0.17793400585651398,-0.06032399833202362,-0.0388140007853508,0.7837309837341309,-0.5483329892158508,-0.08397900313138962,-0.05708799883723259,-0.34661200642585754,-0.5247439742088318,-0.11110799759626389,-0.46715399622917175,0.016635000705718994,-0.36105701327323914,-0.3379560112953186,-0.037262000143527985,0.020774999633431435,0.15885700285434723,-0.13460500538349152,-0.5424090027809143,0.043446000665426254,-0.17608100175857544],[-0.4686470031738281,0.017016999423503876,-0.2896369993686676,-0.014941999688744545,0.38157200813293457,-0.2832930088043213,-0.14110499620437622,0.5191680192947388,0.04255399852991104,0.0361189991235733,-0.4615119993686676,0.7533559799194336,0.006283999886363745,-0.4229690134525299,0.9697279930114746,-0.24581700563430786,0.19330300390720367,-0.3886849880218506,1.5630860328674316,0.5145530104637146,-0.1496029943227768,0.056366000324487686,-1.2179319858551025,0.6864680051803589,-0.17718300223350525,-0.5530629754066467,0.7719889879226685,0.023026999086141586,-1.488015055656433,0.180759996175766,0.3692620098590851,-1.7622350454330444,-0.00030300000798888505,-0.13484199345111847,-0.38130098581314087,0.18144699931144714,0.11168999969959259,-0.35796499252319336,-0.30237698554992676,-0.20316700637340546,-0.168953999876976,-0.22825899720191956,0.327659010887146,0.014712999574840069,-0.31314200162887573,-0.22052599489688873,-0.6717209815979004,-0.06534600257873535],[0.0714000016450882,0.13272500038146973,0.08125299960374832,0.026213999837636948,-0.1506579965353012,-0.5876230001449585,-0.14435699582099915,0.3939859867095947,0.11409100145101547,0.08136700093746185,0.050181999802589417,-0.4823969900608063,0.8154289722442627,0.2954599857330322,-1.2306300401687622,0.5682849884033203,-0.04891100153326988,0.7031099796295166,0.9535729885101318,-0.06995700299739838,1.2018239498138428,-0.2918260097503662,0.6642100214958191,1.69622802734375,-0.20225800573825836,1.1387859582901,0.7011449933052063,0.009592999704182148,1.030079960823059,1.0922960042953491,0.4041599929332733,0.40364399552345276,-0.05589599907398224,0.1050259992480278,0.14783300459384918,-0.3439069986343384,-0.7518270015716553,-0.0378279983997345,-0.5366560220718384,0.023405000567436218,0.08961500227451324,0.15775099396705627,-0.059140000492334366,0.359264999628067,0.10696099698543549,-0.14570200443267822,0.1334179937839508,-0.27178698778152466],[-0.02647400088608265,-0.012520000338554382,-0.33621200919151306,-0.4486539959907532,-0.13922299444675446,-0.1005610004067421,-0.2952049970626831,-0.5342879891395569,-0.24552500247955322,-0.7241610288619995,1.9698829650878906,-0.2008100003004074,-0.5924320220947266,0.20513500273227692,-0.31985199451446533,-0.8195890188217163,-0.0680759996175766,-0.013639000244438648,0.5543839931488037,-0.4763279855251312,0.0009089999948628247,-0.1633239984512329,0.11028199642896652,-0.04368399828672409,-0.4454919993877411,-0.4420740008354187,-0.7282429933547974,0.41971299052238464,-0.8839719891548157,0.7287009954452515,0.9095770120620728,-0.3260610103607178,-0.057392001152038574,-0.2142219990491867,0.21380800008773804,-0.042837001383304596,-0.1282230019569397,0.6533929705619812,0.06192300096154213,-0.19691500067710876,0.5900120139122009,0.3929620087146759,0.05326800048351288,-0.056067001074552536,-0.11483900249004364,0.0762220025062561,0.11577600240707397,0.21243199706077576],[-0.2882409989833832,0.0158929992467165,-0.3710159957408905,-0.142862007021904,-0.4644390046596527,-0.4528670012950897,-0.41463199257850647,0.012508000247180462,-0.4089129865169525,-0.16607500612735748,1.1132819652557373,-0.8253719806671143,-0.06181100010871887,-0.34851300716400146,-0.6468949913978577,-1.5653129816055298,0.03447699919342995,0.14128999412059784,-0.1124109998345375,0.27937600016593933,0.1357859969139099,1.4080090522766113,1.0722719430923462,-0.02491299994289875,0.717104971408844,0.16431300342082977,-0.1885560005903244,1.1329710483551025,-0.0446459986269474,0.7924870252609253,0.9539980292320251,-1.0276520252227783,-0.30715399980545044,0.04842400178313255,0.4765309989452362,-0.025846000760793686,0.03792199864983559,0.23447899520397186,0.44048601388931274,0.22421400249004364,-0.11885000020265579,-0.13258999586105347,-0.04772299900650978,-0.2846289873123169,-0.3625969886779785,0.26370200514793396,-0.09021700173616409,-0.3302069902420044],[-0.13763000071048737,0.014577999711036682,-0.040382999926805496,-0.10093600302934647,-0.006593999918550253,-0.4503769874572754,-0.45361098647117615,0.348580002784729,-0.6574140191078186,-0.2389020025730133,1.5133609771728516,-0.7130339741706848,0.16613300144672394,-0.3054479956626892,-0.6417700052261353,-0.8399819731712341,0.16922299563884735,0.006829999852925539,1.751781940460205,-0.01202400028705597,1.424077033996582,1.7051869630813599,1.1292200088500977,0.9518100023269653,0.3392780125141144,0.042518001049757004,-0.07035399973392487,0.684715986251831,-0.5389930009841919,1.5172829627990723,1.158903956413269,-1.0902069807052612,-0.3023830056190491,-0.24183200299739838,0.16754299402236938,0.1889210045337677,-0.3771589994430542,0.27377501130104065,0.03777499869465828,-0.2192779928445816,0.20702999830245972,-0.15568199753761292,0.00966500025242567,-0.35573598742485046,-0.5077630281448364,-0.06924399733543396,0.06493700295686722,-0.13652199506759644],[0.354779988527298,0.03598500043153763,-0.7816069722175598,0.3319059908390045,-0.42505401372909546,-0.03275400027632713,-0.5070430040359497,0.8119469881057739,-0.14832399785518646,0.11007499694824219,-0.13668900728225708,-0.8695080280303955,-0.41840898990631104,-1.7130719423294067,0.5087260007858276,-0.13885599374771118,-0.8340169787406921,0.18385100364685059,-0.12419600039720535,-0.13210900127887726,-0.5188199877738953,0.12289399653673172,-0.694337010383606,-0.31251001358032227,0.5916209816932678,0.0390780009329319,1.9908510446548462,0.40492498874664307,-0.13148899376392365,0.20759400725364685,0.33403998613357544,-0.35511699318885803,0.3772130012512207,0.2776449918746948,-0.2392369955778122,-0.22001199424266815,-0.06241900101304054,0.5705710053443909,-0.260453999042511,0.38409799337387085,0.5187519788742065,0.2986699938774109,0.41304001212120056,0.260468989610672,0.18584200739860535,0.5332300066947937,0.35005199909210205,0.06536000221967697],[0.05069800093770027,0.022738000378012657,1.228132963180542,0.3887830078601837,0.30201900005340576,0.7662209868431091,0.5715619921684265,0.43998900055885315,0.12055099755525589,0.3061459958553314,-2.542773962020874,-0.07468199729919434,-1.2836209535598755,0.03258400037884712,-0.17534799873828888,-0.45179200172424316,-0.012388999573886395,0.004035999998450279,-0.7902960181236267,-0.11849500238895416,-0.39775800704956055,-0.2674010097980499,-0.163332000374794,0.07185699790716171,-0.7013760209083557,1.1474690437316895,0.35814499855041504,-0.2511340081691742,0.7572550177574158,-0.7479349970817566,-0.6845930218696594,0.004282999783754349,0.34279900789260864,0.0837239995598793,-0.30799299478530884,0.18825699388980865,-0.36657100915908813,0.4446229934692383,-0.022679999470710754,-0.05009499937295914,0.6665880084037781,0.0815500020980835,0.0702740028500557,0.3932879865169525,-0.28863000869750977,0.01790199987590313,0.25194498896598816,-0.26299598813056946],[-0.03519299998879433,-0.13493900001049042,0.46566998958587646,-1.019426941871643,-0.30046701431274414,0.5340679883956909,-0.01042100042104721,0.024021999910473824,-0.37923699617385864,-0.4948959946632385,1.3151030540466309,-0.11152400076389313,-0.04911100119352341,0.8044509887695312,1.1166000366210938,-1.7911299467086792,0.09701599925756454,0.6791149973869324,-0.20056800544261932,0.19002200663089752,0.5379660129547119,-1.739338994026184,-0.6025329828262329,-0.4889009892940521,-0.18353700637817383,0.04973499849438667,0.6296210289001465,-0.007441999856382608,0.5562819838523865,0.5570859909057617,1.0706839561462402,0.25818300247192383,0.03585299849510193,-0.10631199926137924,-0.21852999925613403,-0.12776200473308563,0.0061240000650286674,-0.001892999978736043,0.5171939730644226,0.1552100032567978,-0.41764599084854126,0.4272870123386383,-0.16323399543762207,-0.15691199898719788,-0.005752999801188707,-0.23622600734233856,-0.010301999747753143,0.22898299992084503],[-0.18203400075435638,-0.1682790070772171,-0.08379700034856796,0.45282500982284546,-0.42741501331329346,0.38144001364707947,0.72222900390625,0.2571200132369995,-0.14173999428749084,0.06386400014162064,0.5185610055923462,0.09692499786615372,-0.08705300092697144,-0.8606269955635071,0.056377001106739044,0.6283289790153503,0.21614399552345276,0.34926700592041016,-1.7232619524002075,-0.0331449992954731,0.30181801319122314,-1.6193629503250122,-0.7860350012779236,-0.13645699620246887,-0.288675993680954,0.02068999968469143,-0.9207469820976257,-0.12247999757528305,0.9798709750175476,-0.8179380297660828,-1.3479130268096924,1.6101160049438477,0.3407540023326874,0.46746399998664856,-0.23303799331188202,0.2112780064344406,0.13781200349330902,0.03305000066757202,-0.12897899746894836,-0.44842100143432617,-0.005320999771356583,0.19403499364852905,-0.39220699667930603,0.4408169984817505,0.10729999840259552,0.12429100275039673,0.16715000569820404,0.0783350020647049],[0.43112799525260925,0.0245130006223917,0.30732598900794983,-0.23425300419330597,0.16235899925231934,-0.18118999898433685,0.9542819857597351,0.006391999777406454,-0.42706701159477234,-0.20864200592041016,0.43547600507736206,-0.07439299672842026,-0.46556299924850464,0.4527919888496399,0.20792900025844574,0.5877940058708191,0.033941999077796936,-0.28044000267982483,-0.43540599942207336,0.6338930130004883,-0.028335999697446823,0.04299899935722351,0.6326839923858643,-0.5764120221138,0.15985499322414398,0.27917999029159546,-0.5584290027618408,0.002672000089660287,0.8605750203132629,-1.4973820447921753,-0.47665199637413025,0.9493979811668396,0.0507269985973835,0.4262939989566803,0.3887990117073059,0.08910399675369263,-0.0033009999897331,0.28203800320625305,0.5604469776153564,0.002125999890267849,0.2635189890861511,0.2686930000782013,0.033858999609947205,0.05603399872779846,0.4393180012702942,0.11532700061798096,-0.1002419963479042,-0.052292998880147934],[0.35796600580215454,0.09175200015306473,-0.05588600039482117,0.13048599660396576,-0.2736259996891022,0.07132299989461899,0.370292991399765,0.756026029586792,-0.22450700402259827,0.2202720046043396,-0.6799259781837463,0.03930800035595894,-0.16820700466632843,-0.390500009059906,0.4840160012245178,-1.434867024421692,0.3960849940776825,0.015084000304341316,-0.3697659969329834,0.08652599900960922,-0.24913999438285828,-1.0729119777679443,-0.8953570127487183,0.22559599578380585,0.239546000957489,-0.04387599974870682,1.7776800394058228,0.0044109998270869255,1.4588619470596313,0.6335859894752502,-0.5110309720039368,-0.9452509880065918,-0.06349299848079681,0.1541679948568344,-0.11072299629449844,0.0633779987692833,-0.0399009995162487,-0.430186003446579,-0.5923590064048767,-0.12917299568653107,0.05548800155520439,-0.17141999304294586,-0.24800099432468414,-0.043251000344753265,0.02215700037777424,0.2155189961194992,-0.06057500094175339,-0.11506500095129013],[-0.40232399106025696,-0.03181299939751625,0.6825900077819824,-0.2173060029745102,0.113755002617836,-0.13000600039958954,0.0004980000085197389,-0.8803319931030273,-0.2704850137233734,-0.31874099373817444,-0.39984801411628723,-0.22194300591945648,-0.007608000189065933,-0.5453069806098938,-0.25776800513267517,0.7802919745445251,0.43766099214553833,0.42507699131965637,0.2461169958114624,0.1910959929227829,-0.25367799401283264,1.5512759685516357,1.0523320436477661,0.8091800212860107,-0.7436259984970093,-0.7145789861679077,-2.060610055923462,-0.5370799899101257,-0.6288020014762878,-1.307178020477295,-0.3239940106868744,-0.1137780025601387,-0.10385199636220932,-0.21476000547409058,0.18666599690914154,0.16026000678539276,0.42539799213409424,-0.08521299809217453,-0.3202359974384308,-0.029935000464320183,-0.07355300337076187,-0.1891459971666336,-0.058497000485658646,-0.007197000086307526,0.03251900151371956,0.05620000138878822,-0.0037159998901188374,0.24741500616073608],[0.3097279965877533,-0.16814500093460083,-0.011741000227630138,0.25857898592948914,0.31425899267196655,0.03308400139212608,0.47094500064849854,0.34703299403190613,0.3612160086631775,0.15738999843597412,-0.4206410050392151,-0.21475400030612946,-0.08177399635314941,-0.07828500121831894,0.28555598855018616,-0.24745799601078033,-0.16610099375247955,-0.208639994263649,-0.8970299959182739,0.06640999764204025,-1.3020939826965332,-0.00203399988822639,-0.15798699855804443,-1.3413480520248413,-0.32920899987220764,-0.14102399349212646,-1.5930349826812744,-0.12734100222587585,-1.04653799533844,0.40870401263237,0.5457080006599426,-0.4583050012588501,-0.3536800146102905,-0.6185899972915649,-0.003797000041231513,-0.17634700238704681,-0.4650479853153229,-0.33419498801231384,-0.30557799339294434,-0.39382100105285645,0.17415599524974823,0.4525589942932129,0.5213170051574707,0.26822200417518616,0.4086199998855591,0.35947099328041077,0.14485499262809753,0.43599000573158264],[0.009116999804973602,0.2682749927043915,0.8891509771347046,-0.0518839992582798,0.3098759949207306,0.4803610146045685,0.25540900230407715,0.3736029863357544,0.04017199948430061,0.7634990215301514,-0.5099310278892517,0.40129101276397705,0.32826098799705505,-0.38346999883651733,0.32197099924087524,0.16927599906921387,0.1783600002527237,0.011680000461637974,-0.177715003490448,-0.005067999940365553,-0.16768699884414673,-0.5099070072174072,0.1988770067691803,0.4518809914588928,-0.5326319932937622,1.0536270141601562,0.43904298543930054,0.2908959984779358,-0.053341999650001526,-0.5284209847450256,-0.7034689784049988,0.3777010142803192,-0.06753700226545334,-0.038913000375032425,0.3213050067424774,-0.4040830135345459,-0.257515013217926,0.23263399302959442,0.401636004447937,-0.1822900027036667,0.09021999686956406,-0.3072870075702667,0.1445080041885376,-0.1973239928483963,-0.171315997838974,0.06071300059556961,0.4563390016555786,0.13354000449180603],[0.02439199946820736,-0.3138439953327179,0.18157599866390228,0.1488019973039627,-0.30355000495910645,0.1967650055885315,0.3587949872016907,-0.3002080023288727,0.6419219970703125,-0.29023200273513794,-0.15766100585460663,0.2990129888057709,-0.32721200585365295,-0.7843980193138123,1.090093970298767,0.0009549999958835542,0.4505409896373749,-0.2369910031557083,-0.38348498940467834,-0.04247000068426132,-0.579006016254425,-1.2551610469818115,0.2777090072631836,-0.4695639908313751,-0.8079829812049866,0.027045000344514847,0.1988770067691803,0.5294409990310669,1.067844033241272,-1.0197919607162476,-0.47433701157569885,0.7080410122871399,0.33319300413131714,-0.3652060031890869,0.17966599762439728,-0.3102729916572571,0.03511299937963486,0.5397279858589172,0.6583080291748047,0.363647997379303,0.22333699464797974,-0.2896740138530731,-0.21841800212860107,-0.0648759976029396,0.3869580030441284,0.14372800290584564,-0.001572999986819923,0.2442149966955185],[0.19835799932479858,-0.0628879964351654,-0.02201399952173233,-0.3406589925289154,-0.040539998561143875,0.04453599825501442,-0.20281100273132324,-0.045768000185489655,0.8653330206871033,0.7519099712371826,-0.48871099948883057,0.2074580043554306,0.718421995639801,0.25209999084472656,0.35438498854637146,0.5677300095558167,0.7155439853668213,0.05198400095105171,0.8955190181732178,-0.3948880136013031,0.03235099837183952,1.0826079845428467,0.06857900321483612,-2.138118028640747,-0.2226720005273819,-0.6462969779968262,-0.47072499990463257,0.06821999698877335,-0.055084001272916794,0.09840100258588791,-0.05981399863958359,1.1545469760894775,-0.06565500050783157,0.029604999348521233,-0.3431119918823242,0.123539999127388,-0.6087790131568909,-0.7209879755973816,-0.011787000112235546,-0.06998500227928162,0.0008329999982379377,-0.4014599919319153,-0.17145699262619019,-0.42329999804496765,-0.6962140202522278,-0.28179100155830383,0.009882000274956226,-0.2890479862689972],[0.640716016292572,0.2658120095729828,-0.010552999563515186,0.43849098682403564,0.03931799903512001,0.038114000111818314,0.20361100137233734,1.005031943321228,0.2820819914340973,0.05600300058722496,-0.6391819715499878,0.15187300741672516,0.936555027961731,0.18040400743484497,-0.41870400309562683,0.7815819978713989,0.7802280187606812,0.5444949865341187,0.11189500242471695,0.16096800565719604,-0.4347279965877533,1.0991610288619995,-0.3972730040550232,-0.9966980218887329,-0.8381379842758179,-1.0312479734420776,-0.4488849937915802,-0.4403580129146576,-0.13553300499916077,0.4290179908275604,0.07642199844121933,0.10590499639511108,-0.13965000212192535,0.31786298751831055,0.061604999005794525,0.22965000569820404,0.03660399839282036,0.3198539912700653,-0.021689999848604202,-0.02692200057208538,-0.07360599935054779,0.42218300700187683,0.4007520079612732,-0.21438799798488617,0.04292599856853485,0.03678800165653229,-0.0754769966006279,-0.13147500157356262],[-0.1590310037136078,0.055743999779224396,0.49519801139831543,-1.5302560329437256,0.2643739879131317,0.67740398645401,0.079414002597332,-0.06967200338840485,0.30825600028038025,-0.23792099952697754,-0.7250739932060242,0.37242698669433594,-0.5446239709854126,-0.5194209814071655,-0.968986988067627,1.0627690553665161,-0.2470020055770874,0.2418300062417984,-0.2311599999666214,-0.4816890060901642,-0.3844889998435974,1.0144989490509033,-0.25359299778938293,1.5542019605636597,-0.5090699791908264,-0.03479300066828728,-1.7155580520629883,-0.6990789771080017,-0.14794600009918213,-1.3817850351333618,-0.42963001132011414,-0.1100429967045784,0.20993299782276154,0.19988800585269928,0.5977299809455872,0.03432900086045265,0.23809799551963806,-0.2211800068616867,-0.5225520133972168,0.21874700486660004,0.30746200680732727,0.36732399463653564,0.3228040039539337,0.057103998959064484,-0.3791089951992035,-0.023327000439167023,0.3046869933605194,-0.07518699765205383],[-0.18008099496364594,-0.03721199929714203,-1.0372159481048584,0.056363001465797424,-0.09904299676418304,-0.7563369870185852,-0.9820410013198853,-0.48243600130081177,-0.13787099719047546,-0.32361501455307007,0.9485960006713867,0.5120890140533447,0.8749769926071167,-0.35120099782943726,-0.7787219882011414,-1.1912000179290771,-0.9729980230331421,-0.6123790144920349,0.4340539872646332,-0.3756909966468811,-0.2811810076236725,-0.33518698811531067,-1.3891960382461548,-1.085319995880127,0.22498400509357452,-0.45298799872398376,1.3984249830245972,0.7624260187149048,-1.1525460481643677,1.6792670488357544,1.5086209774017334,-0.18228299915790558,0.014473999850451946,-0.2202499955892563,-0.5297960042953491,-0.05294699966907501,0.2564620077610016,0.010273999534547329,-0.1592639982700348,-0.09114199876785278,0.588657021522522,0.5844910144805908,0.05781799927353859,0.3128249943256378,0.46889999508857727,0.5594310164451599,0.15200600028038025,0.6414309740066528],[0.14368200302124023,-0.14114899933338165,0.22980999946594238,-0.08471400290727615,-0.35192400217056274,-0.2848289906978607,0.11181599646806717,-0.7141299843788147,0.015263999812304974,-0.660444974899292,1.2294180393218994,-0.43990999460220337,-0.06190299987792969,0.3972170054912567,-0.4569549858570099,-0.6942639946937561,1.5135849714279175,0.16384300589561462,-0.3731589913368225,0.8367829918861389,1.7574700117111206,0.8335000276565552,1.3239459991455078,-0.3187580108642578,0.15931099653244019,0.19291099905967712,-0.4645810127258301,0.28756099939346313,-0.045660000294446945,-0.00317499996162951,-0.6155250072479248,0.2906489968299866,-0.09236899763345718,0.41770800948143005,0.294514000415802,0.05091800168156624,-0.1796170026063919,0.278315007686615,0.6350190043449402,-0.02638000063598156,0.01757499948143959,-0.10120400041341782,0.16495899856090546,-0.3695189952850342,-0.26746198534965515,-0.030091000720858574,-0.04782100021839142,-0.18945500254631042],[0.08440399914979935,0.4349699914455414,-0.016387000679969788,-0.11548200249671936,-0.2232690006494522,0.6053159832954407,0.24799899756908417,-0.2787710130214691,0.38538798689842224,0.06009199842810631,-0.972527027130127,-0.2028679996728897,-0.32455000281333923,-0.47903698682785034,-0.03389599919319153,1.4892810583114624,-0.6646149754524231,0.10908199846744537,-0.3990269899368286,-0.02984200045466423,0.5038350224494934,0.02067199908196926,0.7018839716911316,0.08569200336933136,-0.792227029800415,0.6532959938049316,-0.24439699947834015,-0.5335670113563538,0.739998996257782,-1.1390010118484497,-0.5902870297431946,-0.5797600150108337,0.22875499725341797,0.1998790055513382,0.2315800040960312,0.06583499908447266,-0.7584660053253174,-0.1655140072107315,-0.26028698682785034,-0.32829299569129944,-0.0826060026884079,0.3662410080432892,0.10300099849700928,-0.05060800164937973,0.619737982749939,0.5713430047035217,-0.20379799604415894,0.00699200015515089],[-0.12602299451828003,0.357028990983963,0.36991700530052185,0.1467600017786026,0.20956499874591827,0.5733820199966431,0.7711399793624878,0.2875809967517853,-0.26716798543930054,-0.09925899654626846,0.0052919997833669186,-0.28918999433517456,-0.09261699765920639,0.2373020052909851,-0.20864799618721008,0.29276999831199646,0.3649660050868988,0.10134799778461456,-0.35342299938201904,-0.1617009937763214,0.09073500335216522,-0.2573679983615875,0.49903398752212524,0.8195649981498718,-0.881289005279541,0.8464959859848022,0.8243259787559509,-0.18394899368286133,0.4929409921169281,0.8406199812889099,0.2820650041103363,-0.23406100273132324,-0.12950199842453003,-0.1927970051765442,-0.38680601119995117,-0.012028999626636505,-1.057731032371521,-0.17129400372505188,0.09045399725437164,0.2187030017375946,-0.00854399986565113,-0.04217100143432617,-0.004009999800473452,-0.2596690058708191,-0.39094799757003784,0.09370099753141403,0.04438399896025658,-0.4478830099105835],[0.46032199263572693,0.40296798944473267,-0.34432700276374817,-0.19460900127887726,-0.15715700387954712,0.28778600692749023,0.3189670145511627,0.6307849884033203,0.7777280211448669,0.3938240110874176,-0.26052799820899963,0.2572459876537323,-0.25178301334381104,0.42514801025390625,-0.20109599828720093,-0.21161499619483948,-0.5492299795150757,-0.2696230113506317,-1.4158250093460083,0.162650004029274,0.32754799723625183,-2.037182092666626,-0.45715799927711487,0.9304419755935669,0.045058999210596085,0.8784469962120056,1.6674669981002808,0.28238800168037415,1.4750100374221802,-0.3379330039024353,-0.8831499814987183,-0.2305770069360733,0.07808499783277512,0.4721289873123169,-0.26026999950408936,0.4443329870700836,-0.1659960001707077,0.3283900022506714,0.15393100678920746,-0.2816140055656433,-0.027437999844551086,-0.1258620023727417,-0.12926499545574188,-0.0016720000421628356,0.13572700321674347,-0.4606829881668091,0.06834600120782852,0.41846799850463867],[0.11948800086975098,0.1090250015258789,0.027300000190734863,-0.2214670032262802,0.5273650288581848,0.07572399824857712,-0.4904190003871918,0.07932399958372116,0.2125770002603531,-0.13407400250434875,0.6590449810028076,0.686851978302002,0.8623340129852295,-0.2415439933538437,0.1088389977812767,-1.889003038406372,-0.49174201488494873,0.26664599776268005,1.6958980560302734,0.03649099916219711,0.2955560088157654,0.3286449909210205,-0.16028399765491486,0.3289400041103363,0.6600000262260437,-0.04872399941086769,0.715395987033844,0.020015999674797058,-1.1608480215072632,0.3987869918346405,1.5135020017623901,-1.2052160501480103,0.12703199684619904,-0.2196740061044693,-0.10660599917173386,0.16564999520778656,-0.20090599358081818,-0.4372600018978119,-0.196834996342659,-0.3023790121078491,0.044123999774456024,-0.3356510102748871,0.1116039976477623,-0.23332799971103668,-0.23549099266529083,-0.07797399908304214,-0.14189299941062927,0.044123999774456024],[0.36638200283050537,0.26285499334335327,0.25347700715065,-0.14041699469089508,0.2880040109157562,0.33782100677490234,0.4280959963798523,0.3700920045375824,-0.797668993473053,-0.15978500247001648,0.009802999906241894,-0.19537000358104706,0.40123000741004944,0.5552110075950623,-1.1667499542236328,-1.2585519552230835,-0.055980000644922256,0.15621699392795563,0.7673550248146057,-0.37759000062942505,0.4935530126094818,-0.18632200360298157,0.7976120114326477,0.5845479965209961,-0.08075600117444992,0.16303899884223938,1.807229995727539,0.08156099915504456,0.23730899393558502,0.855774998664856,-1.0700030326843262,-0.048055000603199005,-0.286202996969223,0.1446949988603592,-0.14153900742530823,0.44655299186706543,0.05207899957895279,0.23428499698638916,-0.09963200241327286,0.32512199878692627,0.14667600393295288,-0.20161600410938263,0.13545699417591095,0.06168000027537346,0.5128179788589478,0.13921500742435455,0.10815499722957611,-0.522229015827179]],"b1":[0.18174199759960175,0.03158799931406975,0.0064489999786019325,-0.046532001346349716,-0.10484600067138672,0.004385999869555235,-0.0073910001665353775,-0.016102999448776245,0.15647199749946594,0.09428700059652328,-0.06989800184965134,-0.047922998666763306,-0.009220000356435776,0.0005709999823011458,-0.1759980022907257,-0.009790999814867973,0.07268399745225906,0.0023129999171942472,-0.08449500054121017,0.08717600256204605,0.039802998304367065,0.09090700000524521,0.021448999643325806,-0.05966600030660629,-0.08414699882268906,0.10810299962759018,-0.06073400005698204,-0.051920998841524124,0.020183999091386795,0.08530999720096588,-0.019936000928282738,-0.2298620045185089,0.07322800159454346,-0.055511001497507095,-0.07947999984025955,-0.0156230004504323,0.0583919994533062,-0.14299200475215912,-0.13269199430942535,0.026110999286174774,-0.08617100119590759,0.05340699851512909,0.11673499643802643,0.07321400195360184,0.004162999801337719,0.018373999744653702,0.06424900144338608,0.01939699985086918,0.07304699718952179,-0.10383900254964828,0.11647900193929672,-0.07078199833631516,0.13169899582862854,0.04850900173187256,-0.06682900339365005,-0.12504200637340546,0.11697199940681458,0.09830699861049652,-0.00036700000055134296,-0.03305500000715256,-0.1847579926252365,-0.07407300174236298,0.06078600138425827,-0.005714000202715397],"w2":[[-0.4701330065727234,-0.06958100199699402,0.29126399755477905,0.13790200650691986,-0.15985800325870514,-0.0609470009803772,-0.07375799864530563,-0.18760600686073303,-1.0524239540100098,0.04060899838805199,-0.21706999838352203,-0.03660700097680092,-0.23246200382709503,-0.546226978302002,-0.28921398520469666,-0.058963000774383545,0.027008000761270523,0.23049800097942352,0.6582270264625549,-0.04224099963903427,0.1792690008878708,0.236408993601799,0.3268499970436096,0.2868790030479431,-0.48510798811912537,0.07779400050640106,-0.4908660054206848,0.05639199912548065,0.04464299976825714,0.5850369930267334,-0.2100840061903,-0.3201110064983368,-0.014127000235021114,0.3531999886035919,0.07454600185155869,0.15471899509429932,0.14032399654388428,0.13363799452781677,-0.28019198775291443,0.07711700350046158,-0.9939659833908081,0.2174309939146042,0.23459599912166595,0.18248200416564941,0.08810299634933472,-0.33596399426460266,0.18204499781131744,-0.1973150074481964,0.310932993888855,0.0523190014064312,-0.270224004983902,0.13126599788665771,-0.31341299414634705,-0.15352299809455872,0.044923000037670135,0.5707370042800903,-0.1039699986577034,0.297664999961853,0.3747920095920563,-0.437049001455307,-0.8889099955558777,0.10905800014734268,0.12574000656604767,0.4937649965286255],[0.4055599868297577,-0.01338099967688322,0.36432498693466187,-0.7816889882087708,-0.2549850046634674,-0.2129720002412796,0.25473299622535706,0.3733240067958832,0.15897800028324127,-0.20438799262046814,-0.27071601152420044,0.42166799306869507,-0.28092101216316223,0.5299299955368042,-1.0494539737701416,-0.3142330050468445,-0.3410780131816864,0.5837550163269043,-0.7478330135345459,0.2905209958553314,0.0994739979505539,-0.10823000222444534,0.20664900541305542,-0.3467999994754791,0.49805301427841187,-0.5322399735450745,0.05375099927186966,-0.24959400296211243,0.18152600526809692,-0.3978370130062103,0.04050999879837036,0.7132189869880676,-0.037227001041173935,-0.4293400049209595,0.3891009986400604,0.09933800250291824,0.27925100922584534,0.3684450089931488,0.5459100008010864,-0.19566300511360168,0.20637600123882294,-0.17712299525737762,-0.387239009141922,-0.25417599081993103,-0.3365989923477173,0.2055409997701645,-0.5570470094680786,0.23422500491142273,0.2770169973373413,-0.00723200011998415,0.061400000005960464,-0.554099977016449,0.4295629858970642,0.1532139927148819,-0.354310005903244,0.8892130255699158,0.700302004814148,-0.3795979917049408,-0.32629498839378357,0.6509550213813782,0.3523690104484558,0.14864200353622437,0.0004579999949783087,0.0012049999786540866],[-0.49727800488471985,-0.012636999599635601,0.032784998416900635,0.04928399994969368,0.49602198600769043,0.2027900069952011,0.00976100005209446,0.09335800260305405,-0.6914790272712708,-0.19913600385189056,0.11469300091266632,-0.03667600080370903,0.12109699845314026,0.2729850113391876,-0.9257209897041321,-0.3210879862308502,-0.3123820126056671,-0.10955899953842163,0.1776140034198761,-0.15647000074386597,0.09569600224494934,0.12954899668693542,-0.2812960147857666,-0.08120899647474289,0.3946090042591095,-0.2617909908294678,0.4527539908885956,-0.035941001027822495,-0.10016100108623505,0.31024399399757385,0.11749900132417679,0.3049919903278351,-0.21811799705028534,-0.21946999430656433,0.02907400019466877,0.026765000075101852,0.23436400294303894,0.0811220034956932,0.3013260066509247,0.07334300130605698,0.8400279879570007,0.16904599964618683,0.37526100873947144,0.4960480034351349,0.33608001470565796,-0.05710199847817421,-0.028178000822663307,0.0001539999939268455,0.20793800055980682,0.1841599941253662,-0.23535899817943573,0.03414100036025047,-0.18160399794578552,-0.22661499679088593,0.5728840231895447,-0.08630300313234329,-0.24886800348758698,-0.250326007604599,-0.1569419950246811,0.23856399953365326,0.25004199147224426,0.11997999995946884,0.12805500626564026,0.5570430159568787],[-0.741150975227356,0.17959199845790863,-0.2770160138607025,-0.06139399856328964,-0.04499899968504906,-0.1474130004644394,-0.11933500319719315,0.14751499891281128,0.3439579904079437,-0.010660000145435333,-0.13712899386882782,0.46654799580574036,-0.19160400331020355,-0.08570200204849243,-0.8018969893455505,-0.15967999398708344,0.2935279905796051,0.8031370043754578,-0.410057008266449,0.454912006855011,-0.03384999930858612,-0.1317799985408783,0.18979500234127045,-0.07840800285339355,0.21009400486946106,-0.048340000212192535,-0.08735200017690659,0.1720149964094162,0.22225399315357208,-0.22196300327777863,0.55485600233078,0.30912700295448303,0.390392005443573,-0.09747400134801865,0.06730899959802628,0.07248599827289581,-0.2115119993686676,-0.16507400572299957,-0.009219000115990639,0.010979999788105488,-0.3964189887046814,0.08901000022888184,-0.06721100211143494,-0.09584300220012665,-0.015395999886095524,0.00672700023278594,-0.0603180006146431,0.13595299422740936,0.016654999926686287,-0.10038100183010101,0.3570669889450073,0.18594400584697723,-0.17148299515247345,0.180759996175766,0.3481599986553192,0.1672389954328537,0.7878050208091736,-0.04706399887800217,0.1697089970111847,0.09653700143098831,-0.22669799625873566,-0.22280000150203705,-0.16163499653339386,-0.10794100165367126],[-0.22939300537109375,-0.1370439976453781,0.23937299847602844,-0.17594599723815918,0.4978320002555847,-0.3163059949874878,0.45558100938796997,0.27826300263404846,0.1030540019273758,0.040761999785900116,-0.09961500018835068,-0.06376300007104874,-0.022126000374555588,0.4908370077610016,-0.7482550144195557,-0.5035549998283386,-0.033590998500585556,-0.3611440062522888,-0.610647976398468,-0.10339699685573578,0.04196999967098236,0.0760129988193512,0.1332560032606125,-0.49226799607276917,0.06350599974393845,-0.10022400319576263,0.21425199508666992,-0.1503400057554245,0.052712999284267426,-0.09377799928188324,-0.2463430017232895,0.2975830137729645,-0.2783690094947815,-0.07428400218486786,0.046424999833106995,0.07596799731254578,0.2729710042476654,0.24963900446891785,0.2448890060186386,0.0703829973936081,-0.05082700029015541,-0.2735610008239746,0.08079499751329422,0.032878000289201736,-0.06749200075864792,-0.014554000459611416,-0.15355899930000305,0.4901230037212372,-0.30174800753593445,0.1807209998369217,-0.5967699885368347,-0.0647680014371872,0.10264799743890762,0.14407700300216675,-0.18196900188922882,-0.31430500745773315,-0.6337500214576721,-0.0488010011613369,0.09787800163030624,0.3621459901332855,0.19070400297641754,0.24229900538921356,0.22190900146961212,-0.14853200316429138],[-0.35670700669288635,0.018668999895453453,0.28577500581741333,-0.08052100241184235,0.2078229933977127,0.08027499914169312,0.2003690004348755,0.15160199999809265,-0.8538979887962341,-0.04307800158858299,0.11384999752044678,0.05440400168299675,-0.3516319990158081,0.46751099824905396,0.1329209953546524,-0.4055179953575134,-0.24846099317073822,-0.5209529995918274,0.06516599655151367,-0.11286000162363052,0.006202000193297863,0.06607700139284134,0.12836800515651703,-0.02374899946153164,0.263388991355896,0.09017899632453918,0.12184999883174896,-0.1778549998998642,-0.11850299686193466,-0.034765999764204025,-0.20933300256729126,-0.05262700095772743,-0.33660998940467834,-0.15937300026416779,-0.02073800005018711,-0.04265199974179268,0.004586999770253897,0.20051300525665283,0.009033000096678734,0.018161000683903694,0.27326101064682007,-0.06590499728918076,0.1885869950056076,-0.03537600114941597,0.18731699883937836,0.5446779727935791,-0.29078298807144165,-0.06769700348377228,-0.23851600289344788,0.10676400363445282,-0.42919299006462097,-0.34099501371383667,0.0006140000186860561,-0.16929300129413605,-0.1486389935016632,-0.07522699981927872,-0.19743099808692932,0.006928999908268452,-0.33753401041030884,0.1637289971113205,0.5167400240898132,0.061528999358415604,0.053293999284505844,0.26539701223373413],[0.054510001093149185,0.0654119998216629,0.07726100087165833,-0.0795930027961731,0.14289399981498718,0.01206899993121624,0.14155800640583038,0.3322080075740814,-0.09471099823713303,-0.07357200235128403,0.11304199695587158,-0.06448200345039368,0.115618996322155,0.29955101013183594,0.6777970194816589,-0.47783899307250977,0.0988370031118393,-0.3447659909725189,-0.04284299910068512,-0.23493100702762604,-0.08502200245857239,0.1557060033082962,-0.35010600090026855,-0.35679900646209717,-0.11914999783039093,0.2977910041809082,0.08365900069475174,-0.03883799910545349,0.04587399959564209,0.0896809995174408,-0.08563999831676483,-0.1469859927892685,-0.11166799813508987,0.14612600207328796,0.135235995054245,0.08970800042152405,-0.01863900013267994,0.06480299681425095,0.12874700129032135,-0.12958599627017975,-0.010742000304162502,-0.05328800156712532,0.12650899589061737,0.3175640106201172,0.1616699993610382,0.1408350020647049,0.08535700291395187,-0.14777900278568268,-0.2363400012254715,0.04418899863958359,-0.40918898582458496,-0.7249670028686523,0.4516569972038269,0.17114900052547455,0.04886399954557419,0.0004130000015720725,-0.8648250102996826,-0.2689970135688782,-0.042399000376462936,-0.1305830031633377,0.34973499178886414,-0.11174599826335907,0.015623999759554863,-0.36205700039863586],[0.3268499970436096,-0.2690599858760834,-0.07191400229930878,-0.05255499854683876,0.564041018486023,-0.35322698950767517,0.0982619971036911,0.28866299986839294,0.037324998527765274,0.07285799831151962,0.04587399959564209,-0.20076699554920197,0.1462620049715042,0.34308698773384094,-0.21212999522686005,-0.3188050091266632,-0.44685599207878113,0.42531099915504456,-0.09603600203990936,-0.16872699558734894,0.15042300522327423,0.22792699933052063,-0.41891199350357056,-0.9186779856681824,0.4289880096912384,-0.028209000825881958,1.1639360189437866,0.19527199864387512,0.15945500135421753,-0.11736399680376053,-0.08590000122785568,0.14460299909114838,-0.7537710070610046,0.39876100420951843,-0.034655001014471054,-0.01984499953687191,0.3474229872226715,-0.05979999899864197,-0.06785400211811066,-0.1917549967765808,0.7125589847564697,-0.3316890001296997,-0.05597800016403198,0.0849360004067421,-0.027823999524116516,0.19895899295806885,0.07961399853229523,0.4669089913368225,-0.32958298921585083,0.3493320047855377,-0.12090799957513809,-0.6093649864196777,0.21977700293064117,-0.008425000123679638,-0.205268993973732,-0.3241319954395294,-0.142084002494812,-0.5840650200843811,-0.244486004114151,0.01463599968701601,0.6174240112304688,0.29630300402641296,0.2756049931049347,0.5532180070877075],[0.0129380002617836,-0.08692300319671631,0.11174099892377853,-0.1389710009098053,0.012369000352919102,-0.49337100982666016,0.08138100057840347,0.07584600150585175,-0.008085000328719616,0.09641300141811371,0.10403300076723099,-0.027388999238610268,-0.020337000489234924,0.07212299853563309,0.22995199263095856,-0.012164999730885029,-0.05297800153493881,-0.5648819804191589,-0.44905000925064087,-0.3486500084400177,0.2828280031681061,0.015637999400496483,-0.14185400307178497,-0.08877699822187424,0.0648680031299591,-0.07956799864768982,0.0013000000035390258,-0.0016039999900385737,0.058896999806165695,0.09207099676132202,0.12239599972963333,-0.05787999927997589,0.06874100118875504,-0.06744299829006195,-0.055160000920295715,-0.0014979999978095293,0.12181500345468521,-0.0282639991492033,-0.07513999938964844,0.07521399855613708,0.10274100303649902,-0.06966999918222427,-0.1261949986219406,-0.08298999816179276,-0.2863270044326782,-0.010497000068426132,0.2632940113544464,0.20440100133419037,0.02095399983227253,0.09197600185871124,0.2483779937028885,-0.05692199990153313,-0.10442700237035751,-0.16775399446487427,-0.08433700352907181,0.010712999850511551,0.24680399894714355,-0.0678659975528717,-0.0984409973025322,0.020879000425338745,0.17812399566173553,0.04638800024986267,0.12001799792051315,0.10428699851036072],[0.47736701369285583,-0.2448440045118332,-0.041342999786138535,-0.031787000596523285,0.13371500372886658,0.4340279996395111,0.09009499847888947,8.600000001024455e-05,-0.09730099886655807,0.1496720016002655,0.10561399906873703,-0.1297129988670349,-0.3190400004386902,-0.10920199751853943,0.4027180075645447,0.12210799753665924,0.01179600041359663,-0.11866900324821472,-0.06305199861526489,0.15105600655078888,0.08392299711704254,-0.14368699491024017,0.09320800006389618,-0.20117299258708954,0.06897599995136261,-0.007553999777883291,-0.05460000038146973,0.12600000202655792,0.22343599796295166,0.12086000293493271,0.1467979997396469,-0.1300860047340393,-0.20672699809074402,0.20145800709724426,-0.1390170007944107,0.23714399337768555,0.059393998235464096,0.034995999187231064,-0.07294800132513046,0.1763720065355301,0.045166000723838806,-0.014041000045835972,-0.03803899884223938,0.03044700063765049,0.0005230000242590904,-0.14949800074100494,-0.2772510051727295,-0.20962199568748474,-0.07389699667692184,0.007763000205159187,0.1473969966173172,-0.15840500593185425,-0.04706300050020218,-0.19820000231266022,0.03950899839401245,-0.12664100527763367,0.10659100115299225,0.11062599718570709,-0.049261998385190964,-0.16651499271392822,0.005239999853074551,-0.21300600469112396,0.10544600337743759,-0.09992600232362747],[-0.0444829985499382,-0.09366799890995026,0.03385600075125694,0.01105200033634901,-0.09877199679613113,-0.24835799634456635,-0.190528005361557,-0.021064000204205513,0.05806399881839752,-0.04068500176072121,-0.11322399973869324,0.03822999820113182,0.05910300090909004,-0.06750199943780899,-0.31866300106048584,0.009025000035762787,-0.15525099635124207,0.046170998364686966,-0.18537700176239014,0.07011599838733673,-0.09302499890327454,0.07465799897909164,-0.0020069999154657125,-0.04438599944114685,0.0646120011806488,0.03760100156068802,-0.017115000635385513,-0.004997999873012304,-0.05576999858021736,-0.05112399905920029,0.024768000468611717,0.05287700146436691,0.05624999850988388,-0.03454599902033806,0.029261000454425812,0.03807400166988373,0.04365700110793114,0.13752199709415436,0.11381100118160248,-0.1306149959564209,-0.07910100370645523,-0.0450580008327961,-0.031808000057935715,0.030511999502778053,-0.09193599969148636,-0.17202800512313843,-0.21595999598503113,0.04464200139045715,0.08495800197124481,-0.00923100020736456,0.03558100014925003,-0.1594890058040619,0.0360959991812706,0.002326000016182661,-0.15076600015163422,0.1900539994239807,-0.11056499928236008,0.055941998958587646,0.04634299874305725,0.13990500569343567,0.06575299799442291,0.037526000291109085,-0.007172999903559685,0.17091499269008636],[0.003418999956920743,-0.09182000160217285,-0.006459000054746866,-0.18667900562286377,0.08815799653530121,0.2746790051460266,0.18005399405956268,0.017643999308347702,0.01273099984973669,0.1926099956035614,-0.11400000005960464,-0.002839999971911311,0.19937099516391754,-0.040341999381780624,-0.03986499831080437,-0.02031099982559681,-0.04493299871683121,0.2878040075302124,-0.08636199682950974,0.2862519919872284,0.2185710072517395,-0.18554499745368958,-0.18065300583839417,-0.1989240050315857,0.09759499877691269,-0.0611409991979599,0.07906000316143036,0.02232700027525425,0.35521700978279114,0.1166829988360405,0.14770300686359406,-0.004538999870419502,-0.17212699353694916,-0.03879399970173836,-0.03742599859833717,0.16002200543880463,-0.0015650000423192978,-0.0749559998512268,0.18163500726222992,0.15973000228405,0.18369700014591217,-0.037213001400232315,-0.09391699731349945,0.08115000277757645,-0.034345000982284546,-0.06202999874949455,-0.16227999329566956,-0.28657999634742737,-0.38423600792884827,0.1194320023059845,-0.006415999960154295,-0.14206400513648987,-0.16407200694084167,-0.08423899859189987,0.24756400287151337,-0.17533500492572784,-0.020413000136613846,0.05351800099015236,-0.1957699954509735,-0.009917999617755413,0.0662200003862381,-0.009267999790608883,0.27324599027633667,-0.06406000256538391],[0.13680000603199005,0.01710600033402443,0.0453220009803772,0.16599200665950775,-0.15569600462913513,0.04290600121021271,-0.021635999903082848,0.00291600008495152,0.09205999970436096,0.14970900118350983,-0.09900999814271927,-0.030973000451922417,0.14463700354099274,-0.20825399458408356,-0.5263850092887878,0.04938200116157532,0.2019840031862259,0.07994800060987473,0.027134999632835388,0.10536599904298782,0.16502800583839417,-0.1091419979929924,0.054301001131534576,0.05183900147676468,-0.03268299996852875,-0.027161000296473503,-0.10580600053071976,-0.1307460069656372,0.06876800209283829,0.05326399952173233,0.2762700021266937,-0.0928720012307167,-0.010603999719023705,-0.06092600151896477,-0.039854999631643295,0.10420899838209152,-0.01692499965429306,-0.09608999639749527,-0.20985500514507294,0.1598840057849884,-0.1410589963197708,0.27636998891830444,0.01985899917781353,0.05615999922156334,0.012303000316023827,-0.15369099378585815,0.066430002450943,0.046206001192331314,-0.17776000499725342,-0.017559999600052834,0.18761500716209412,0.06448400020599365,-0.24192899465560913,-0.3309119939804077,0.05637500062584877,0.1723880022764206,0.1559710055589676,0.06736800074577332,-0.09625200182199478,-0.0896259993314743,-0.23352199792861938,-0.19007399678230286,0.0792979970574379,-0.14255599677562714],[-0.14076100289821625,0.10206100344657898,0.003984999842941761,0.07237499952316284,-0.012012000195682049,-0.5548509955406189,-0.023948000743985176,0.025875000283122063,-0.091279998421669,-0.050207000225782394,-0.051945000886917114,-0.011500000022351742,0.22598999738693237,0.015870999544858932,0.07715100049972534,-0.1536870002746582,-0.11386899650096893,-0.06539200246334076,0.0835300013422966,-0.1978510022163391,0.015835000202059746,0.07035800069570541,0.060391999781131744,0.0686580017209053,-0.004997000098228455,0.0056929998099803925,-0.016147999092936516,0.006926999893039465,-0.11555600166320801,-0.024334000423550606,-0.10775599628686905,0.024563999846577644,0.03271099925041199,0.03156000003218651,0.0873359963297844,-0.11631499975919724,0.08818099647760391,0.03221600130200386,-0.030218999832868576,-0.0471699982881546,0.006630000192672014,0.0034680000972002745,0.05599299818277359,0.020090000703930855,0.029882999137043953,0.015843000262975693,0.07994399964809418,0.1658490002155304,0.04898200184106827,0.03178799897432327,0.021710999310016632,0.0014120000414550304,0.03827099874615669,-0.3022119998931885,-0.13082300126552582,0.15457800030708313,0.05243400111794472,-0.0010239999974146485,0.06574799865484238,0.04050400108098984,0.021284999325871468,0.04958600178360939,-0.046390000730752945,0.07560700178146362],[-0.2569139897823334,0.02860799990594387,-0.059057001024484634,0.07156600058078766,-0.048930998891592026,-0.14944800734519958,-0.03397800028324127,-0.10769400000572205,-0.1982170045375824,0.005594999995082617,-0.06840799748897552,0.021838000044226646,0.02064500004053116,-0.1070059984922409,0.1332949995994568,-0.03578399866819382,-0.15251299738883972,0.27869701385498047,-0.008290000259876251,-0.23271100223064423,0.16180899739265442,0.07138100266456604,0.13290299475193024,0.09810200333595276,-0.07691600173711777,-0.054246000945568085,-0.14854800701141357,-0.1096780002117157,-0.17232899367809296,-0.04713600128889084,-0.07981900125741959,-0.11230400204658508,0.06325899809598923,-0.14777399599552155,0.032999999821186066,-0.1303430050611496,0.03549899905920029,-0.11874400079250336,-0.056338999420404434,-0.0901620015501976,-0.07091499865055084,-0.0054779998026788235,0.03364900127053261,-0.1518539935350418,-0.0034680000972002745,-0.044077999889850616,0.12253399938344955,0.18485499918460846,0.1390019953250885,0.03664200007915497,0.19463400542736053,0.09769400209188461,-0.09763099998235703,0.06311599910259247,-0.08539199829101562,0.07614400237798691,0.08424299955368042,-0.052184998989105225,0.05907600000500679,-0.11134299635887146,-0.07892599701881409,-0.08232499659061432,-0.004863999783992767,0.021935999393463135],[0.039778999984264374,0.054124001413583755,0.1232990026473999,0.09015099704265594,0.05479799956083298,-0.062355998903512955,0.0045739999040961266,-0.07073699682950974,0.07654500007629395,-0.0018220000201836228,-0.046080999076366425,-0.1505800038576126,0.058639999479055405,-0.014298000372946262,0.12113700062036514,0.17145299911499023,-0.12123499810695648,-0.07698799669742584,-0.03718400001525879,0.1831970065832138,0.055337000638246536,0.04674600064754486,0.014649000018835068,0.10081499814987183,0.001487000030465424,-0.03874199837446213,-0.024222999811172485,-0.0981770008802414,-0.08963900059461594,0.08443199843168259,-0.011536000296473503,-0.0742570012807846,0.062369998544454575,-0.10160999745130539,-0.02815599925816059,-0.002715999959036708,0.0014329999685287476,-0.017913000658154488,-0.14600299298763275,-0.07536499947309494,0.04771599918603897,-0.10577400028705597,0.23825399577617645,0.06726100295782089,-0.010369000025093555,0.059393998235464096,-0.1020980030298233,0.0021329999435693026,0.26013100147247314,-0.07810600101947784,0.03380899876356125,0.0628649964928627,-0.11197499930858612,-0.3348329961299896,-0.10071799904108047,0.07549300044775009,0.13604000210762024,0.09803300350904465,0.3788970112800598,0.06574200093746185,-0.04127499833703041,-0.08867199718952179,-0.006484000012278557,-0.047196999192237854],[0.1090489998459816,-0.03988499939441681,0.0427590012550354,-0.14341199398040771,0.0007989999721758068,0.048285000026226044,0.046248000115156174,-0.1482360064983368,-0.17850400507450104,-0.06286399811506271,-0.22209300100803375,0.002836999949067831,-0.15188799798488617,0.037641000002622604,0.3729569911956787,-0.1641390025615692,-0.10251600295305252,0.3847070038318634,-0.14563199877738953,0.08983500301837921,-0.009739999659359455,-0.04801199957728386,-0.049345001578330994,0.05071999877691269,0.23782800137996674,0.00815299991518259,0.08577299863100052,-0.02512899972498417,0.0123089998960495,-0.05995099991559982,-0.2482530027627945,-0.07586199790239334,0.05554800108075142,0.042132001370191574,-0.09599199891090393,0.013716000132262707,0.06336700171232224,-0.01345600001513958,-0.04244900122284889,-0.023313000798225403,0.1934169977903366,-0.08157499879598618,-0.1560409963130951,0.09127099812030792,-0.15371200442314148,-0.08313299715518951,-0.15365299582481384,0.08209799975156784,-0.03375399857759476,-0.059404000639915466,-0.026544999331235886,-0.1856749951839447,-0.10816899687051773,-0.08146899938583374,-0.28438401222229004,0.012737000361084938,-0.16789300739765167,0.12731899321079254,0.07870300114154816,-0.024569999426603317,0.14111299812793732,0.11437500268220901,-0.08611200004816055,0.06962999701499939],[-0.45984798669815063,-0.06577300280332565,-0.04617900028824806,0.019419999793171883,-0.020663000643253326,0.00979899987578392,0.024004999548196793,0.07980799674987793,0.03948500007390976,0.034053999930620193,0.14804300665855408,0.021709000691771507,-0.1178470030426979,0.12535199522972107,-0.18874099850654602,-0.007145000156015158,0.03669799864292145,-0.3140079975128174,0.038757000118494034,-0.09487699717283249,0.0303569994866848,-0.1112779974937439,0.011130000464618206,0.15427400171756744,-0.09449499845504761,-0.04016900062561035,-0.02472599968314171,0.06303700059652328,-0.015150999650359154,-0.0692640021443367,0.004153000190854073,0.18918700516223907,0.10930199921131134,0.05890699848532677,-0.03418700024485588,-0.04939199984073639,-0.0034729999024420977,-0.015718000009655952,0.028008000925183296,0.03909600153565407,-0.055775001645088196,-0.19367200136184692,-0.12416800111532211,-0.1870580017566681,-0.010228999890387058,0.14959999918937683,0.3224300146102905,0.12333700060844421,-0.09218599647283554,0.07167299836874008,0.006783000193536282,0.1278180032968521,0.071772001683712,0.19638200104236603,0.07123500108718872,-0.21755699813365936,-0.009208999574184418,-0.22780799865722656,-0.06254400312900543,-0.13276800513267517,0.025578999891877174,0.1278340071439743,-0.03531299903988838,0.007825000211596489],[-0.4062280058860779,0.09479299932718277,-0.1174200028181076,-0.019610999152064323,0.08607900142669678,-0.16221299767494202,0.11889199912548065,0.022760000079870224,-0.20390500128269196,-0.11068099737167358,-0.035920001566410065,0.08323899656534195,0.06872999668121338,-0.06345599889755249,0.014953999780118465,-0.15824399888515472,0.041882000863552094,-0.032767001539468765,0.027891000732779503,0.19155000150203705,-0.061514001339673996,-0.05255600064992905,-0.07973899692296982,0.07673799991607666,-0.0008140000281855464,-0.06668200343847275,0.06231100112199783,0.002905000001192093,0.057686999440193176,-0.1093360036611557,-0.10316900163888931,-0.0182109996676445,0.00711200013756752,0.08994899690151215,0.021299999207258224,0.07556100189685822,0.012787999585270882,-0.03920000046491623,0.003154000034555793,-0.013426000252366066,-0.23032699525356293,0.03851399943232536,-0.005716999992728233,-0.16537000238895416,0.07461900264024734,-0.010359000414609909,-0.22395500540733337,0.0997299998998642,-0.127019003033638,0.0018550000386312604,-0.2165679931640625,-0.024613000452518463,-0.053213998675346375,-0.08342000097036362,0.01576399989426136,0.0358549989759922,-0.041659001260995865,-0.010494000278413296,0.19015799462795258,-0.05226999893784523,-0.21813000738620758,0.0840350016951561,-0.16873499751091003,-0.07018300145864487],[0.2284500002861023,0.04916499927639961,-0.13428400456905365,-0.34417200088500977,0.12184199690818787,0.2241709977388382,0.09358499944210052,0.13103899359703064,0.1916469931602478,0.06514699757099152,-0.3006269931793213,0.1005840003490448,-0.08148200064897537,0.08601099997758865,-0.32766398787498474,-0.19752100110054016,-0.012725000269711018,0.655888020992279,-0.0864730030298233,0.031346000730991364,0.21399199962615967,-0.14484000205993652,-0.17638300359249115,0.039494000375270844,0.07161399722099304,-0.031532999128103256,-0.06925799697637558,-0.04089999943971634,0.1647610068321228,0.08544699847698212,-0.018831999972462654,-0.03886700049042702,0.03690199926495552,-0.14103299379348755,-0.031192999333143234,0.041411999613046646,0.012112000025808811,-0.044829998165369034,0.10223399847745895,0.22645199298858643,0.06262700259685516,-0.19038699567317963,-0.02578200027346611,-0.03922799974679947,-0.1648939996957779,-0.0979280024766922,-0.04058799892663956,-0.1197810024023056,0.27587100863456726,0.18628300726413727,-0.11859799921512604,0.034040000289678574,-0.07238099724054337,0.3668990135192871,0.12213800102472305,-0.12902800738811493,-0.44940200448036194,-0.21080100536346436,-0.08546099811792374,-0.11784099787473679,0.29772499203681946,0.057551998645067215,-0.04975999891757965,-0.14399699866771698],[-0.1081089973449707,0.039138998836278915,-0.025023000314831734,-0.08604999631643295,0.021178999915719032,-0.11676199734210968,0.02207699976861477,-0.001218999968841672,-0.148390993475914,0.010836999863386154,-0.017239000648260117,-0.045173998922109604,0.47475799918174744,-0.01462399959564209,0.014739000238478184,-0.2295060008764267,-0.12993699312210083,0.14872899651527405,-0.08020800352096558,-0.15196099877357483,0.08142100274562836,0.027217000722885132,-0.0057219997979700565,0.01154400035738945,-0.026743000373244286,0.013240000233054161,-0.07824999839067459,-0.04780000075697899,0.032203998416662216,-0.032159000635147095,-0.03491400182247162,-0.07485499978065491,0.07879699766635895,0.017324000597000122,-0.035096000880002975,-0.06871099770069122,0.026585999876260757,-0.005931000225245953,-0.05529699847102165,-0.008464000187814236,-0.03842400014400482,0.007571999914944172,-0.13295499980449677,-0.12129700183868408,-0.035006001591682434,-0.04150199890136719,0.15658199787139893,0.2601099908351898,0.07648099958896637,0.06679300218820572,-0.0955130010843277,-0.029410000890493393,0.0038509999867528677,0.09481800347566605,0.030132999643683434,0.08848199993371964,0.03722599893808365,-0.12033800035715103,-0.04514100030064583,-0.05206200107932091,-0.03857799991965294,0.0802140012383461,-0.026312999427318573,0.08135899901390076],[-0.00851800013333559,0.0900840014219284,0.012152000330388546,-0.044319998472929,0.021118000149726868,-0.18146400153636932,0.0070420000702142715,-0.03584799915552139,-0.13980400562286377,-0.08964800089597702,-0.10642900317907333,0.01984100043773651,0.30995699763298035,0.06275100260972977,0.16881799697875977,-0.3968980014324188,-0.1028280034661293,0.2586140036582947,-0.03633100166916847,-0.04881799966096878,-0.042927999049425125,0.020656000822782516,0.040846001356840134,0.010591999627649784,0.02642899937927723,0.07448899745941162,-0.042040999978780746,-0.12282899767160416,0.00030700000934302807,-0.17925499379634857,-0.12154299765825272,0.02095700055360794,-0.04353500157594681,-0.08463700115680695,-0.033608000725507736,-0.12025299668312073,0.057273998856544495,0.023451000452041626,-0.025131000205874443,-0.044989001005887985,-0.026892999187111855,-0.09933099895715714,-0.13318300247192383,-0.13863800466060638,-0.05219300091266632,0.06866499781608582,0.04050400108098984,0.24860499799251556,-0.006523999851197004,0.003189000068232417,-0.15498599410057068,-0.068852998316288,-0.06448899954557419,-0.03141700103878975,0.004532000049948692,0.17516200244426727,-0.01855899952352047,-0.011518999934196472,-0.07632400095462799,0.034935999661684036,0.054269999265670776,0.07237999886274338,-0.12908600270748138,0.016076000407338142],[0.265051007270813,-0.03872799873352051,-0.043942999094724655,-0.027063999325037003,-0.08245699852705002,-0.18460799753665924,-0.122529998421669,0.025861000642180443,-0.027038000524044037,-0.14925700426101685,-0.06333799660205841,-0.029229000210762024,0.43264201283454895,0.08263800293207169,0.13369299471378326,-0.16506099700927734,-0.16158899664878845,0.12175100296735764,-0.03387799859046936,-0.07682999968528748,-0.1471800059080124,0.01859300024807453,0.008678999729454517,0.05158400163054466,0.02228200063109398,-0.023368999361991882,-0.023229999467730522,0.1540360003709793,-0.02927600033581257,-0.0019030000548809767,0.02449199929833412,0.02859799936413765,0.18189600110054016,-0.017054999247193336,0.03455900028347969,0.005892000161111355,0.004910999909043312,0.05256599932909012,0.07604199647903442,-0.1530279964208603,-0.007242999970912933,-0.016253000125288963,-0.1075889989733696,-0.10620799660682678,-0.10559500008821487,-0.10288400202989578,-0.22772400081157684,0.4035019874572754,0.1826609969139099,-0.05830200016498566,0.008686999790370464,-0.01826700009405613,0.033548999577760696,0.032166000455617905,-0.2727850079536438,0.2323479950428009,0.13144400715827942,-0.07071399688720703,0.056478001177310944,0.05750799924135208,0.13897599279880524,0.06728799641132355,-0.14574800431728363,-0.01333799958229065],[0.027772000059485435,0.1311129927635193,-0.05506199970841408,0.14636099338531494,0.004137000069022179,-0.01271700020879507,-0.009021000005304813,0.013398000039160252,-0.13291899859905243,0.013411000370979309,0.24129800498485565,-0.03982599824666977,0.22723299264907837,-0.021764000877738,0.3642590045928955,-0.03027299977838993,0.029662000015378,0.1151610016822815,0.07249800115823746,-0.18605299293994904,-0.035728998482227325,0.00609199982136488,0.15175700187683105,0.050381001085042953,-0.05574899911880493,-0.048183999955654144,-0.11420799791812897,0.08100199699401855,0.021185999736189842,-0.027654999867081642,0.05103199928998947,-0.0022899999748915434,0.1604679971933365,0.07920099794864655,0.0022899999748915434,0.013592000119388103,-0.0245169997215271,-0.07603500038385391,-0.08392100036144257,0.06782399863004684,-0.091109998524189,0.12933699786663055,0.0021619999315589666,-0.16032999753952026,-1.4999999621068127e-05,0.010730000212788582,0.28377100825309753,0.19096499681472778,0.18403899669647217,0.017764000222086906,-0.007973000407218933,-0.010227000340819359,-0.02914400026202202,0.11394599825143814,0.05609700083732605,0.054239001125097275,0.14438599348068237,-0.10373999923467636,0.03080499917268753,-0.045405998826026917,-0.0580810010433197,-0.007691000122576952,0.021858999505639076,0.03468700125813484]],"b2":[0.010394000448286533,0.24397100508213043,0.06727699935436249,0.026496000587940216,0.025901999324560165,-0.010347000323235989,-0.0027799999807029963,-0.004873999860137701,0.030216999351978302,-0.02192699909210205,-0.04995900020003319,0.002887000096961856,0.04464099928736687,-0.0037930000107735395,-0.07920599728822708,0.055452000349760056,0.1550620049238205,0.03556099906563759,-0.015270999632775784,-0.04237699881196022,-0.017690999433398247,0.045503001660108566,-0.06585100293159485,-0.05309800058603287]};
+/* The sweep: twenty-five worlds, best first. */
+const SWEEP = [{"M":[0.86,-0.68,-0.32,-0.66,0.56,-0.02,-0.91,-0.44,0.19,0.29,0.45,0.7,-0.17,-0.7,-0.26,0.42],"seed":65024910,"kind":"free","score":0.905,"g":2.19,"range":4,"stiff":0.47,"gamma":1.34,"dt":0.179,"drag":0.042,"visc":0.02,"couple":0.09,"vmax":0.9,"spread":0.39,"seep":0,"seedMode":1,"amt":2.4,"rad":11,"fill":0.29},{"M":[0.46,0.48,-0.95,0.47,0.03,0.85,-0.4,0.4,-0.11,0.65,0.3,-0.56,0.6,0.05,-0.21,0.82],"seed":375686515,"kind":"free","score":0.755,"g":2.96,"range":9,"stiff":0.39,"gamma":2.17,"dt":0.201,"drag":0.006,"visc":0.25,"couple":0.12,"vmax":0.9,"spread":0.45,"seep":0.14,"seedMode":0,"amt":2.7,"rad":26,"fill":0.3},{"M":[0.92,0.47,0.55,0.75,-0.73,0.84,-0.42,-0.07,-0.65,0.14,0.46,-0.18,-0.31,-0.3,-0.36,0.71],"seed":923470906,"kind":"free","score":0.546,"g":2.22,"range":8,"stiff":0.55,"gamma":2.14,"dt":0.168,"drag":0.02,"visc":0.18,"couple":0.12,"vmax":0.9,"spread":0.46,"seep":0.23,"seedMode":0,"amt":2.9,"rad":14,"fill":0.18},{"M":[0.88,0.83,-0.17,-0.17,0.83,0.39,-0.17,-0.17,-0.17,-0.17,0.4,0.83,-0.17,-0.17,0.83,0.63],"seed":165346489,"kind":"pairs","score":0.476,"g":2.96,"range":6,"stiff":0.36,"gamma":2.58,"dt":0.129,"drag":0.033,"visc":0.06,"couple":0.1,"vmax":0.9,"spread":0.3,"seep":0.09,"seedMode":1,"amt":2.7,"rad":27,"fill":0.21},{"M":[0.9,0.98,-0.27,-0.75,-0.75,0.81,0.98,-0.27,-0.27,-0.75,0.58,0.98,0.98,-0.27,-0.75,0.77],"seed":909174662,"kind":"cycle","score":0.46,"g":1.28,"range":4,"stiff":0.44,"gamma":1.51,"dt":0.24,"drag":0.042,"visc":0.11,"couple":0.12,"vmax":0.9,"spread":0.47,"seep":0.46,"seedMode":0,"amt":2,"rad":23,"fill":0.24},{"M":[0.27,0.65,-0.1,-0.75,-0.75,0.24,0.65,-0.1,-0.1,-0.75,0.43,0.65,0.65,-0.1,-0.75,0.99],"seed":298745135,"kind":"cycle","score":0.41,"g":2.06,"range":5,"stiff":0.88,"gamma":2.27,"dt":0.189,"drag":0.006,"visc":0.09,"couple":0.04,"vmax":0.9,"spread":0.39,"seep":0.12,"seedMode":0,"amt":3.1,"rad":25,"fill":0.18},{"M":[0.86,0.18,0.27,0.27,-0.16,0.37,0.05,-0.47,-0.42,0.08,0.87,-0.67,-0.18,0.4,0.91,0.66],"seed":418297313,"kind":"anti","score":0.396,"g":2.96,"range":5,"stiff":0.87,"gamma":1.74,"dt":0.156,"drag":0.015,"visc":0.12,"couple":0.17,"vmax":0.9,"spread":0.48,"seep":0.41,"seedMode":1,"amt":2.2,"rad":24,"fill":0.25},{"M":[0.46,0.74,-0.4,-0.53,0.69,0.96,-0.53,-0.32,-0.3,-0.36,0.69,0.79,-0.4,-0.38,0.7,0.81],"seed":654501595,"kind":"pairs","score":0.35,"g":2.53,"range":4,"stiff":0.8,"gamma":1.63,"dt":0.165,"drag":0.05,"visc":0.22,"couple":0.03,"vmax":0.9,"spread":0.38,"seep":0.05,"seedMode":0,"amt":3.4,"rad":13,"fill":0.2},{"M":[0.88,0.74,-0.54,-0.54,0.74,0.71,-0.54,-0.54,-0.54,-0.54,0.49,0.74,-0.54,-0.54,0.74,1],"seed":94048745,"kind":"pairs","score":0.348,"g":2.17,"range":8,"stiff":0.77,"gamma":1.52,"dt":0.202,"drag":0.047,"visc":0.18,"couple":0.11,"vmax":0.9,"spread":0.32,"seep":0.49,"seedMode":0,"amt":3.3,"rad":27,"fill":0.43},{"M":[0.35,1,-0.67,-0.84,-0.82,0.34,1,-0.73,-0.59,-0.8,0.34,1,0.98,-0.7,-0.7,0.41],"seed":433995676,"kind":"cycle","score":0.347,"g":2.26,"range":7,"stiff":0.47,"gamma":2.95,"dt":0.256,"drag":0.043,"visc":0.24,"couple":0.08,"vmax":0.9,"spread":0.38,"seep":0.48,"seedMode":0,"amt":1.2,"rad":8,"fill":0.14},{"M":[0.6,0.36,0.31,-0.32,-0.37,0.54,0.77,-0.43,-0.48,-0.76,0.77,0.93,0.42,0.57,-0.66,0.86],"seed":281398966,"kind":"anti","score":0.346,"g":1.71,"range":11,"stiff":0.33,"gamma":2.39,"dt":0.095,"drag":0.006,"visc":0.25,"couple":0.08,"vmax":0.9,"spread":0.47,"seep":0.08,"seedMode":0,"amt":1.6,"rad":11,"fill":0.4},{"M":[0.75,-0.59,-0.6,-0.33,0.62,0.95,-0.11,-0.41,-0.89,-0.97,0.9,0.96,-0.06,-0.45,0.2,0.95],"seed":34142337,"kind":"free","score":0.307,"g":2.12,"range":9,"stiff":0.85,"gamma":2.85,"dt":0.219,"drag":0.008,"visc":0.27,"couple":0.01,"vmax":0.9,"spread":0.39,"seep":0.42,"seedMode":0,"amt":3,"rad":25,"fill":0.18},{"M":[0.91,0,0.3,-0.66,0.02,0.38,-0.08,-0.98,0.06,-0.99,0.82,-0.45,-0.61,-0.79,0.23,0.67],"seed":173266522,"kind":"free","score":0.267,"g":1.78,"range":10,"stiff":0.32,"gamma":2.67,"dt":0.182,"drag":0.016,"visc":0.11,"couple":0.05,"vmax":0.9,"spread":0.36,"seep":0.49,"seedMode":0,"amt":1.7,"rad":10,"fill":0.18},{"M":[0.24,0.51,-0.12,-0.98,-0.98,0.24,0.51,-0.12,-0.12,-0.98,0.24,0.51,0.51,-0.12,-0.98,0.24],"seed":841163336,"kind":"cycle","score":0.264,"g":2.08,"range":9,"stiff":0.36,"gamma":2.35,"dt":0.192,"drag":0.023,"visc":0.29,"couple":0.03,"vmax":0.9,"spread":0.34,"seep":0.35,"seedMode":0,"amt":3.3,"rad":16,"fill":0.16},{"M":[0.46,0.34,-0.78,-0.96,0.19,0.36,-0.85,-0.78,-1,-0.96,0.84,0.26,-0.9,-0.99,0.33,0.34],"seed":811656018,"kind":"pairs","score":0.261,"g":1.9,"range":12,"stiff":0.37,"gamma":1.89,"dt":0.128,"drag":0.036,"visc":0.19,"couple":0.03,"vmax":0.9,"spread":0.47,"seep":0.35,"seedMode":0,"amt":2.5,"rad":22,"fill":0.29},{"M":[0.39,0.51,-0.99,-0.84,0.69,0.69,-1,-0.89,-1,-1,0.93,0.58,-0.83,-0.96,0.62,0.81],"seed":485946225,"kind":"pairs","score":0.217,"g":2.47,"range":12,"stiff":0.68,"gamma":2.2,"dt":0.16,"drag":0.026,"visc":0.16,"couple":0.1,"vmax":0.9,"spread":0.31,"seep":0.45,"seedMode":0,"amt":1.7,"rad":16,"fill":0.35},{"M":[0.8,0.46,-0.99,-0.99,0.46,0.84,-0.99,-0.99,-0.99,-0.99,0.33,0.46,-0.99,-0.99,0.46,0.21],"seed":685648864,"kind":"pairs","score":0.211,"g":2.54,"range":4,"stiff":0.85,"gamma":2.13,"dt":0.194,"drag":0.022,"visc":0.2,"couple":0.24,"vmax":0.9,"spread":0.42,"seep":0.12,"seedMode":1,"amt":2.1,"rad":17,"fill":0.17},{"M":[0.57,1,-0.67,0.62,1,0.85,0.28,0.3,-0.67,0.28,0.86,0.13,0.62,0.3,0.13,0.96],"seed":481936935,"kind":"sym","score":0.201,"g":2.13,"range":8,"stiff":0.93,"gamma":1.71,"dt":0.216,"drag":0.049,"visc":0.09,"couple":0.1,"vmax":0.9,"spread":0.47,"seep":0.1,"seedMode":0,"amt":1.7,"rad":27,"fill":0.35},{"M":[0.97,0.36,-0.42,-0.54,0.39,0.52,-0.98,-1,-0.45,-1,0.99,0.01,-0.54,-1,-0.09,0.45],"seed":785960935,"kind":"sym","score":0.193,"g":2.34,"range":5,"stiff":0.74,"gamma":1.84,"dt":0.185,"drag":0.035,"visc":0.01,"couple":0.26,"vmax":0.9,"spread":0.31,"seep":0.44,"seedMode":0,"amt":3.2,"rad":25,"fill":0.2},{"M":[0.74,0.74,-0.69,-0.5,0.8,0.78,-0.67,-0.65,-0.62,-0.48,0.64,0.69,-0.42,-0.68,0.64,0.68],"seed":139360479,"kind":"pairs","score":0.138,"g":1.81,"range":7,"stiff":0.6,"gamma":2.35,"dt":0.183,"drag":0.025,"visc":0.02,"couple":0.25,"vmax":0.9,"spread":0.43,"seep":0.08,"seedMode":1,"amt":1.7,"rad":19,"fill":0.38},{"M":[0.21,-0.07,0.76,0.65,-0.08,0.56,-0.07,0.77,0.5,0.37,0.41,-0.19,-0.2,0.59,0.98,0.65],"seed":728860343,"kind":"free","score":0.136,"g":2.73,"range":9,"stiff":0.63,"gamma":2.17,"dt":0.232,"drag":0.014,"visc":0.06,"couple":0.17,"vmax":0.9,"spread":0.39,"seep":0.32,"seedMode":1,"amt":2.4,"rad":11,"fill":0.43},{"M":[0.92,0.89,0.89,0.89,-0.43,0.96,-0.24,-0.24,-0.43,-0.24,0.4,-0.24,-0.43,-0.24,-0.24,0.71],"seed":756836490,"kind":"hunter","score":0.127,"g":2.64,"range":11,"stiff":1.13,"gamma":2.33,"dt":0.226,"drag":0.03,"visc":0.14,"couple":0.22,"vmax":0.9,"spread":0.46,"seep":0.23,"seedMode":0,"amt":2.6,"rad":14,"fill":0.39},{"M":[-0.66,-0.38,-0.01,-0.68,-0.38,0.28,0.28,-0.59,0.24,0.35,1,0.06,-0.64,-0.6,0.09,-0.84],"seed":27414022,"kind":"sym","score":0.125,"g":2.51,"range":3,"stiff":0.72,"gamma":1.69,"dt":0.136,"drag":0.009,"visc":0.13,"couple":0.02,"vmax":0.9,"spread":0.35,"seep":0.44,"seedMode":0,"amt":2.7,"rad":16,"fill":0.39},{"M":[0.21,-0.72,0.28,-0.95,0.72,0.23,0.7,-0.42,-0.28,-0.7,0.48,0.01,0.95,0.42,-0.01,0.59],"seed":9156730,"kind":"anti","score":0.08,"g":2.02,"range":11,"stiff":0.35,"gamma":1.81,"dt":0.182,"drag":0.005,"visc":0.24,"couple":0.11,"vmax":0.9,"spread":0.48,"seep":0.32,"seedMode":0,"amt":3.1,"rad":17,"fill":0.21},{"M":[0.39,0.2,-0.54,0.7,0.48,0.85,-0.41,-0.95,0.49,-0.53,0.7,0.66,-0.24,0.5,0.5,0.32],"seed":979141299,"kind":"free","score":0.072,"g":2.35,"range":3,"stiff":0.58,"gamma":2.71,"dt":0.118,"drag":0.057,"visc":0.21,"couple":0.36,"vmax":0.9,"spread":0.31,"seep":0.24,"seedMode":0,"amt":2.7,"rad":9,"fill":0.5}];
+const CSS_COL = ["#FF5C38", "#6BE676", "#4D94FF", "#FFD64D", "#C78FF5", "#66E0DB", "#F59E75", "#CCCCC7"];
+
+/* The matrix. Row c, column d: how much fluid c wants to be where d is. A
+   handful of hand-made ones, and the rest are rolled. */
+/* The matrix is stored eight by eight, row c column d, however many fluids
+   are on. A four-by-four one, from a preset or a link, goes in the corner. */
+function matrixOf(fn, n = NCH){
+  const M = new Float32Array(64);
+  for(let c = 0; c < n; c++) for(let d = 0; d < n; d++) M[c*8 + d] = fn(c, d);
+  return M;
+}
+function setMatrix(a){
+  S.M.fill(0);
+  if(a.length === 64) S.M.set(a);
+  else { const n = Math.round(Math.sqrt(a.length)); for(let c = 0; c < n; c++) for(let d = 0; d < n; d++) S.M[c*8 + d] = a[c*n + d]; }
+}
+const PRESETS = {
+  droplets: {M: matrixOf((c, d) => c === d ? 0.7 : -0.5),
+             g: 1.2, range: 6, stiff: 1.0, spread: 0.45, seep: 0.15},
+  chase:    {M: matrixOf((c, d) => c === d ? 0.6 : d === (c + 1) % NCH ? 0.8
+                                 : c === (d + 1) % NCH ? -0.8 : -0.3),
+             g: 1.4, range: 8, stiff: 0.8, spread: 0.45, seep: 0.1},
+  pairs:    {M: matrixOf((c, d) => (c >> 1) === (d >> 1) ? (c === d ? 0.4 : 0.8) : -0.6),
+             g: 1.2, range: 6, stiff: 1.0, spread: 0.45, seep: 0.15},
+  hunter:   {M: matrixOf((c, d) => c === 0 ? (d === 0 ? 0.2 : 0.9)
+                                 : d === 0 ? -0.9 : c === d ? 0.5 : -0.2),
+             g: 1.4, range: 8, stiff: 0.8, spread: 0.45, seep: 0.1},
+  mixer:    {M: matrixOf((c, d) => c === d ? -0.3 : 0.4),
+             g: 1.0, range: 5, stiff: 1.2, spread: 0.5, seep: 0.2},
+};
+S.M.set(PRESETS.droplets.M);
+function rollMatrix(){
+  for(let c = 0; c < S.nf; c++) for(let d = 0; d < S.nf; d++) S.M[c*8 + d] = +(Math.random()*2 - 1).toFixed(2);
+  setRule("matrix");
+  paintMatrix();
+}
+// A run is reproducible when reseed() is given a number: the blob positions
+// and the noise both come from it, so a link can carry a world and its start.
+function mulberry(a){
+  return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; };
+}
+function rollBlobs(rng){
+  for(let i = 0; i < S.blob.length; i++) S.blob[i] = rng();
+}
+// GLSL wants columns: uM[d][c] = M[c][d], so uM*x is sum_d M[c][d] x_d. One
+// four-by-four block of the eight: rows of half h, columns of half k.
+function matrixBlock(h, k){
+  const a = new Float32Array(16);
+  for(let c = 0; c < 4; c++) for(let d = 0; d < 4; d++) a[d*4 + c] = S.M[(4*h + c)*8 + 4*k + d];
+  return a;
+}
+
+let G = {};
+function alloc(){
+  for(const t of (G.all || [])) gl.deleteTexture(t);
+  const N = S.N, wide = S.prec === 32;
+  const F = wide ? gl.RGBA32F : gl.RGBA16F;
+  const g = {N};
+  g.rho = make2D(N, N, F); g.rhoB = make2D(N, N, F);
+  g.vx = make2D(N, N, F);  g.vxB = make2D(N, N, F);
+  g.vy = make2D(N, N, F);  g.vyB = make2D(N, N, F);
+  g.r1 = make2D(N, N, F); g.sA = make2D(N, N, F); g.sB = make2D(N, N, F);
+  g.tmp = make2D(N, N, F); g.U = make2D(N, N, F);
+  g.rs = g.r1;
+  // The second four fluids, and the pushes: only the trained rule uses them.
+  g.rho2 = make2D(N, N, F); g.rho2B = make2D(N, N, F);
+  g.vx2 = make2D(N, N, F);  g.vx2B = make2D(N, N, F);
+  g.vy2 = make2D(N, N, F);  g.vy2B = make2D(N, N, F);
+  g.r12 = make2D(N, N, F); g.U2 = make2D(N, N, F); g.s2A = make2D(N, N, F); g.s2B = make2D(N, N, F);
+  g.rs2 = g.r12;
+  g.Fx = make2D(N, N, F); g.Fy = make2D(N, N, F); g.Fx2 = make2D(N, N, F); g.Fy2 = make2D(N, N, F);
+  g.pyr = [];
+  for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
+    g.pyr.push(make2D(n, n, gl.RGBA32F, gl.CLAMP_TO_EDGE));
+    if(n === 1) break;
+  }
+  g.all = [g.rho, g.rhoB, g.vx, g.vxB, g.vy, g.vyB, g.r1, g.sA, g.sB, g.tmp, g.U,
+           g.rho2, g.rho2B, g.vx2, g.vx2B, g.vy2, g.vy2B, g.r12, g.U2, g.s2A, g.s2B,
+           g.Fx, g.Fy, g.Fx2, g.Fy2, ...g.pyr];
+  G = g;
+}
+function memMB(){
+  const N = G.N, w = S.prec === 32 ? 2 : 1;
+  return (25*N*N*8*w + G.pyr.reduce((a, t) => a + t.w*t.h*16, 0))/1048576;
+}
+
+let meanRho = 1, mass = null, hiddenMass = 0, hidden = [0, 0, 0, 0], massAt = -1e9, massDue = false;
+const invRho = () => 1/Math.max(1e-6, meanRho);
+function common(u){ gl.uniform1f(u.uN, G.N); }
+
+const readback = new Float32Array(4);
+function sumTexture(src0){
+  const u = use(P.sum);
+  let src = src0, srcN = G.N;
+  for(const dst of G.pyr){
+    gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform1i(u.uSrcN, srcN);
+    target(dst, dst.w, dst.h); drawQuad();
+    src = dst; srcN = dst.w;
+  }
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, readback);
+  return Array.from(readback);
+}
+const twoHalves = () => S.rule === "brain" ? !!brain : S.nf > 4;
+function measure(){
+  const m = sumTexture(G.rho);
+  let t = m[0] + m[1] + m[2] + m[3];
+  if(twoHalves()){
+    hidden = sumTexture(G.rho2); hiddenMass = hidden[0] + hidden[1] + hidden[2] + hidden[3];
+    if(S.rule !== "brain") t += hiddenMass;          // the second four count, when they are fluids
+  } else { hidden = [0, 0, 0, 0]; hiddenMass = 0; }
+  if(isFinite(t)){ mass = m; meanRho = Math.max(t/(G.N*G.N), 1e-6); }
+  massAt = S.frame; massDue = false;
+}
+
+function blur(src, dst){
+  const u = use(P.blur); common(u);
+  gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform2i(u.uDir, 1, 0);
+  target(G.tmp, G.N, G.N); drawQuad();
+  gl.uniform1i(u.uSrc, tex(0, G.tmp)); gl.uniform2i(u.uDir, 0, 1);
+  target(dst, G.N, G.N); drawQuad();
+}
+/* Smooth and take the pressure. Split off from the step because the picture
+   and the seep both want a pressure that matches the density on screen. */
+function smooth(src, r1, a, b){
+  blur(src, r1);
+  let s = r1;
+  for(let i = 1; i < S.range; i++){ const d = s === a ? b : a; blur(s, d); s = d; }
+  return s;
+}
+function field(){
+  if(S.rule === "brain" && brain){ think(); return; }
+  const both = S.nf > 4;
+  G.rs = smooth(G.rho, G.r1, G.sA, G.sB);
+  if(both) G.rs2 = smooth(G.rho2, G.r12, G.s2A, G.s2B);
+  const u = use(P.press); common(u);
+  gl.uniform1i(u.uR1A, tex(0, G.r1)); gl.uniform1i(u.uRsA, tex(1, G.rs));
+  gl.uniform1i(u.uR1B, tex(2, both ? G.r12 : G.rho2)); gl.uniform1i(u.uRsB, tex(3, both ? G.rs2 : G.rho2));
+  gl.uniform1f(u.uStiff, S.stiff); gl.uniform1f(u.uGamma, S.gamma);
+  gl.uniform1f(u.uRn, invRho()); gl.uniform1f(u.uG, S.g);
+  gl.uniformMatrix4fv(u.uMa, false, matrixBlock(0, 0)); gl.uniformMatrix4fv(u.uMb, false, matrixBlock(0, 1));
+  target(G.U, G.N, G.N); drawQuad();
+  if(both){
+    gl.uniformMatrix4fv(u.uMa, false, matrixBlock(1, 0)); gl.uniformMatrix4fv(u.uMb, false, matrixBlock(1, 1));
+    target(G.U2, G.N, G.N); drawQuad();
+  }
+}
+/* The disc's weights sum to one over the grid, so it holds its masses exactly. */
+function discNorm(){
+  const N = G.N, r = S.disc;
+  let sum = 0;
+  for(let y = 0; y < N; y++) for(let x = 0; x < N; x++){
+    const d = Math.hypot(x + 0.5 - 0.5*N, y + 0.5 - 0.5*N);
+    sum += Math.max(0, Math.min(1, r + 0.5 - d));
+  }
+  return sum > 0 ? 1/sum : 0;
+}
+function reseed(seed){
+  S.seed = typeof seed === "number" ? seed | 0 : (Math.random()*1e9) | 0;
+  rollBlobs(mulberry(S.seed));
+  const u = use(P.seed); common(u);
+  const inv = discNorm();
+  if(S.rule !== "brain"){
+    const cells = Math.PI*S.disc*S.disc;
+    S.mass = [0, 1, 2, 3, 4, 5, 6, 7].map(c => c < S.nf ? S.amt*cells/S.nf : 0);
+  }
+  gl.uniform1i(u.uMode, S.seedMode); gl.uniform1i(u.uSeed, S.seed);
+  gl.uniform1i(u.uNf, S.rule === "brain" ? 8 : S.nf); gl.uniform1i(u.uHalf, 0);
+  gl.uniform1f(u.uAmt, S.amt*4/Math.max(4, S.nf)); gl.uniform1f(u.uRad, S.seedMode === 4 ? S.disc : S.rad);
+  gl.uniform1f(u.uFill, S.fill); gl.uniform1f(u.uDiscInv, inv);
+  gl.uniform1fv(u.uBlob, S.blob);
+  gl.uniform4f(u.uMass, S.mass[0], S.mass[1], S.mass[2], S.mass[3]);
+  target([G.rho, G.vx, G.vy], G.N, G.N); drawQuad();
+  // The second half: the same start for fluids five to eight if there are
+  // any, a disc of the hidden masses under the trained rule, else nothing.
+  gl.uniform1i(u.uHalf, 1);
+  if(S.rule === "brain" || S.seedMode === 4){ gl.uniform1i(u.uMode, 4); gl.uniform1f(u.uRad, S.disc); }
+  gl.uniform4f(u.uMass, S.mass[4], S.mass[5], S.mass[6], S.mass[7]);
+  target([G.rho2, G.vx2, G.vy2], G.N, G.N); drawQuad();
+  S.frame = 0;
+  measure();
+  field();
+}
+
+/* The trained rule's turn: blur both halves for the equation of state, then
+   the network, once a half. */
+function think(){
+  const N = G.N;
+  blur(G.rho, G.r1); blur(G.rho2, G.r12);
+  const u = use(brain.prog); common(u);
+  gl.uniform1i(u.uRhoA, tex(0, G.rho)); gl.uniform1i(u.uRhoB, tex(1, G.rho2));
+  gl.uniform1i(u.uVxA, tex(2, G.vx)); gl.uniform1i(u.uVxB, tex(3, G.vx2));
+  gl.uniform1i(u.uVyA, tex(4, G.vy)); gl.uniform1i(u.uVyB, tex(5, G.vy2));
+  gl.uniform1i(u.uR1A, tex(6, G.r1)); gl.uniform1i(u.uR1B, tex(7, G.r12));
+  gl.uniform1i(u.uW, tex(8, brain.tex));
+  gl.uniform1f(u.uStiff, S.stiff); gl.uniform1f(u.uGamma, S.gamma);
+  gl.uniform1i(u.uHalf, 0); target([G.U, G.Fx, G.Fy], N, N); drawQuad();
+  gl.uniform1i(u.uHalf, 1); target([G.U2, G.Fx2, G.Fy2], N, N); drawQuad();
+}
+
+/* One half's push and move. h = 0 is the four fluids you see; h = 1 the
+   hidden four, which only the trained rule has. The push reads BOTH halves'
+   old velocities for the coupling, so both pushes go before either swap. */
+const HALF = [
+  {rho:"rho", rhoB:"rhoB", vx:"vx", vxB:"vxB", vy:"vy", vyB:"vyB", U:"U", Fx:"Fx", Fy:"Fy",
+   o:{rho:"rho2", vx:"vx2", vy:"vy2"}},
+  {rho:"rho2", rhoB:"rho2B", vx:"vx2", vxB:"vx2B", vy:"vy2", vyB:"vy2B", U:"U2", Fx:"Fx2", Fy:"Fy2",
+   o:{rho:"rho", vx:"vx", vy:"vy"}},
+];
+function push(h, both){
+  const N = G.N, H = HALF[h], u = use(P.force); common(u);
+  gl.uniform1i(u.uU, tex(0, G[H.U])); gl.uniform1i(u.uRho, tex(1, G[H.rho]));
+  gl.uniform1i(u.uVx, tex(2, G[H.vx])); gl.uniform1i(u.uVy, tex(3, G[H.vy]));
+  gl.uniform1i(u.uFx, tex(4, G[H.Fx])); gl.uniform1i(u.uFy, tex(5, G[H.Fy]));
+  gl.uniform1i(u.uRhoO, tex(6, G[H.o.rho]));
+  gl.uniform1i(u.uVxO, tex(7, G[H.o.vx])); gl.uniform1i(u.uVyO, tex(8, G[H.o.vy]));
+  gl.uniform1i(u.uUseF, both && S.rule === "brain" ? 1 : 0); gl.uniform1i(u.uOther, both ? 1 : 0);
+  gl.uniform1f(u.uDt, S.dt); gl.uniform1f(u.uCouple, S.couple);
+  gl.uniform1f(u.uVisc, S.visc); gl.uniform1f(u.uDrag, S.drag);
+  gl.uniform1f(u.uVmax, S.vmax);
+  target([G[H.vxB], G[H.vyB]], N, N); drawQuad();
+}
+function move(h){
+  const N = G.N, H = HALF[h], u = use(P.move); common(u);
+  gl.uniform1i(u.uRho, tex(0, G[H.rho])); gl.uniform1i(u.uU, tex(1, G[H.U]));
+  gl.uniform1i(u.uVx, tex(2, G[H.vx])); gl.uniform1i(u.uVy, tex(3, G[H.vy]));
+  gl.uniform1f(u.uInvS2, 1/(S.spread*S.spread)); gl.uniform1f(u.uSeep, S.seep);
+  target([G[H.rhoB], G[H.vxB], G[H.vyB]], N, N); drawQuad();
+  [G[H.rho], G[H.rhoB]] = [G[H.rhoB], G[H.rho]];
+  [G[H.vx], G[H.vxB]] = [G[H.vxB], G[H.vx]]; [G[H.vy], G[H.vyB]] = [G[H.vyB], G[H.vy]];
+}
+function swapV(h){
+  const H = HALF[h];
+  [G[H.vx], G[H.vxB]] = [G[H.vxB], G[H.vx]]; [G[H.vy], G[H.vyB]] = [G[H.vyB], G[H.vy]];
+}
+function step(){
+  const both = twoHalves();
+  field();                             // smooth, then pressure -- or the network
+  push(0, both); if(both) push(1, both);
+  swapV(0); if(both) swapV(1);
+  move(0); if(both) move(1);
+  S.frame++;
+}
+
+/* mode 0 adds the fluid CHAN, 1 erases all four, 2 pushes all four by PUSH. */
+function paintAt(gx, gy, mode, chan, push){
+  const u = use(P.paint); common(u);
+  // erasing and stirring touch both halves when both are live; a paint goes
+  // to the half its fluid is in
+  const halves = mode === 0 ? [chan >> 2] : twoHalves() ? [0, 1] : [0];
+  for(const h of halves){
+    const H = HALF[h];
+    gl.uniform1i(u.uRho, tex(0, G[H.rho]));
+    gl.uniform1i(u.uVx, tex(1, G[H.vx])); gl.uniform1i(u.uVy, tex(2, G[H.vy]));
+    gl.uniform2f(u.uAt, gx, gy);
+    gl.uniform2f(u.uPush, push ? push[0] : 0, push ? push[1] : 0);
+    gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, 0.5*meanRho); gl.uniform1f(u.uVmax, S.vmax);
+    gl.uniform1i(u.uMode, mode); gl.uniform1i(u.uChan, chan & 3);
+    target([G[H.rhoB], G[H.vxB], G[H.vyB]], G.N, G.N); drawQuad();
+    [G[H.rho], G[H.rhoB]] = [G[H.rhoB], G[H.rho]];
+    [G[H.vx], G[H.vxB]] = [G[H.vxB], G[H.vx]]; [G[H.vy], G[H.vyB]] = [G[H.vyB], G[H.vy]];
+  }
+  if(mode !== 2) massDue = true;
+}
+
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height);
+  const u = use(P.draw); common(u);
+  gl.uniform1i(u.uRho, tex(0, G.rho)); gl.uniform1i(u.uU, tex(1, G.U));
+  gl.uniform1i(u.uVx, tex(2, G.vx)); gl.uniform1i(u.uVy, tex(3, G.vy));
+  gl.uniform1i(u.uRho2, tex(4, G.rho2)); gl.uniform1i(u.uU2, tex(5, G.U2));
+  gl.uniform1i(u.uVx2, tex(6, G.vx2)); gl.uniform1i(u.uVy2, tex(7, G.vy2));
+  const cells = G.N*G.N, norm = m => m > 1e-9 ? cells/m : 0;
+  const ma = mass || [0, 0, 0, 0];
+  gl.uniform4f(u.uNormA, norm(ma[0]), norm(ma[1]), norm(ma[2]), norm(ma[3]));
+  gl.uniform4f(u.uNormB, norm(hidden[0]), norm(hidden[1]), norm(hidden[2]), norm(hidden[3]));
+  gl.uniform2f(u.uRes, cv.width, cv.height);
+  gl.uniform2f(u.uPan, S.panx, S.pany);
+  gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
+  gl.uniform1f(u.uRn, invRho()); gl.uniform1f(u.uVmax, S.vmax);
+  gl.uniform1i(u.uView, S.view); gl.uniform1i(u.uPal, S.pal);
+  gl.uniform1i(u.uChan, S.chan); gl.uniform1i(u.uNf, S.rule === "brain" ? 4 : S.nf);
+  drawQuad();
+}
+
+/* ================================================================== pointer */
+function gridAt(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left)/r.width*cv.width;
+  const py = (1 - (e.clientY - r.top)/r.height)*cv.height;
+  const ux = (px - 0.5*cv.width)/(S.zoom*cv.height) + S.panx/G.N + 0.5;
+  const uy = (py - 0.5*cv.height)/(S.zoom*cv.height) + S.pany/G.N + 0.5;
+  return [ux*G.N, uy*G.N];
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  $("hint").classList.add("gone");
+  const mode = e.altKey ? 1 : e.shiftKey ? 0 : (e.ctrlKey || e.metaKey) ? 2
+             : S.tool === 1 ? 0 : S.tool === 2 ? 2 : S.tool === 3 ? 1 : -1;
+  if(mode >= 0){
+    const [x, y] = gridAt(e);
+    const chan = S.pchan >= 0 ? S.pchan : (Math.random()*(S.rule === "brain" ? 4 : S.nf)) | 0;
+    drag = {mode, chan, x, y};
+    cv.classList.add("painting");
+    if(mode !== 2) paintAt(x, y, mode, chan);
+  } else {
+    drag = {mode:-1, x:e.clientX, y:e.clientY};
+    cv.classList.add("dragging");
+  }
+});
+cv.addEventListener("pointermove", e => {
+  if(!drag) return;
+  if(drag.mode >= 0){
+    const [x, y] = gridAt(e);
+    if(drag.mode === 2){
+      // The push is the drag itself, in cells, scaled and capped.
+      let px = (x - drag.x)*S.stir, py = (y - drag.y)*S.stir;
+      const l = Math.hypot(px, py);
+      if(l > S.vmax){ px *= S.vmax/l; py *= S.vmax/l; }
+      paintAt(x, y, 2, drag.chan, [px, py]);
+    } else paintAt(x, y, drag.mode, drag.chan);
+    drag.x = x; drag.y = y;
+  } else {
+    const r = cv.getBoundingClientRect();
+    const k = G.N/(S.zoom*cv.height)*(cv.width/r.width), lim = G.N*0.75;
+    S.panx = Math.max(-lim, Math.min(lim, S.panx - (e.clientX - drag.x)*k));
+    S.pany = Math.max(-lim, Math.min(lim, S.pany + (e.clientY - drag.y)*k));
+    drag.x = e.clientX; drag.y = e.clientY;
+  }
+});
+function endDrag(){ drag = null; cv.classList.remove("painting", "dragging"); }
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  S.zoom = Math.min(16, Math.max(0.25, S.zoom*Math.exp(-e.deltaY*0.0015)));
+}, {passive:false});
+addEventListener("keydown", e => {
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k === " "){ e.preventDefault(); toggleRun(); }
+  else if(k === "r") reseed();
+  else if(k === "n") rollMatrix();
+  else if(k === "g") applyPreset("gecko");
+  else if(k === "h") $("rack").classList.toggle("hid");
+  else if(k === "f") toggleFull();
+  else if(k >= "1" && k <= "8"){ S.pchan = +k - 1; UI.pchan.value = String(S.pchan); }
+  else if(k === "arrowright" || k === "arrowleft"){
+    e.preventDefault();
+    const n = SWEEP.length, i = ((S.sweep < 0 ? 0 : S.sweep) + (k === "arrowright" ? 1 : n - 1)) % n;
+    S.sweep = i; openSweep(i);
+  }
+});
+function toggleRun(){ S.running = !S.running; $("play").textContent = S.running ? "pause" : "play"; }
+function toggleFull(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else $("app").requestFullscreen && $("app").requestFullscreen();
+}
+
+/* ======================================================================= ui */
+const rack = $("rack");
+const UI = {};
+function group(name){
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = name; rack.appendChild(d);
+}
+function row(label){
+  const d = document.createElement("div");
+  d.className = "row";
+  const l = document.createElement("label");
+  l.className = "lab"; l.textContent = label;
+  d.appendChild(l); rack.appendChild(d);
+  return d;
+}
+const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
+function slider(label, key, min, max, stp, dp, after){
+  const d = row(label);
+  const wrap = document.createElement("div");
+  wrap.style.position = "relative"; wrap.style.minWidth = "0";
+  const r = document.createElement("input");
+  r.type = "range"; r.min = min; r.max = max; r.step = stp; r.value = S[key];
+  const v = document.createElement("span");
+  v.className = "val"; v.textContent = fmt(S[key], dp);
+  const paint = () => r.style.setProperty("--p", ((S[key] - min)/(max - min)*100) + "%");
+  r.addEventListener("input", () => {
+    S[key] = parseFloat(r.value); v.textContent = fmt(S[key], dp); paint(); if(after) after();
+  });
+  paint();
+  wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
+  return UI[key] = {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
+}
+function picker(label, key, opts, after){
+  const d = row(label);
+  const s = document.createElement("select");
+  for(const o of opts){
+    const e = document.createElement("option");
+    e.value = String(o.v); e.textContent = o.t; s.appendChild(e);
+  }
+  s.value = String(S[key]);
+  s.addEventListener("change", () => {
+    const n = parseFloat(s.value);
+    S[key] = isNaN(n) ? s.value : n;
+    if(after) after();
+  });
+  d.appendChild(s);
+  return UI[key] = s;
+}
+function buttons(defs){
+  const d = document.createElement("div");
+  d.className = "btns"; rack.appendChild(d);
+  for(const [t, fn] of defs){
+    const b = document.createElement("button");
+    b.textContent = t; b.onclick = fn; d.appendChild(b);
+  }
+  return d;
+}
+
+/* The matrix as a grid you drag on. Up is more, down is less, a double
+   click is nought. */
+let cells = [], matEl = null;
+function fmtM(v){ return (v < 0 ? "−" : "+") + Math.abs(v).toFixed(2).slice(1); }
+function paintMatrix(){
+  for(const e of cells){
+    const v = S.M[e.i], a = 0.10 + 0.90*Math.min(1, Math.abs(v));
+    e.textContent = S.nf > 5 ? "" : fmtM(v);
+    e.style.background = v >= 0 ? `rgba(84, 196, 122, ${a})` : `rgba(226, 84, 96, ${a})`;
+  }
+  if(UI.preset) UI.preset.value = "custom";
+}
+function buildMatrix(){
+  const n = S.nf;
+  const m = document.createElement("div");
+  m.className = "mat"; m.style.gridTemplateColumns = `13px repeat(${n}, minmax(0,1fr))`;
+  if(matEl) rack.replaceChild(m, matEl); else rack.appendChild(m);
+  matEl = m; cells = [];
+  const corner = document.createElement("div");
+  corner.className = "cn"; corner.textContent = "↓←"; corner.title = "row is pulled towards column";
+  m.appendChild(corner);
+  for(let d = 0; d < n; d++){
+    const s = document.createElement("div");
+    s.className = "sw"; s.style.background = CSS_COL[d]; m.appendChild(s);
+  }
+  for(let c = 0; c < n; c++){
+    const s = document.createElement("div");
+    s.className = "sw"; s.style.background = CSS_COL[c]; m.appendChild(s);
+    for(let d = 0; d < n; d++){
+      const i = c*8 + d;
+      const e = document.createElement("div");
+      e.className = "mc"; e.i = i; e.title = `fluid ${c + 1} towards fluid ${d + 1}`;
+      if(n > 5) e.style.height = "15px";
+      let hold = null;
+      e.addEventListener("pointerdown", ev => {
+        e.setPointerCapture(ev.pointerId); hold = {y:ev.clientY, v:S.M[i]}; e.classList.add("on");
+      });
+      e.addEventListener("pointermove", ev => {
+        if(!hold) return;
+        S.M[i] = Math.max(-1, Math.min(1, hold.v + (hold.y - ev.clientY)*0.01));
+        paintMatrix();
+      });
+      const done = () => { hold = null; e.classList.remove("on"); };
+      e.addEventListener("pointerup", done); e.addEventListener("pointercancel", done);
+      e.addEventListener("dblclick", () => { S.M[i] = 0; paintMatrix(); });
+      m.appendChild(e); cells.push(e);
+    }
+  }
+  paintMatrix();
+}
+function setRule(rule){
+  S.rule = rule;
+  rack.querySelectorAll(".mat .mc").forEach(e => e.style.opacity = rule === "brain" ? 0.35 : 1);
+}
+function applyPreset(name){
+  if(name === "gecko"){ loadBrain("fluid-gecko.json"); return; }
+  const p = PRESETS[name];
+  if(!p) return;
+  setRule("matrix");
+  setFluids(4);
+  setMatrix(p.M); paintMatrix();
+  for(const k of ["g", "range", "stiff", "spread", "seep"]) if(k in p) UI[k].set(p[k]);
+  UI.preset.value = name;
+}
+/* The trained rule arrives as JSON: sizes, the scalars it was trained
+   under, the disc it starts from, and the weights, which go into a texture
+   in the order the shader reads them. */
+async function loadBrain(url){
+  let j = GECKO;
+  if(url !== "fluid-gecko.json"){
+    try { j = await (await fetch(url)).json(); }
+    catch(e){ $("stat").innerHTML = `could not load <b>${url}</b>`; return; }
+  }
+  const flat = [];
+  for(const row of j.w1) flat.push(...row);
+  flat.push(...j.b1);
+  for(const row of j.w2) flat.push(...row);
+  flat.push(...j.b2);
+  const rows = Math.ceil(flat.length/4/256);
+  const data = new Float32Array(256*rows*4); data.set(flat);
+  if(brain){ gl.deleteTexture(brain.tex); gl.deleteProgram(brain.prog); }
+  const t = make2D(256, rows, gl.RGBA32F, gl.CLAMP_TO_EDGE);
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 256, rows, gl.RGBA, gl.FLOAT, data);
+  const W1 = 0, W2 = j.nh*j.nin + j.nh;
+  const prog = program(FS_BRAIN, `#define NIN ${j.nin}\n#define NH ${j.nh}\n#define NOUT ${j.nout}\n#define W1 ${W1}\n#define W2 ${W2}\n`);
+  brain = {tex:t, prog, json:j};
+  for(const k of ["dt", "drag", "visc", "couple", "spread", "seep", "stiff", "gamma", "vmax"])
+    if(k in j.phys) UI[k].set(j.phys[k]);
+  S.mass = j.masses.slice(); S.disc = j.disc;
+  if(S.nf !== 4) setFluids(4);
+  UI.seedMode.value = "4"; S.seedMode = 4;
+  UI.view.value = "5"; S.view = 5; UI.exp.set(1);
+  UI.steps.value = "0.5"; S.steps = 0.5;
+  if(S.N !== j.grid){ S.N = j.grid; UI.N.value = String(j.grid); alloc(); }
+  S.zoom = 1; S.panx = 0; S.pany = 0;
+  setRule("brain");
+  UI.preset.value = "gecko";
+  reseed();
+}
+/* How many fluids. Rows and columns of the matrix past the count are kept
+   but not shown, so going down and back up loses nothing. New fluids get a
+   random row and column, so they arrive with opinions. */
+function setFluids(n, fresh){
+  const was = S.nf;
+  S.nf = n; UI.nf.value = String(n);
+  if(fresh && n > was)
+    for(let c = 0; c < n; c++) for(let d = 0; d < n; d++)
+      if(c >= was || d >= was)
+        S.M[c*8 + d] = +(c === d ? 0.2 + Math.random()*0.8 : Math.random()*2 - 1).toFixed(2);
+  buildMatrix(); paintMatrix();
+  if(fresh){ setRule("matrix"); reseed(); }
+}
+function openSweep(i){
+  const w = SWEEP[i];
+  if(!w) return;
+  S.sweep = i;
+  UI.steps.value = "1"; S.steps = 1;
+  setRule("matrix");
+  setParams(w); reseed(w.seed);
+  UI.preset.value = "custom"; UI.sweep.value = String(i);
+}
+function roll(){
+  const r = (a, b) => a + Math.random()*(b - a);
+  setRule("matrix");
+  rollMatrix();
+  UI.g.set(+r(0.6, 2.0).toFixed(2));
+  UI.range.set(Math.round(r(3, 12)));
+  UI.stiff.set(+r(0.5, 1.6).toFixed(2));
+  UI.gamma.set(+r(1.2, 3).toFixed(2));
+  UI.spread.set(+r(0.35, 0.6).toFixed(2));
+  UI.seep.set(+r(0, 0.4).toFixed(2));
+  UI.drag.set(+r(0.005, 0.05).toFixed(3));
+  reseed();
+}
+function buildUI(){
+  group("matrix");
+  buildMatrix();
+  picker("preset", "preset", [{v:"custom",t:"custom"}, ...Object.keys(PRESETS).map(k => ({v:k, t:k})),
+                              {v:"gecko",t:"gecko (trained)"}],
+         () => applyPreset(S.preset));
+  picker("sweep", "sweep", [{v:-1, t:"\u2014"}, ...SWEEP.map((w, i) =>
+           ({v:i, t:`${i + 1}. ${w.kind} \u00b7 ${w.score.toFixed(2)}`}))], () => openSweep(S.sweep));
+  buttons([["random", rollMatrix],
+           ["flip", () => { for(let i = 0; i < S.M.length; i++) S.M[i] = -S.M[i]; paintMatrix(); }],
+           ["mirror", () => { for(let c = 0; c < 8; c++) for(let d = c + 1; d < 8; d++)
+                                S.M[d*8 + c] = S.M[c*8 + d]; paintMatrix(); }],
+           ["zero", () => { S.M.fill(0); paintMatrix(); }]]);
+
+  group("forces");
+  slider("interact", "g", 0, 4, 0.05, 2);
+  slider("range", "range", 1, 24, 1, 0);
+  slider("stiff", "stiff", 0, 4, 0.05, 2);
+  slider("gamma", "gamma", 1, 4, 0.05, 2);
+  slider("dt", "dt", 0.01, 0.5, 0.005, 3);
+  slider("drag", "drag", 0, 0.2, 0.001, 3);
+  slider("visc", "visc", 0, 1, 0.01, 2);
+  slider("couple", "couple", 0, 1, 0.01, 2);
+  slider("cap", "vmax", 0.1, 1, 0.01, 2);
+
+  group("move");
+  slider("spread", "spread", 0.2, 1.2, 0.01, 2);
+  slider("seep", "seep", 0, 2, 0.01, 2);
+
+  group("seed");
+  picker("start", "seedMode", [{v:0,t:"blobs"}, {v:1,t:"noise"}, {v:2,t:"quarters"}, {v:3,t:"bands"},
+                               {v:4,t:"disc"}], () => reseed());
+  slider("disc", "disc", 2, 40, 0.5, 1);
+  slider("amount", "amt", 0.2, 6, 0.1, 1);
+  slider("blob", "rad", 4, 80, 1, 0);
+  slider("fill", "fill", 0.02, 1, 0.01, 2);
+
+  group("view");
+  picker("show", "view", [{v:0,t:"fluids"}, {v:5,t:"paint"}, {v:6,t:"all eight"}, {v:1,t:"density"},
+                          {v:2,t:"pressure"}, {v:3,t:"direction"}, {v:4,t:"speed"}]);
+  picker("of", "chan", [{v:-1,t:"all"}, ...[0,1,2,3,4,5,6,7].map(c => ({v:c, t:`fluid ${c + 1}`}))]);
+  picker("palette", "pal", [{v:0,t:"mono"}, {v:1,t:"ember"}, {v:2,t:"ice"}, {v:3,t:"spectral"}]);
+  slider("exposure", "exp", 0.1, 8, 0.05, 2);
+
+  group("hand");
+  picker("drag", "tool", [{v:0,t:"pan"}, {v:1,t:"paint"}, {v:2,t:"stir"}, {v:3,t:"erase"}]);
+  picker("paint", "pchan", [{v:-1,t:"random"}, ...[0,1,2,3,4,5,6,7].map(c => ({v:c, t:`fluid ${c + 1}`}))]);
+  slider("brush", "brush", 4, 90, 1, 0);
+  slider("stir", "stir", 0.05, 1, 0.01, 2);
+
+  group("run");
+  picker("grid", "N", [{v:64,t:"64"}, {v:128,t:"128"}, {v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
+                       {v:1024,t:"1024"}, {v:1536,t:"1536"}, {v:2048,t:"2048"}],
+         () => { alloc(); reseed(); });
+  picker("precision", "prec", [{v:32,t:"32-bit exact"}, {v:16,t:"16-bit"}],
+         () => { alloc(); reseed(); });
+  picker("fluids", "nf", [2, 3, 4, 5, 6, 7, 8].map(n => ({v:n, t:String(n)})), () => setFluids(S.nf, true));
+  picker("speed", "steps", [{v:0.125,t:"1 step / 8 frames"}, {v:0.25,t:"1 step / 4 frames"},
+                            {v:0.5,t:"1 step / 2 frames"}, {v:1,t:"1 step / frame"},
+                            {v:2,t:"2 steps / frame"}, {v:4,t:"4 steps / frame"}, {v:8,t:"8 steps / frame"}]);
+  buttons([["roll", roll], ["reseed", () => reseed()], ["link", paramLink]]);
+  UI.preset.value = "droplets";
+}
+
+$("play").onclick = toggleRun;
+$("step1").onclick = () => { step(); massDue = true; };
+$("reseed").onclick = () => reseed();
+$("shuffle").onclick = rollMatrix;
+$("gecko").onclick = () => applyPreset("gecko");
+$("full").onclick = toggleFull;
+$("hidep").onclick = () => rack.classList.toggle("hid");
+
+/* ================================================================ params
+   Everything that makes a world, as one object: the matrix, the scalars,
+   and the seed. A link carries it in the hash, so a gallery can point back
+   at a live run. */
+const PKEYS = ["g", "range", "stiff", "gamma", "dt", "drag", "visc", "couple", "vmax",
+               "spread", "seep", "seedMode", "amt", "rad", "fill", "disc"];
+function getParams(){
+  const n = S.nf, M = [];
+  for(let c = 0; c < n; c++) for(let d = 0; d < n; d++) M.push(+S.M[c*8 + d].toFixed(3));
+  const p = {M, nf: n, seed: S.seed};
+  if(S.rule === "brain") p.rule = "gecko";
+  for(const k of PKEYS) p[k] = S[k];
+  return p;
+}
+function setParams(p){
+  if(p.M){
+    const n = p.nf || Math.round(Math.sqrt(p.M.length));
+    if(n !== S.nf) setFluids(n);
+    setMatrix(p.M); paintMatrix();
+  }
+  for(const k of PKEYS){
+    if(!(k in p)) continue;
+    if(UI[k] && UI[k].set) UI[k].set(p[k]);
+    else if(UI[k]){ UI[k].value = String(p[k]); S[k] = p[k]; }
+    else S[k] = p[k];
+  }
+}
+function paramLink(){
+  const j = JSON.stringify(getParams());
+  location.hash = "p=" + encodeURIComponent(j);
+  navigator.clipboard && navigator.clipboard.writeText(location.href).catch(() => {});
+}
+function fromHash(){
+  const m = /[#&]p=([^&]+)/.exec(location.hash);
+  if(!m) return false;
+  try {
+    const p = JSON.parse(decodeURIComponent(m[1]));
+    // A link can also name the grid and open paused, which is what a gallery
+    // or a headless run wants.
+    if(p.N && p.N !== S.N){ S.N = p.N; UI.N.value = String(p.N); alloc(); }
+    if(p.pause){ S.running = false; $("play").textContent = "play"; }
+    if(p.rule === "gecko"){ applyPreset("gecko"); return true; }
+    setParams(p); reseed(p.seed);
+    return true;
+  } catch(e){ return false; }
+}
+addEventListener("hashchange", fromHash);
+
+/* ===================================================================== loop */
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(cv.clientWidth*dpr));
+  const h = Math.max(1, Math.round(cv.clientHeight*dpr));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+new ResizeObserver(resize).observe(cv);
+
+let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0, stepAcc = 0;
+function tick(now){
+  requestAnimationFrame(tick);
+  const dt = now - tPrev; tPrev = now;
+  resize();
+  if(S.running){
+    // Steps a frame can be a fraction: a slow world takes a step every few frames.
+    stepAcc += S.steps;
+    while(stepAcc >= 1){ step(); stepAcc -= 1; }
+  }
+  render();
+  if(dt > 0 && dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
+  if(S.frame - massAt >= 120 || massDue){ measure(); tPrev = performance.now(); }
+  if(now - shown > 420){
+    shown = now;
+    const fps = fpsN ? 1000/(fpsAcc/fpsN) : 0;
+    fpsAcc = 0; fpsN = 0;
+    const cells = G.N*G.N;
+    const tot = mass ? mass[0] + mass[1] + mass[2] + mass[3] : 0;
+    $("stat").innerHTML =
+      `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
+      `<b>${G.N}&sup2;</b> &middot; ` +
+      `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema, 1) : 0)).toFixed(1)}M cell-steps/s &middot; ` +
+      `${memMB().toFixed(0)} MB` +
+      (mass ? ` &middot; mass <b>${((tot + (S.rule === "brain" ? 0 : hiddenMass))/cells).toFixed(6)}</b> ` +
+              `<span style="opacity:.7">(${[...mass, ...hidden].slice(0, S.rule === "brain" ? 4 : S.nf)
+                 .map(m => (m/cells).toFixed(3)).join(" ")})</span>` : "") +
+      (S.rule === "brain" ? ` &middot; hidden <b>${(hiddenMass/cells).toFixed(4)}</b> &middot; trained rule` : "");
+  }
+}
+
+S.N = 256;
+alloc();
+buildUI();
+UI.N.value = "256";
+if(!fromHash()) openSweep(0);
+resize();
+requestAnimationFrame(tick);
+</script>

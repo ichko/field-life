@@ -1,0 +1,57 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field Life — Fluid sweep</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.92em'%20font-size='92'%3E%F0%9F%A7%AB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+<style>
+:root{--bg:#E8EDEF; --panel:#FFFFFF; --ink:#0E1A1F; --ink2:#586A70; --line:#D0DBDE; --line2:#E1EAEC; --accent:#6246C8}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#060C0F; --panel:#0D161A; --ink:#E1EBEF; --ink2:#87999F; --line:#1D2930; --line2:#161F24; --accent:#A78BFA } }
+*{box-sizing:border-box}
+body{margin:0; color:var(--ink); background:var(--bg); font-family:"IBM Plex Mono", ui-monospace, Menlo, monospace;
+  font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased}
+.page{max-width:1120px; margin:0 auto; padding:22px 20px 90px}
+header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin-bottom:16px}
+h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700; font-size:clamp(24px,3.2vw,33px);
+   letter-spacing:-.035em; margin:0}
+.tag{color:var(--ink2); font-size:12px}
+.tag b{color:var(--ink); font-weight:500}
+.tag a, .below a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.tag a:hover, .below a:hover{border-bottom-color:var(--accent)}
+.grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(256px, 1fr)); gap:14px}
+.t{display:block; color:inherit; text-decoration:none; background:var(--panel); border:1px solid var(--line);
+   border-radius:6px; overflow:hidden; box-shadow:2px 2px 0 rgba(15,22,32,.055)}
+.t:hover{border-color:var(--accent)}
+.t img{display:block; width:100%; height:auto; image-rendering:pixelated; background:#04080B}
+.c{display:flex; align-items:center; justify-content:space-between; padding:6px 8px 0}
+.m{display:grid; grid-template-columns:repeat(4, 9px); gap:1px}
+.m i{display:block; width:9px; height:9px}
+.s{font-size:10px; color:var(--ink2); font-variant-numeric:tabular-nums}
+.i{padding:4px 8px 8px; font-size:9.5px; color:var(--ink2); line-height:1.5}
+.below{max-width:880px; margin:26px auto 0; color:var(--ink2); font-family:"IBM Plex Sans", system-ui, sans-serif;
+  font-size:13.5px; line-height:1.65}
+.below b{color:var(--ink); font-weight:500}
+</style>
+<div class="page">
+<header>
+  <h1>Field Life &mdash; Fluid sweep</h1>
+  <span class="tag"><b>{{COUNT}} worlds picked out of a random sweep.</b> Click one to open it live in
+  <a href="fluid.html">the fluid page</a>, with its matrix, its scalars and its seed.</span>
+</header>
+<div class="grid">
+{{TILES}}
+</div>
+<div class="below">
+<p>Each world is a random interaction matrix &mdash; drawn free, symmetric, antisymmetric, cyclic,
+one-against-the-rest or in pairs &mdash; and random scalars, run for 700 steps at 128&sup2; in a headless
+browser. It was kept if, near the end, it was <b>still moving</b>, had <b>structure</b> rather than a flat
+fog or one spike, kept its fluids <b>somewhat apart</b>, and had <b>interfaces</b>. The shortlist was then
+thinned for variety, so no two here are the same world twice. The small grid under each animation is the
+matrix: green pulls, red pushes, row towards column. The number is the score.</p>
+<p>Each animation is 48 frames, 20 steps apart, from the seed. The page loads it at 256&sup2; with the same
+seed, so the blob start matches; a noise start will differ in detail.</p>
+</div>
+</div>
