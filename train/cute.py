@@ -144,13 +144,13 @@ def _masks(p, f, occ):
 
 
 PAL = [np.array([0.05, 0.05, 0.08], np.float32),    # eyes, near black
-       np.array([0.42, 0.78, 0.30], np.float32),    # crown, bright green
-       np.array([0.66, 0.88, 0.44], np.float32),    # snout, lighter green
-       np.array([0.30, 0.68, 0.52], np.float32),    # jaw, teal
-       np.array([0.16, 0.52, 0.26], np.float32),    # back, deep green
-       np.array([0.95, 0.91, 0.74], np.float32),    # belly, cream
-       np.array([0.88, 0.80, 0.58], np.float32),    # legs and feet, sand
-       np.array([0.97, 0.78, 0.30], np.float32)]    # tail, gold
+       np.array([0.30, 0.75, 0.35], np.float32),    # crown, green
+       np.array([0.80, 0.90, 0.30], np.float32),    # snout, lime
+       np.array([0.25, 0.72, 0.78], np.float32),    # jaw, cyan
+       np.array([0.12, 0.42, 0.30], np.float32),    # back, deep green
+       np.array([0.97, 0.93, 0.78], np.float32),    # belly, cream
+       np.array([0.93, 0.55, 0.28], np.float32),    # legs and feet, orange
+       np.array([0.98, 0.76, 0.22], np.float32)]    # tail, gold
 
 
 def build(N=64):

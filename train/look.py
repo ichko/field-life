@@ -13,10 +13,12 @@ sys.path.insert(0, ".")
 import view
 from field3d import Field3D
 
-# One colour per part, in the order the target cuts them.
-PAL = np.array([[0.82, 0.30, 0.16], [0.96, 0.78, 0.28], [0.16, 0.52, 0.30],
-                [0.86, 0.84, 0.62], [0.36, 0.26, 0.58], [0.20, 0.62, 0.72],
-                [0.90, 0.45, 0.60], [0.55, 0.70, 0.22]], np.float32)
+# One colour per part, in the order the target cuts them. A target that has its
+# own palette gets to use it, so what grew and what was aimed at are drawn in
+# the same colours and can be put side by side.
+FALLBACK = np.array([[0.82, 0.30, 0.16], [0.96, 0.78, 0.28], [0.16, 0.52, 0.30],
+                     [0.86, 0.84, 0.62], [0.36, 0.26, 0.58], [0.20, 0.62, 0.72],
+                     [0.90, 0.45, 0.60], [0.55, 0.70, 0.22]], np.float32)
 
 
 def main():
@@ -37,8 +39,12 @@ def main():
     m.load_state_dict(torch.load(a.ckpt, map_location="cpu"))
     if a.hard: m.soft = False
 
-    parts, _ = importlib.import_module(a.target).build_parts(a.N)
+    mod = importlib.import_module(a.target)
+    parts, _ = mod.build_parts(a.N)
     P = parts.shape[0]
+    PAL = np.asarray(getattr(mod, "PAL", FALLBACK), np.float32)
+    if len(PAL) < P:
+        PAL = np.concatenate([PAL, FALLBACK[:P - len(PAL)]], 0)
     vis = torch.from_numpy(parts).unsqueeze(0).sum((0, 2, 3, 4))
     masses = torch.cat([vis, F.softplus(m.seed_mass.detach())[P:]])
     with torch.no_grad():
