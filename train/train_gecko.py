@@ -83,8 +83,10 @@ def main():
                     help="which animal: beast, gecko, or dragon")
     ap.add_argument("--N", type=int, default=40)
     ap.add_argument("--hidden", type=int, default=0,
-                    help="channels beyond the target's parts. Zero means every "
-                         "chemical is a piece of the animal and nothing else exists")
+                    help="channels beyond the target's parts. These are not "
+                         "drawn, but --wout holds them inside the body like "
+                         "everything else, so they are working memory rather "
+                         "than scaffolding standing outside the animal")
     ap.add_argument("--T", type=int, default=8)
     ap.add_argument("--S", type=int, default=3)
     ap.add_argument("--steps", type=int, default=48)
@@ -177,8 +179,16 @@ def main():
             cen = cen/w.sum((1, 2, 3)).clamp_min(1e-9).unsqueeze(-1)
             cen = cen - cen.mean(0)
             u = cen/cen.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+            if C > P:
+                # hidden channels have no part to point at, so they are spread
+                # out anyway rather than stacked in the middle: the whole reason
+                # for the hint is that channels sitting on top of each other
+                # give the rule nothing to tell directions apart by.
+                g = torch.Generator().manual_seed(17)
+                extra = torch.randn(C - P, 3, generator=g).to(u)
+                u = torch.cat([u, extra/extra.norm(dim=-1, keepdim=True)], 0)
             m.hint_seed(u, a.seedhint)
-        print("seed hinted, part directions (z,y,x):",
+        print("seed hinted, directions (z,y,x):",
               [[round(float(v), 2) for v in row] for row in u])
 
     opt = torch.optim.Adam(m.parameters(), lr=a.lr)
