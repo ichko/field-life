@@ -66,12 +66,30 @@ only thing in the entire run that can say which end is the head. Without the
 hidden channels the best the rule manages is stripes, which is what a system
 with no working memory produces.
 
-And a third thing is worth recording because it is the one that did **not**
-work: running longer. From nine hundred iterations to two thousand the loss fell
-by a third and the picture was the same kind of thing, slightly crisper. The
-same was true of the three-part fit before it. Iterations polish whatever
-attractor has been found; they do not go and find another one. Every real step
-forward here has come from changing what the rule is allowed to do.
+Given both of those, a further three thousand iterations do buy structure: a
+dark eye at one end, a head above it, rounded feet underneath, a body tapering
+to the back. It is the first thing here that reads as an animal.
+
+Two more things were tried and are recorded because they did **not** work.
+
+**Running longer, once the shape has arrived.** Nine hundred iterations to two
+thousand took the loss down a third and left the same creature, slightly
+cleaner. The three-part fit did the same before it. The honest form of this is
+not that iterations do not matter -- given capacity they clearly do -- but that
+they polish whichever attractor has been found and do not go looking for
+another. A run that has stopped changing kind will not start again on its own.
+
+**A longer unroll.** This one had an argument behind it. Transport here is a
+softmax over the twenty-seven neighbours, so mass moves at most one cell per
+step, and the far end of the gecko sits nineteen cells from the seed: a
+thirty-step unroll spends twenty steps getting mass out to the snout and tail
+and has ten left to make anything of it. Doubling it to fifty-six steps took the
+loss from 0.172 to 0.153 and made the fixed point very stable -- step 20, step
+40 and step 64 are now the same picture -- and grew no extremities at all. The
+rule was not running out of time.
+
+So capacity is the only lever that has moved the shape, twice, and the two
+things that looked like better candidates both turned out to be polish.
 
 ## The kernel bank: rings, orders, and big and small together
 
