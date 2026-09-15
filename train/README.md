@@ -20,7 +20,7 @@ pip install torch numpy pillow
 python3 train_gecko.py --target cute --kernel cppn --K 7 --N 40 \
     --iters 900 --warm 26 --chunk 12 --pool 16 --batch 4 \
     --lr 4e-3 --wsil 2.5 --wout 6.0 --blur 0.9 --seedR 2.6 --out cuteK.json
-python3 look.py cuteK.pt 18,32,44 40 8 5 12 out.png --target cute --kernel cppn --K 7
+python3 look.py cuteK.pt 18,32,44 40 out.png --target cute
 ```
 
 `--target` is any module with a `build_parts(N)` that hands back pieces which do
@@ -157,15 +157,26 @@ page already does.
 
 ## Where it has got to
 
-The fit brings the three parts into the right arrangement — a gold head at one
-end, the green back along the middle, the pale underside around them. It is not
-a gecko yet: no legs, no tail, no silhouette.
+Nine hundred iterations against the cartoon gecko, with the ring bank and no
+hidden channels, grows **a stable lump**. The colours have begun to separate
+along it -- green at one end, cream through the middle -- and the mass outside
+the animal falls from 0.42 to 0.06, so almost everything the field carries is
+inside the silhouette. It holds its shape at step 12, 26 and 44 alike, so it is
+a genuine fixed point and not somewhere the field is passing through. But there
+is no gecko in it: no head, no legs, no tail.
 
-Two things stood between here and one. The second is now fixed.
+That is the same wall the three-part fit hit, and the history below is what is
+known about it. What has changed is that testing the usual answer is now cheap.
 
-**It needs far more training than one sitting.** Fits of this kind normally run
-for tens of thousands of steps; this has had a couple of thousand, at three to
-seven seconds each on four CPU cores. That is the whole of the remaining gap.
+**How much an iteration costs, which is no longer the thing in the way.** Nine
+hundred iterations took fifteen and a half minutes on four CPU cores -- about a
+second each, where the displaced-Gaussian fit took nine. Nearly all of that came
+from three things that were being paid for nothing: baking the kernel bank every
+step instead of once per unroll, convolving a dense stencil directly instead of
+through a transform, and blurring every channel for the crowding term instead of
+their sum. Tens of thousands of iterations is now an afternoon here rather than
+a week, which makes "it simply needs more of them" a claim that can be checked
+rather than assumed.
 
 **The pattern was not a stable fixed point.** The first runs lengthened the
 unroll as they went and the loss jumped every time they did: a rule tuned to
@@ -226,15 +237,19 @@ they live rather than remembering a string, so `.to("cuda")` works:
 python3 train_gecko.py --device cuda --target cute --kernel cppn --K 7 \
     --N 48 --iters 20000 --warm 30 --chunk 14 --pool 32 --batch 16 \
     --lr 3e-3 --wsil 2.5 --wout 6.0 --blur 0.9 --out cuteG.json
-python3 look.py cuteG.pt 20,34,48 48 8 5 12 out.png --kernel cppn --K 7
+python3 look.py cuteG.pt 20,34,48 48 out.png --target cute
 ```
 
-`geckoK2.pt` and `geckoP_best.pt` are committed so a run can pick up where the
-CPU left off rather than start over: the first is the CPPN bank at 170
-iterations, the second the displaced-Gaussian fit it is being measured against.
+`cuteK900.pt` is committed so a run can pick up where the CPU left off rather
+than start over. Nothing about the shape needs to be passed on the command line
+when resuming or looking: `load_field` reads how many channels, how wide the
+seed and how big the stencil straight out of the file, because the flags that
+made a run are the first thing forgotten about it.
 
-What the hardware is worth here is not subtle. A step forward and back is about
-330 ms on four CPU cores at 40 cubed with eight channels; the same thing is a
+What the hardware is worth here is smaller than it was, because most of what
+looked like a hardware problem turned out to be arithmetic being repeated. An
+iteration is about a second on four CPU cores at 40 cubed with eight channels;
+the same thing is a
 few tens of milliseconds on a current card, and 48 or 64 cubed becomes
 affordable at the same time. This whole page's worth of conclusions was drawn
 from runs of a few hundred iterations. Fits of this kind normally get tens of
