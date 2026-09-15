@@ -10,24 +10,19 @@ import argparse, importlib, json, math
 import torch
 import torch.nn.functional as F
 
-from field3d import Field3D, gauss1d
+from field3d import gauss1d, load_field
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt")
     ap.add_argument("--N", type=int, default=40)
-    ap.add_argument("--C", type=int, default=10)
-    ap.add_argument("--T", type=int, default=8)
-    ap.add_argument("--S", type=int, default=3)
-    ap.add_argument("--seedR", type=float, default=3.5)
     ap.add_argument("--steps", type=int, default=40)
     ap.add_argument("--target", default="cute")
     ap.add_argument("--out", default="fit.json")
     a = ap.parse_args()
 
-    m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, seedR=a.seedR)
-    m.load_state_dict(torch.load(a.ckpt, map_location="cpu"))
+    m = load_field(a.ckpt, a.N)
 
     parts, _ = importlib.import_module(a.target).build_parts(a.N)
     vis = torch.from_numpy(parts).unsqueeze(0).sum((0, 2, 3, 4))
@@ -46,7 +41,7 @@ def main():
     out = {
         "kind": "volume-fit-v1",
         "target": a.target, "parts": P,
-        "N": a.N, "C": a.C, "S": a.S, "T": a.T, "steps": a.steps,
+        "N": a.N, "C": m.C, "S": m.S, "T": m.T, "steps": a.steps,
         "sigma": [round(float(s), 5) for s in sig],
         "stencil": half,
         "termSig": list(m.term_sig),
@@ -58,7 +53,7 @@ def main():
         "force": round(float(torch.exp(m.log_force))*dscale, 6),
         "repel": round(float(m.repel)*dscale, 6),
         "beta": round(float(torch.exp(m.log_beta)), 6),
-        "seedR": a.seedR,
+        "seedR": m.seedR,
         "seedHalf": m.seed_half,
         "seedMass": [round(float(v), 4) for v in masses],
         # the pattern, flattened x fastest, as the page uploads it

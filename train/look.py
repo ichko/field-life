@@ -1,6 +1,6 @@
 """Run a fitted rule from its seed and draw what grew.
 
-    python3 look.py fit.pt 20,34,48 40 10 5 12 out.png --target cute
+    python3 look.py cuteK.pt 20,34,48 40 out.png --target cute
 """
 import argparse, importlib, sys, warnings
 import numpy as np
@@ -11,7 +11,7 @@ from PIL import Image
 warnings.filterwarnings("ignore")
 sys.path.insert(0, ".")
 import view
-from field3d import Field3D
+from field3d import load_field
 
 # One colour per part, in the order the target cuts them. A target that has its
 # own palette gets to use it, so what grew and what was aimed at are drawn in
@@ -24,19 +24,15 @@ FALLBACK = np.array([[0.82, 0.30, 0.16], [0.96, 0.78, 0.28], [0.16, 0.52, 0.30],
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("ckpt"); ap.add_argument("at")
-    ap.add_argument("N", type=int); ap.add_argument("C", type=int)
-    ap.add_argument("S", type=int); ap.add_argument("T", type=int)
+    ap.add_argument("N", type=int)
     ap.add_argument("out")
     ap.add_argument("--target", default="cute")
-    ap.add_argument("--kernel", default="gauss", choices=("gauss", "cppn"))
-    ap.add_argument("--K", type=int, default=7)
     ap.add_argument("--hard", action="store_true", help="the page's clamp, not the fit's")
     a = ap.parse_args()
     at = [int(v) for v in a.at.split(",")]
     torch.set_num_threads(4)
 
-    m = Field3D(C=a.C, S=a.S, T=a.T, N=a.N, kernel=a.kernel, K=a.K)
-    m.load_state_dict(torch.load(a.ckpt, map_location="cpu"))
+    m = load_field(a.ckpt, a.N)
     if a.hard: m.soft = False
 
     mod = importlib.import_module(a.target)

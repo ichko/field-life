@@ -69,11 +69,38 @@ def shift_all(x, off, pad, base_grid):
                          padding_mode="zeros", align_corners=True).permute(1, 0, 2, 3, 4)
 
 
+def load_field(ckpt, N, orders=3, rings=5, map_location="cpu"):
+    """Rebuild the model a checkpoint came from, and load it.
+
+    Everything about the shape is in the checkpoint already -- how many
+    channels, how wide the seed is, whether the kernels are displaced Gaussians
+    or a network and how big its stencil is -- so it is read off rather than
+    passed in. Guessing it at the call site means a fit run with, say, a smaller
+    seed cannot be looked at afterwards without remembering which flags made it,
+    and forgetting is silent until the shapes disagree. Only N has to be told,
+    because the world's size is not a parameter of anything.
+    """
+    sd = torch.load(ckpt, map_location=map_location)
+    C = sd["mat"].shape[0]
+    T = sd["amp"].shape[1]
+    S = sd["log_sig"].numel()
+    # seed_half = ceil(seedR) + 1, so any seedR with that ceiling rebuilds the
+    # right size; the ball itself comes back from the checkpoint regardless.
+    r = (sd["seed_ball"].shape[0] - 1)//2
+    kw = {}
+    if any(k.startswith("kern.") for k in sd):
+        kw = dict(kernel="cppn", K=(round(sd["kern.off"].shape[0]**(1/3)) - 1)//2,
+                  axes=sd["kern.axis"].shape[0], orders=orders, rings=rings)
+    m = Field3D(C=C, S=S, T=T, N=N, seedR=float(r - 1), **kw)
+    m.load_state_dict(sd)
+    return m
+
+
 class Field3D(torch.nn.Module):
     """C channels, S blur widths, T displaced terms per channel."""
 
     def __init__(self, C=8, S=3, T=6, N=48, seedR=3.5, device="cpu", dtype=torch.float32,
-                 kernel="gauss", K=7, axes=4, orders=3):
+                 kernel="gauss", K=7, axes=4, orders=3, rings=5):
         super().__init__()
         self.C, self.S, self.T, self.N = C, S, T, N
         self.soft = True
@@ -83,7 +110,8 @@ class Field3D(torch.nn.Module):
         # replaces the displaced Gaussians outright: one dense stencil per
         # channel, each with its own reach, so the bank holds a kernel that
         # looks two cells out and one that looks across a third of the world.
-        self.kern = KernelCPPN(C, K=K, axes=axes, orders=orders) if kernel == "cppn" else None
+        self.kern = KernelCPPN(C, K=K, axes=axes, orders=orders,
+                               rings=rings) if kernel == "cppn" else None
         # kept only for reference; every allocation asks a parameter where it is
         self.device, self.dtype = device, dtype
         g = torch.Generator().manual_seed(7)
