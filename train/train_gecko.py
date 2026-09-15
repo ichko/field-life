@@ -22,7 +22,7 @@ import argparse, importlib, math, os, time
 import torch
 import torch.nn.functional as F
 
-from field3d import Field3D
+from field3d import Field3D, load_field
 
 
 def soften(x, s):
@@ -140,12 +140,19 @@ def main():
     print("target:", a.target, "parts:", P, "channels:", C,
           "mass each:", [round(float(v), 1) for v in vis_mass])
 
-    m = Field3D(C=C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
-                kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders)
-    m = m.to(dev)
+    # Resuming rebuilds the model the checkpoint came from rather than the one
+    # the flags describe. The two disagreeing is not a thing anyone notices at
+    # the call site -- the flags that made a run are the first thing forgotten
+    # -- and it fails minutes in, as a shape mismatch.
     if a.resume and os.path.exists(a.resume):
-        m.load_state_dict(torch.load(a.resume, map_location=dev))
-        print("resumed from", a.resume)
+        m = load_field(a.resume, a.N, map_location=dev).to(dev)
+        if m.C != C:
+            raise SystemExit("%s has %d channels, this target wants %d"
+                             % (a.resume, m.C, C))
+        print("resumed from", a.resume, "S", m.S, "T", m.T, "seedR", m.seedR)
+    else:
+        m = Field3D(C=C, S=a.S, T=a.T, N=a.N, seedR=a.seedR,
+                    kernel=a.kernel, K=a.K, axes=a.axes, orders=a.orders).to(dev)
     # hidden channels start with about as much mass as a visible one. The
     # inverse of softplus overflows the moment its argument is large, which for
     # a mass of a few hundred it certainly is, so it is taken the safe way.
