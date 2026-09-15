@@ -28,7 +28,7 @@ h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700; fo
 .t img{display:block; width:100%; height:auto; image-rendering:pixelated; background:#04080B}
 .c{display:flex; align-items:center; justify-content:space-between; padding:6px 8px 0}
 .m{display:grid; grid-template-columns:repeat(4, 9px); gap:1px}
-.m i{display:block; width:9px; height:9px}
+.m i{display:block; width:100%; aspect-ratio:1}
 .s{font-size:10px; color:var(--ink2); font-variant-numeric:tabular-nums}
 .i{padding:4px 8px 8px; font-size:9.5px; color:var(--ink2); line-height:1.5}
 .below{max-width:880px; margin:26px auto 0; color:var(--ink2); font-family:"IBM Plex Sans", system-ui, sans-serif;
@@ -37,9 +37,9 @@ h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700; fo
 </style>
 <div class="page">
 <header>
-  <h1>Field Life &mdash; Fluid sweep</h1>
+  <h1>Field Life &mdash; Fluid sweep, {{TITLE}}</h1>
   <span class="tag"><b>{{COUNT}} worlds picked out of a random sweep.</b> Click one to open it live in
-  <a href="fluid.html">the fluid page</a>, with its matrix, its scalars and its seed.</span>
+  <a href="fluid.html">the fluid page</a>, with its matrix, its scalars and its seed. {{OTHER}}</span>
 </header>
 <div class="grid">
 {{TILES}}

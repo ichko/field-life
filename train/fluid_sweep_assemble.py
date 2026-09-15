@@ -4,10 +4,11 @@ import json, glob, math, os, sys
 import numpy as np
 from PIL import Image, ImageDraw
 
-def load():
+def load(pattern='sweep/score-*.json'):
     rows = []
-    for f in sorted(glob.glob('sweep/score-*.json')):
+    for f in sorted(glob.glob(pattern)):
         rows += json.load(open(f))
+    for r in rows: r.setdefault('nf', 4)
     return rows
 
 def score(r):
@@ -23,14 +24,14 @@ def score(r):
     # calm but structured is still worth a look; dead and flat is not
     return (0.25 + 0.75*alive)*struct*legible*edges*room
 
-def select(n, out):
-    rows = load()
+def select(n, out, pattern='sweep/score-*.json'):
+    rows = load(pattern)
     for r in rows: r['score'] = score(r)
     rows.sort(key=lambda r: -r['score'])
     print(f"{len(rows)} worlds scored; top scores:", [round(r['score'], 3) for r in rows[:8]])
     pool = rows[:max(n*3, 40)]
     def feat(r): return np.array([r['cv'], r['purity'], math.tanh(r['act']/0.25), r['edge']*3, r['occ'],
-                                  r['g']/2.6, r['range']/14, r['spread'], r['seep'], r['seedMode']*0.5])
+                                  r['g']/2.6, r['range']/14, r['spread'], r['seep'], r['seedMode']*0.5, r['nf']/8])
     F = np.array([feat(r) for r in pool]); F = (F - F.mean(0))/(F.std(0) + 1e-9)
     chosen = [0]
     while len(chosen) < min(n, len(pool)):
@@ -83,34 +84,35 @@ def build(capdir, outdir, gallery):
     print('sheet', cols, 'x', rows_, nf, 'frames')
     # the gallery
     def link(p):
-        q = {k: p[k] for k in ('M', 'seed', 'g', 'range', 'stiff', 'gamma', 'dt', 'drag', 'visc', 'couple',
+        q = {k: p[k] for k in ('M', 'nf', 'seed', 'g', 'range', 'stiff', 'gamma', 'dt', 'drag', 'visc', 'couple',
                                 'vmax', 'spread', 'seep', 'seedMode', 'amt', 'rad', 'fill')}
         q['N'] = 256
         import urllib.parse
         return 'fluid.html#p=' + urllib.parse.quote(json.dumps(q, separators=(',', ':')))
     def mat(p):
-        cells = ''
-        for c in range(4):
-            for d in range(4):
-                v = p['M'][c*4 + d]; a = 0.12 + 0.88*min(1, abs(v))
+        n = p['nf']; cells = ''
+        for c in range(n):
+            for d in range(n):
+                v = p['M'][c*n + d]; a = 0.12 + 0.88*min(1, abs(v))
                 col = f"rgba(84,196,122,{a:.2f})" if v >= 0 else f"rgba(226,84,96,{a:.2f})"
                 cells += f'<i style="background:{col}"></i>'
-        return f'<span class="m">{cells}</span>'
+        return f'<span class="m" style="grid-template-columns:repeat({n},{9 if n <= 4 else 6}px)">{cells}</span>'
     tiles = ''
     for p, fr in worlds:
         name = f"{p['idx']:04d}"
-        info = (f"{p['kind']} &middot; g {p['g']} &middot; range {p['range']} &middot; stiff {p['stiff']} "
+        info = (f"{p['nf']} fluids &middot; {p['kind']} &middot; g {p['g']} &middot; range {p['range']} &middot; stiff {p['stiff']} "
                 f"&middot; &gamma; {p['gamma']} &middot; dt {p['dt']} &middot; drag {p['drag']} &middot; visc {p['visc']} "
                 f"&middot; couple {p['couple']} &middot; spread {p['spread']} &middot; seep {p['seep']} "
                 f"&middot; {'blobs' if p['seedMode'] == 0 else 'noise'}")
         tiles += (f'<a class="t" href="{link(p)}" title="open in the simulation">'
-                  f'<img src="fluid-sweep/{name}.gif" loading="lazy" width="192" height="192">'
+                  f'<img src="{os.path.basename(outdir.rstrip("/"))}/{name}.gif" loading="lazy" width="192" height="192">'
                   f'<div class="c">{mat(p)}<span class="s">{p.get("score", 0):.2f}</span></div>'
                   f'<div class="i">{info}</div></a>\n')
-    html = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fluid_sweep_gallery.html')).read().replace('{{TILES}}', tiles).replace('{{COUNT}}', str(len(worlds)))
+    tpl = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fluid_sweep_gallery.html')).read()
+    html = tpl.replace('{{TILES}}', tiles).replace('{{COUNT}}', str(len(worlds))).replace('{{GIFDIR}}', os.path.basename(outdir.rstrip('/')))
     open(gallery, 'w').write(html)
     print('gallery', gallery, len(worlds))
 
 if __name__ == '__main__':
-    if sys.argv[1] == 'select': select(int(sys.argv[2]), sys.argv[3])
+    if sys.argv[1] == 'select': select(int(sys.argv[2]), sys.argv[3], *sys.argv[4:5])
     else: build(sys.argv[2], sys.argv[3], sys.argv[4])
