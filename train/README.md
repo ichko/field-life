@@ -88,8 +88,14 @@ loss from 0.172 to 0.153 and made the fixed point very stable -- step 20, step
 40 and step 64 are now the same picture -- and grew no extremities at all. The
 rule was not running out of time.
 
-So capacity is the only lever that has moved the shape, twice, and the two
-things that looked like better candidates both turned out to be polish.
+**More capacity still.** If six hidden channels were worth that much, fourteen
+should be worth something. They are not: nine hundred iterations from scratch
+reach 0.393 against 0.401 for six, which is nothing, and it costs three and a
+half times as much to get there. The jump is from none to some. Having got some,
+more is not the direction.
+
+So capacity is the lever that moved the shape, and it has been pulled. Of the
+four things tried since, three were polish and one was flat.
 
 ## The kernel bank: rings, orders, and big and small together
 
