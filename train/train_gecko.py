@@ -55,7 +55,7 @@ def target_field(mod, N, blur=0.0):
     return soften(t, blur), soften(o, blur)
 
 
-def pyramid_loss(x, y, m, levels=3):
+def pyramid_loss(x, y, m, levels=3, cw=None):
     """Compare at full pitch and at two coarser ones, with the animal weighted
     up against the empty cube around it.
 
@@ -70,7 +70,18 @@ def pyramid_loss(x, y, m, levels=3):
     loss = 0.0
     w = 1.0
     for i in range(levels):
-        loss = loss + w*((m*(x - y)**2).mean()/m.mean())
+        e = m*(x - y)**2
+        if cw is None:
+            term = e.mean()/m.mean()
+        else:
+            # Average over space per part, then over parts with a weight,
+            # rather than over everything at once. Plain averaging lets a part
+            # count in proportion to how much of the animal it is, so the eyes
+            # -- a thirteenth of it, a third of what the legs weigh -- are
+            # simply outvoted, and a fit will trade them away for a slightly
+            # better leg every time.
+            term = (e.mean((0, 2, 3, 4))/m.mean()*cw).sum()/cw.sum()
+        loss = loss + w*term
         if i < levels - 1:
             x, y, m = F.avg_pool3d(x, 2), F.avg_pool3d(y, 2), F.avg_pool3d(m, 2)
             w *= 2.0
@@ -100,6 +111,10 @@ def main():
     ap.add_argument("--hold", type=int, default=8, help="also match this many steps later")
     ap.add_argument("--out", default="gecko_fit.json")
     ap.add_argument("--resume", default="")
+    ap.add_argument("--wpart", type=float, default=1.0,
+                    help="how much to even out the parts against their size. "
+                         "1 gives every part an equal say however small it is, "
+                         "0 lets the big ones dominate")
     ap.add_argument("--wsil", type=float, default=2.5,
                     help="how much the silhouette outweighs the colour")
     ap.add_argument("--blur", type=float, default=0.9,
@@ -142,8 +157,12 @@ def main():
     # has to be allowed to breathe.
     outside = 1.0 - torch.clamp(soften(occ, 1.0)*3.0, 0.0, 1.0)
     tot = float(vis_mass.sum())
+    # what each part's error is worth, against how much of the animal it is
+    cw = (vis_mass.mean()/vis_mass.clamp_min(1e-6))**a.wpart
+    cw = cw/cw.mean()
     print("target:", a.target, "parts:", P, "channels:", C,
           "mass each:", [round(float(v), 1) for v in vis_mass])
+    print("part weights:", [round(float(v), 2) for v in cw])
 
     # Resuming rebuilds the model the checkpoint came from rather than the one
     # the flags describe. The two disagreeing is not a thing anyone notices at
@@ -272,7 +291,7 @@ def main():
             spill = (r*outside).sum()/(r.shape[0]*tot)
             loss = loss + w*(a.wsil*pyramid_loss(vis.sum(1, keepdim=True),
                                                  tgt.sum(1, keepdim=True), wmap)
-                             + pyramid_loss(vis, tgt, wmap)
+                             + pyramid_loss(vis, tgt, wmap, cw=cw)
                              + a.wout*spill)
         loss = wt*loss/len(keep)
 

@@ -143,7 +143,7 @@ def _masks(p, f, occ):
     return [np.clip(m*occ, 0, 1).astype(np.float32) for m in order]
 
 
-PAL = [np.array([0.05, 0.05, 0.08], np.float32),    # eyes, near black
+PAL = [np.array([0.02, 0.02, 0.10], np.float32),    # eyes, blue-black
        np.array([0.30, 0.75, 0.35], np.float32),    # crown, green
        np.array([0.80, 0.90, 0.30], np.float32),    # snout, lime
        np.array([0.25, 0.72, 0.78], np.float32),    # jaw, cyan

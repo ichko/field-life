@@ -1,0 +1,580 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Grown gecko</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+  :root{
+    --bg:#0c0e13; --panel:#151922; --line:#242a36; --ink:#dfe4ee; --dim:#8b93a5;
+    --accent:#7fd4a6;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  #wrap{position:fixed;inset:0;display:flex;flex-direction:column}
+  canvas{flex:1;width:100%;min-height:0;display:block;cursor:grab;touch-action:none}
+  canvas:active{cursor:grabbing}
+  #bar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;
+    padding:10px 14px;background:var(--panel);border-top:1px solid var(--line)}
+  button{background:#1d2330;color:var(--ink);border:1px solid var(--line);
+    border-radius:7px;padding:6px 12px;font:inherit;cursor:pointer}
+  button:hover{border-color:#3a4354}
+  button.on{background:var(--accent);color:#0b1a12;border-color:var(--accent)}
+  label{display:flex;gap:7px;align-items:center;color:var(--dim);white-space:nowrap}
+  input[type=range]{width:104px;accent-color:var(--accent)}
+  #status{margin-left:auto;color:var(--dim);font-variant-numeric:tabular-nums}
+  #note{position:absolute;top:12px;left:14px;color:var(--dim);max-width:30ch;
+    pointer-events:none;text-shadow:0 1px 3px #000}
+  b{color:var(--ink);font-weight:600}
+</style>
+<div id="wrap">
+  <canvas id="c"></canvas>
+  <div id="bar">
+    <button id="play" class="on">Pause</button>
+    <button id="step1">Step</button>
+    <button id="reset">Reset</button>
+    <label>speed <input id="rate" type="range" min="1" max="8" step="1" value="2"></label>
+    <label>density <input id="dens" type="range" min="10" max="140" step="1" value="58"></label>
+    <label>cut <input id="cut" type="range" min="0" max="100" step="1" value="100"></label>
+    <span id="status">…</span>
+  </div>
+</div>
+<div id="note"></div>
+<script>
+/* A rule fitted to grow a gecko, run in the browser.
+
+   The step here is the volume page's step, with one part replaced. The page's
+   kernel is a difference of two Gaussians, which is radially symmetric, and a
+   bank of radially symmetric kernels has only radially symmetric fixed points.
+   This one is a bank of dense stencils a small network drew during the fit, one
+   per chemical, each with its own reach -- a couple of cells at one end of the
+   bank, a dozen at the other. They are baked into gecko-fit.json along with the
+   matrix, the three scalars and the seed, and nothing here is tuned: every
+   number on the screen came out of the fit.
+
+   Everything else is the same arithmetic: halve the grid, take the
+   neighbourhood integrals there, mix them through the matrix, subtract
+   crowding, exponentiate, and move mass by a softmax over the twenty-seven
+   neighbours -- which conserves each chemical's mass exactly, so the seed has
+   to arrive holding what the finished animal weighs. */
+
+const cv = document.getElementById('c');
+const gl = cv.getContext('webgl2', {antialias:false, alpha:false,
+                                    preserveDrawingBuffer:false});
+const note = document.getElementById('note');
+if(!gl){ note.innerHTML = 'This needs WebGL2.'; throw new Error('no webgl2'); }
+if(!gl.getExtension('EXT_color_buffer_float')){
+  note.innerHTML = 'This needs float render targets (EXT_color_buffer_float).';
+  throw new Error('no float rt');
+}
+
+/* ------------------------------------------------------------------ shaders */
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+/* The volume lives in a 2D atlas laid out so that a row IS a layer of four
+   chemicals and a column IS a z slice: tile (z, layer) starts at (z*n, layer*n).
+   That costs nothing and buys two things -- the address arithmetic is two
+   divisions rather than a slice index, and a pass that only wants one layer can
+   scissor to one row instead of discarding three quarters of its fragments. */
+const HEAD = `#version 300 es
+precision highp float; precision highp int; precision highp sampler2D;
+int wrapi(int v, int n){ return int(mod(float(v), float(n))); }
+// which voxel, and which layer of four, a fragment is
+ivec4 cellOf(ivec2 p, int n){ return ivec4(p.x % n, p.y % n, p.x / n, p.y / n); }
+// where a voxel of a layer sits in the atlas, wrapping the way a torus does
+ivec2 at(ivec3 c, int l, int n){
+  return ivec2(wrapi(c.z,n)*n + wrapi(c.x,n), l*n + wrapi(c.y,n));
+}
+vec4 grab(sampler2D t, ivec3 c, int l, int n){ return texelFetch(t, at(c,l,n), 0); }
+`;
+
+/* Halve the grid, averaging 2x2x2. The kernels reach several cells, so the
+   neighbourhood integrals lose nothing by being taken at half pitch, and in
+   three dimensions that is eight times less work, not four. */
+const FS_DOWN = HEAD + `
+uniform sampler2D uRho; uniform int uN, uM;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uM);
+  vec4 s = vec4(0.0);
+  for(int k=0;k<2;k++) for(int j=0;j<2;j++) for(int i=0;i<2;i++)
+    s += grab(uRho, ivec3(c.x*2+i, c.y*2+j, c.z*2+k), c.w, uN);
+  o = s*0.125;
+}`;
+
+/* Crowding wants every chemical added up and then blurred once. Adding first is
+   the same number for a fraction of the work, a blur being linear. */
+const FS_SUM = HEAD + `
+uniform sampler2D uHalf; uniform int uM, uL;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uM);
+  float s = 0.0;
+  for(int l=0;l<uL;l++) s += dot(grab(uHalf, c.xyz, l, uM), vec4(1.0));
+  o = vec4(s, 0.0, 0.0, 1.0);
+}`;
+
+const FS_BLUR = HEAD + `
+uniform sampler2D uSrc; uniform int uM, uKB, uAxis; uniform float uW[33];
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uM);
+  float s = 0.0;
+  for(int i=-16;i<=16;i++){
+    if(i < -uKB || i > uKB) continue;
+    ivec3 d = uAxis==0 ? ivec3(i,0,0) : (uAxis==1 ? ivec3(0,i,0) : ivec3(0,0,i));
+    s += grab(uSrc, c.xyz + d, 0, uM).x*uW[i+16];
+  }
+  o = vec4(s, 0.0, 0.0, 1.0);
+}`;
+
+/* The kernel bank. One draw per group of four chemicals, and the groups are
+   sorted by reach, so a group of tight kernels is convolved over a handful of
+   taps instead of paying the widest kernel in the bank for every one of them.
+   The weights arrive as a small texture: tap t of the group sits at
+   (dx+R, (dz+R)*(2R+1) + dy+R), and its four components are the four
+   chemicals' weights at that offset. */
+const FS_CONV = HEAD + `
+uniform sampler2D uHalf, uK; uniform int uM, uR, uLay;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uM);
+  int W = 2*uR + 1;
+  vec4 s = vec4(0.0);
+  for(int dz=-8;dz<=8;dz++){
+    if(dz < -uR || dz > uR) continue;
+    for(int dy=-8;dy<=8;dy++){
+      if(dy < -uR || dy > uR) continue;
+      int row = (dz+uR)*W + (dy+uR);
+      for(int dx=-8;dx<=8;dx++){
+        if(dx < -uR || dx > uR) continue;
+        vec4 w = texelFetch(uK, ivec2(dx+uR, row), 0);
+        s += w*grab(uHalf, c.xyz + ivec3(dx,dy,dz), uLay, uM);
+      }
+    }
+  }
+  o = s;
+}`;
+
+/* Affinity: the bank mixed through the matrix, less crowding. Force and repel
+   already carry the fit's density scaling, folded in on the way out, so there
+   is nothing to normalise here. */
+const FS_AFF = HEAD + `
+uniform sampler2D uKc, uCrowd; uniform int uM, uL;
+uniform float uForce, uRepel; uniform vec4 uMat[64];
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uM);
+  vec4 k[4];
+  for(int l=0;l<4;l++) k[l] = l < uL ? grab(uKc, c.xyz, l, uM) : vec4(0.0);
+  float crowd = grab(uCrowd, c.xyz, 0, uM).x;
+  vec4 a;
+  for(int j=0;j<4;j++){
+    int ch = c.w*4 + j;
+    float v = 0.0;
+    for(int g=0;g<4;g++) v += dot(uMat[ch*4+g], k[g]);
+    a[j] = uForce*v - uRepel*crowd;
+  }
+  o = a;
+}`;
+
+/* Back up to full pitch and exponentiate. The exponent is clamped hard at the
+   same bound the fit was checked against; a saturating step would be a step
+   that has stopped depending on the field. The upsample clamps at the edge
+   rather than wrapping, because that is what the fit was trained through. */
+const FS_EXP = HEAD + `
+uniform sampler2D uA; uniform int uN, uM; uniform float uBeta;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uN);
+  vec3 g = (vec3(c.xyz) + 0.5)*0.5 - 0.5;
+  vec3 f = fract(max(g, 0.0));
+  ivec3 i0 = ivec3(floor(g));
+  vec4 s = vec4(0.0);
+  for(int k=0;k<2;k++) for(int j=0;j<2;j++) for(int i=0;i<2;i++){
+    ivec3 q = clamp(i0 + ivec3(i,j,k), ivec3(0), ivec3(uM-1));
+    float w = (i==1?f.x:1.0-f.x)*(j==1?f.y:1.0-f.y)*(k==1?f.z:1.0-f.z);
+    s += texelFetch(uA, at(q, c.w, uM), 0)*w;
+  }
+  o = exp(clamp(uBeta*s, -11.0, 11.0));
+}`;
+
+/* Transport, in two passes. Z is what the twenty-seven neighbours weigh, S is
+   each cell's share of itself, and the move hands every cell the sum of the
+   shares around it times its own weight. Mass per chemical comes out exactly
+   what went in -- which is why the seed has to arrive holding the animal. */
+const FS_SHARE = HEAD + `
+uniform sampler2D uRho, uE; uniform int uN;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uN);
+  vec4 Z = vec4(0.0);
+  for(int dz=-1;dz<=1;dz++) for(int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++)
+    Z += grab(uE, c.xyz + ivec3(dx,dy,dz), c.w, uN);
+  o = grab(uRho, c.xyz, c.w, uN)/max(Z, vec4(1e-30));
+}`;
+
+const FS_MOVE = HEAD + `
+uniform sampler2D uS, uE; uniform int uN;
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uN);
+  vec4 s = vec4(0.0);
+  for(int dz=-1;dz<=1;dz++) for(int dy=-1;dy<=1;dy++) for(int dx=-1;dx<=1;dx++)
+    s += grab(uS, c.xyz + ivec3(dx,dy,dz), c.w, uN);
+  o = max(grab(uE, c.xyz, c.w, uN)*s, vec4(0.0));
+}`;
+
+/* Colour, once per step rather than once per ray sample: each chemical that is
+   a visible part of the animal contributes its own colour, premultiplied, and
+   the alpha is how much animal is in the cell. The hidden chemicals are held
+   inside the body by the fit and are simply not drawn. */
+const FS_PAINT = HEAD + `
+uniform sampler2D uRho; uniform int uN, uL; uniform vec4 uCol[16];
+out vec4 o;
+void main(){
+  ivec4 c = cellOf(ivec2(gl_FragCoord.xy), uN);
+  vec3 rgb = vec3(0.0); float a = 0.0;
+  for(int l=0;l<4;l++){
+    if(l >= uL) break;
+    vec4 v = grab(uRho, c.xyz, l, uN);
+    for(int j=0;j<4;j++){
+      vec4 col = uCol[l*4+j];
+      rgb += col.rgb*v[j]; a += col.a*v[j];
+    }
+  }
+  o = vec4(rgb, a);
+}`;
+
+/* Front to back, emission and absorption, with a normal taken off the gradient
+   of the density so the thing has a surface to catch light on. */
+const FS_MARCH = HEAD + `
+uniform sampler2D uCol; uniform int uN;
+uniform vec3 uEye, uRight, uUp, uFwd;
+uniform vec2 uRes; uniform float uSigma, uCut;
+out vec4 o;
+
+vec4 vol(vec3 p){                       // p in 0..1
+  vec3 g = p*float(uN) - 0.5;
+  ivec3 i0 = ivec3(floor(g)); vec3 f = g - vec3(i0);
+  vec4 s = vec4(0.0);
+  for(int k=0;k<2;k++) for(int j=0;j<2;j++) for(int i=0;i<2;i++){
+    float w = (i==1?f.x:1.0-f.x)*(j==1?f.y:1.0-f.y)*(k==1?f.z:1.0-f.z);
+    s += texelFetch(uCol, at(i0 + ivec3(i,j,k), 0, uN), 0)*w;
+  }
+  return s;
+}
+
+void main(){
+  vec2 uv = (gl_FragCoord.xy*2.0 - uRes)/uRes.y;
+  vec3 rd = normalize(uFwd*1.6 + uRight*uv.x + uUp*uv.y);
+  vec3 ro = uEye;
+  // the unit cube, centred
+  vec3 t0 = (vec3(-0.5) - ro)/rd, t1 = (vec3(0.5) - ro)/rd;
+  vec3 lo = min(t0,t1), hi = max(t0,t1);
+  float tn = max(max(lo.x,lo.y),lo.z), tf = min(min(hi.x,hi.y),hi.z);
+  // linear, because it is gamma corrected on the way out with everything else
+  vec3 bg = mix(vec3(0.007,0.009,0.013), vec3(0.020,0.024,0.032),
+                clamp(gl_FragCoord.y/uRes.y, 0.0, 1.0));
+  if(tf <= max(tn, 0.0)){ o = vec4(pow(bg, vec3(1.0/2.2)), 1.0); return; }
+  tn = max(tn, 0.0);
+
+  float dt = 1.0/float(uN)*0.85;
+  vec3 key = normalize(vec3(0.45, 0.78, 0.44));
+  vec3 acc = vec3(0.0); float trans = 1.0;
+  float h = 1.0/float(uN);
+  for(int i=0;i<420;i++){
+    float t = tn + (float(i) + 0.5)*dt;
+    if(t > tf || trans < 0.01) break;
+    vec3 p = ro + rd*t + 0.5;
+    if(p.x > uCut) continue;                       // the cross section
+    vec4 v = vol(p);
+    if(v.a < 1e-4) continue;
+    float a = 1.0 - exp(-v.a*uSigma*dt);
+    vec3 alb = v.rgb/max(v.a, 1e-4);
+    vec3 n = vec3(vol(p+vec3(h,0,0)).a - vol(p-vec3(h,0,0)).a,
+                  vol(p+vec3(0,h,0)).a - vol(p-vec3(0,h,0)).a,
+                  vol(p+vec3(0,0,h)).a - vol(p-vec3(0,0,h)).a);
+    float nl = length(n);
+    float lam = nl > 1e-6 ? clamp(dot(-n/nl, key), 0.0, 1.0) : 0.5;
+    acc += trans*a*alb*(0.34 + 1.05*lam);
+    trans *= 1.0 - a;
+  }
+  o = vec4(pow(clamp(acc + trans*bg, 0.0, 1.0), vec3(1.0/2.2)), 1.0);
+}`;
+
+/* --------------------------------------------------------------------- glue */
+function compile(src, type){
+  const s = gl.createShader(type);
+  gl.shaderSource(s, src); gl.compileShader(s);
+  if(!gl.getShaderParameter(s, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(s) + '\n' + src.split('\n')
+      .map((l,i)=>(i+1)+': '+l).join('\n'));
+  return s;
+}
+function program(fs){
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(VS, gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(fs, gl.FRAGMENT_SHADER));
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS))
+    throw new Error(gl.getProgramInfoLog(p));
+  // Look the type up rather than guessing it from the value. A float uniform
+  // set with uniform1i fails silently and stays zero, and a slider that happens
+  // to be on a whole number makes any value look like an integer -- which is
+  // exactly how the density ended up at nought and the volume rendered as
+  // nothing at all.
+  const u = {}, ty = {};
+  const n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i=0;i<n;i++){
+    const a = gl.getActiveUniform(p, i);
+    const name = a.name.replace(/\[0\]$/, '');
+    u[name] = gl.getUniformLocation(p, name);
+    ty[name] = a.type;
+  }
+  return {p, u, ty};
+}
+function tex(w, h, data){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, w, h);
+  if(data) gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data);
+  for(const k of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER])
+    gl.texParameteri(gl.TEXTURE_2D, k, gl.NEAREST);
+  for(const k of [gl.TEXTURE_WRAP_S, gl.TEXTURE_WRAP_T])
+    gl.texParameteri(gl.TEXTURE_2D, k, gl.CLAMP_TO_EDGE);
+  return {t, w, h};
+}
+const fbo = gl.createFramebuffer();
+function drawTo(target, prog, binds, uniforms, rowsOnly){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0,
+                          gl.TEXTURE_2D, target.t, 0);
+  gl.viewport(0, 0, target.w, target.h);
+  run(prog, binds, uniforms, rowsOnly, target);
+}
+function run(prog, binds, uniforms, rowsOnly, target){
+  gl.useProgram(prog.p);
+  let unit = 0;
+  for(const [name, t] of binds){
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D, t.t);
+    gl.uniform1i(prog.u[name], unit++);
+  }
+  for(const [name, v] of uniforms){
+    const loc = prog.u[name];
+    if(loc == null) continue;
+    if(typeof v === 'number'){
+      const t = prog.ty[name];
+      if(t === gl.INT || t === gl.BOOL || t === gl.SAMPLER_2D) gl.uniform1i(loc, v);
+      else gl.uniform1f(loc, v);
+    }
+    else if(v.length === 2) gl.uniform2fv(loc, v);
+    else if(v.length === 3) gl.uniform3fv(loc, v);
+    else gl.uniform4fv(loc, v);
+  }
+  if(rowsOnly){
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(0, rowsOnly[0], target.w, rowsOnly[1]);
+  }
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if(rowsOnly) gl.disable(gl.SCISSOR_TEST);
+}
+function uniformI(prog, name, v){ if(prog.u[name] != null) gl.uniform1i(prog.u[name], v); }
+
+/* ---------------------------------------------------------------- the world */
+let F = null, T = null, PR = null, kernTex = [], steps = 0, playing = true;
+let yaw = 0.85, pitch = 0.22, dist = 1.75;
+
+async function boot(){
+  F = await (await fetch('gecko-fit.json', {cache:'no-store'})).json();
+  const N = F.N, M = N >> 1, L = Math.ceil(F.C/4);
+
+  const quad = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quad);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  const vao = gl.createVertexArray();
+  gl.bindVertexArray(vao);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+
+  PR = {down:program(FS_DOWN), sum:program(FS_SUM), blur:program(FS_BLUR),
+        conv:program(FS_CONV), aff:program(FS_AFF), exp:program(FS_EXP),
+        share:program(FS_SHARE), move:program(FS_MOVE), paint:program(FS_PAINT),
+        march:program(FS_MARCH)};
+
+  T = {
+    rho:  tex(N*N, N*L), rho2: tex(N*N, N*L),
+    half: tex(M*M, M*L), kc:   tex(M*M, M*L), aff: tex(M*M, M*L),
+    crowd:tex(M*M, M),   crowd2:tex(M*M, M),
+    E:    tex(N*N, N*L), S:    tex(N*N, N*L),
+    col:  tex(N*N, N),
+  };
+
+  for(const g of F.groups){
+    const R = g.radius, W = 2*R + 1;
+    kernTex.push({tex: tex(W, W*W, new Float32Array(g.w)), R});
+  }
+
+  // the matrix, padded to sixteen channels so the shader never has to ask how
+  // many there really are; the padding rows are zero and stay zero
+  const mat = new Float32Array(64*4);
+  for(let c=0;c<F.C;c++) for(let d=0;d<F.C;d++) mat[(c*4 + (d>>2))*4 + (d&3)] = F.mat[c][d];
+  F._mat = mat;
+
+  // one colour per channel position: the visible parts get theirs, the hidden
+  // ones get nothing, because they are inside the animal and not part of it
+  const col = new Float32Array(16*4);
+  for(let i=0;i<F.C;i++){
+    const orig = F.order[i];
+    if(orig < F.P){
+      col[i*4+0] = F.palette[orig][0];
+      col[i*4+1] = F.palette[orig][1];
+      col[i*4+2] = F.palette[orig][2];
+      col[i*4+3] = 1.0;
+    }
+  }
+  F._col = col;
+
+  const blur = new Float32Array(33);
+  const kb = (F.crowdBlur.length - 1) >> 1;
+  for(let i=0;i<F.crowdBlur.length;i++) blur[i - kb + 16] = F.crowdBlur[i];
+  F._blur = blur; F._kb = kb;
+
+  reset();
+  note.innerHTML = '<b>' + F.C + ' chemicals</b>, ' + F.P + ' of them visible parts, '
+    + N + '&sup3;. Drag to turn.';
+  requestAnimationFrame(frame);
+}
+
+function reset(){
+  const N = F.N, L = Math.ceil(F.C/4), h = F.seedHalf, D = 2*h + 1;
+  const a = new Float32Array(N*N*N*L*4);
+  const c0 = N >> 1;
+  for(let i=0;i<F.C;i++){
+    const l = i >> 2, j = i & 3;
+    for(let z=0;z<D;z++) for(let y=0;y<D;y++) for(let x=0;x<D;x++){
+      const v = F.seedPattern[((i*D + z)*D + y)*D + x];
+      if(v === 0) continue;
+      const vx = c0 - h + x, vy = c0 - h + y, vz = c0 - h + z;
+      const px = vz*N + vx, py = l*N + vy;
+      a[(py*(N*N) + px)*4 + j] = v;
+    }
+  }
+  gl.bindTexture(gl.TEXTURE_2D, T.rho.t);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N*N, N*L, gl.RGBA, gl.FLOAT, a);
+  steps = 0;
+  paint();
+}
+
+function step(){
+  const N = F.N, M = N >> 1, L = Math.ceil(F.C/4);
+
+  drawTo(T.half, PR.down, [['uRho', T.rho]], [['uN',N],['uM',M]]);
+
+  drawTo(T.crowd, PR.sum, [['uHalf', T.half]], [['uM',M],['uL',L]]);
+  for(let ax=0;ax<3;ax++){
+    const src = ax===1 ? T.crowd2 : T.crowd, dst = ax===1 ? T.crowd : T.crowd2;
+    gl.useProgram(PR.blur.p);
+    gl.uniform1fv(PR.blur.u['uW'], F._blur);
+    drawTo(dst, PR.blur, [['uSrc', src]], [['uM',M],['uKB',F._kb],['uAxis',ax]]);
+  }
+  // three passes, so the result is in crowd2
+
+  for(let g=0;g<F.groups.length;g++){
+    drawTo(T.kc, PR.conv, [['uHalf', T.half], ['uK', kernTex[g].tex]],
+           [['uM',M],['uR',kernTex[g].R],['uLay',g]], [g*M, M]);
+  }
+
+  gl.useProgram(PR.aff.p);
+  gl.uniform4fv(PR.aff.u['uMat'], F._mat);
+  drawTo(T.aff, PR.aff, [['uKc', T.kc], ['uCrowd', T.crowd2]],
+         [['uM',M],['uL',L],['uForce',F.force],['uRepel',F.repel]]);
+
+  drawTo(T.E, PR.exp, [['uA', T.aff]], [['uN',N],['uM',M],['uBeta',F.beta]]);
+  drawTo(T.S, PR.share, [['uRho', T.rho], ['uE', T.E]], [['uN',N]]);
+  drawTo(T.rho2, PR.move, [['uS', T.S], ['uE', T.E]], [['uN',N]]);
+  const t = T.rho; T.rho = T.rho2; T.rho2 = t;
+  steps++;
+}
+
+function paint(){
+  const N = F.N, L = Math.ceil(F.C/4);
+  gl.useProgram(PR.paint.p);
+  gl.uniform4fv(PR.paint.u['uCol'], F._col);
+  drawTo(T.col, PR.paint, [['uRho', T.rho]], [['uN',N],['uL',L]]);
+}
+
+/* A readback, so what is in the volume can be looked at rather than guessed
+   at from what the raymarcher makes of it. */
+window.stats = function(which){
+  const t = T[which || 'col'];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, t.t, 0);
+  const px = new Float32Array(t.w*t.h*4);
+  gl.readPixels(0, 0, t.w, t.h, gl.RGBA, gl.FLOAT, px);
+  let mn = Infinity, mx = -Infinity, sum = 0, nan = 0;
+  const ch = [0,0,0,0];
+  for(let i=0;i<px.length;i++){
+    const v = px[i];
+    if(!isFinite(v)){ nan++; continue; }
+    if(v < mn) mn = v; if(v > mx) mx = v; sum += v; ch[i&3] += v;
+  }
+  return {tex:which||'col', w:t.w, h:t.h, min:mn, max:mx, sum:sum, nonfinite:nan,
+          perComponent:ch};
+};
+const el = id => document.getElementById(id);
+el('play').onclick = () => {
+  playing = !playing;
+  el('play').textContent = playing ? 'Pause' : 'Play';
+  el('play').classList.toggle('on', playing);
+};
+el('step1').onclick = () => { step(); paint(); };
+el('reset').onclick = () => reset();
+
+let drag = null;
+cv.addEventListener('pointerdown', e => { drag = [e.clientX, e.clientY];
+  cv.setPointerCapture(e.pointerId); });
+cv.addEventListener('pointerup', () => drag = null);
+cv.addEventListener('pointermove', e => {
+  if(!drag) return;
+  yaw += (e.clientX - drag[0])*0.008;
+  pitch = Math.max(-1.35, Math.min(1.35, pitch + (e.clientY - drag[1])*0.008));
+  drag = [e.clientX, e.clientY];
+});
+cv.addEventListener('wheel', e => {
+  e.preventDefault();
+  dist = Math.max(1.25, Math.min(4.0, dist*Math.exp(e.deltaY*0.0012)));
+}, {passive:false});
+
+function frame(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.floor(cv.clientWidth*dpr), h = Math.floor(cv.clientHeight*dpr);
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+
+  if(playing){
+    const n = +el('rate').value;
+    for(let i=0;i<n;i++) step();
+    paint();
+  }
+
+  const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const fwd = [-cp*sy, -sp, -cp*cy];
+  const eye = [cp*sy*dist, sp*dist, cp*cy*dist];
+  const right = [cy, 0, -sy];
+  const up = [-sy*sp, cp, -cy*sp];        // right x fwd, so it is square to the view
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height);
+  run(PR.march, [['uCol', T.col]],
+      [['uN', F.N], ['uEye', eye], ['uFwd', fwd], ['uRight', right], ['uUp', up],
+       ['uRes', [cv.width, cv.height]],
+       ['uSigma', +el('dens').value], ['uCut', +el('cut').value/100*1.001]]);
+
+  el('status').textContent = 'step ' + steps;
+  requestAnimationFrame(frame);
+}
+
+boot().catch(e => { note.innerHTML = 'Failed: ' + e.message;
+                    console.error(e); });
+</script>
