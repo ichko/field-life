@@ -77,6 +77,9 @@ seed has to arrive already holding what the picture costs.
 | `particle_life.py` | the dots version this started from, and the gif it makes |
 | `staging/` | a copy of the page for trying things that are not ready |
 | `staging/volume.html` | the same rule on a cube instead of a sheet: a WebGL2 volumetric test, self-contained |
+| `staging/fluid.html` | a different rule on the same idea: four fluids with a density, a velocity and a pressure per cell, pushing on each other by a matrix, carried by the MaCE move; and a trained rule that grows a gecko from a disc |
+| `staging/fluid-sweep.html`, `staging/fluid-sweep/` | a shelf of fluid worlds found by sweeping, each a gif and a link back into the page |
+| `train/fluid_gecko.py` | the fluid page's step in JAX, and the training that fits its rule to the gecko |
 
 ## Running it
 

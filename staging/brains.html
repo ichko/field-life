@@ -1,0 +1,2037 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Field Life — Brains</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20100%20100'%3E%3Ctext%20y='.92em'%20font-size='92'%3E%F0%9F%A7%AB%3C/text%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#E8EDEF; --panel:#FFFFFF; --panel2:#EEF3F4; --ink:#0E1A1F; --ink2:#586A70;
+  --line:#D0DBDE; --line2:#E1EAEC; --well:#C4D0D6; --accent:#6246C8; --focus:#7355E0;
+  --screen:#04080B;
+  --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%230E1A1F'%20stroke-opacity='.13'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+  --shadow:2px 2px 0 rgba(15,22,32,.055);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#060C0F; --panel:#0D161A; --panel2:#121C21; --ink:#E1EBEF; --ink2:#87999F;
+    --line:#1D2930; --line2:#161F24; --well:#151F25; --accent:#A78BFA; --focus:#A78BFA;
+    --screen:#04080B;
+    --gridimg:url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='28'%20height='28'%3E%3Cpath%20d='M28%200H0v28'%20fill='none'%20stroke='%23A78BFA'%20stroke-opacity='.10'%20stroke-width='1'%20stroke-dasharray='3%205'/%3E%3C/svg%3E");
+    --shadow:2px 2px 0 rgba(0,0,0,.34);
+  }
+}
+*{box-sizing:border-box}
+body{
+  margin:0; color:var(--ink); background-color:var(--bg);
+  background-image:var(--gridimg); background-repeat:repeat; background-attachment:fixed;
+  font-family:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:13px; line-height:1.45; -webkit-font-smoothing:antialiased;
+}
+.page{max-width:1040px; margin:0 auto; padding:22px 20px 90px;
+  display:flex; flex-direction:column; gap:16px}
+header{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+h1{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-weight:700;
+   font-size:clamp(24px,3.2vw,33px); letter-spacing:-.035em; margin:0}
+.tag{color:var(--ink2); font-size:12px; letter-spacing:.02em}
+.tag b{color:var(--ink); font-weight:500}
+.tag a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.tag a:hover{border-bottom-color:var(--accent)}
+
+/* ------------------------------------------------------------- app shell */
+.app{position:relative; width:100%; aspect-ratio:7/5; overflow:hidden;
+  background:var(--screen); border:1px solid var(--line);
+  border-radius:6px 8px 7px 7px; box-shadow:var(--shadow);
+  --panel:#0A0B0D; --panel2:#14171B; --ink:#E9E6E0; --ink2:#6B7076;
+  --line:#23272C; --line2:#181B1F; --accent:#A78BFA; --focus:#A78BFA;
+  --rowh:23px; --lab:52px;}
+@media (pointer:coarse){ .app{ --rowh:31px; --lab:64px; } }
+.app:fullscreen{aspect-ratio:auto; width:100vw; height:100vh; border:0; border-radius:0}
+#cv{position:absolute; inset:0; width:100%; height:100%; display:block;
+  touch-action:none; cursor:grab}
+#cv.painting{cursor:crosshair}
+#cv.dragging{cursor:grabbing}
+
+/* --------------------------------------------------------------- panels */
+.rack{position:absolute; top:8px; right:8px; width:186px; z-index:3;
+  background:color-mix(in srgb, var(--panel) 88%, transparent);
+  border:1px solid var(--line); padding:3px 6px 5px;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px);
+  max-height:calc(100% - 16px); overflow-y:auto; overscroll-behavior:contain;
+  scrollbar-width:thin; scrollbar-color:var(--line) transparent}
+.rack::-webkit-scrollbar{width:6px}
+.rack::-webkit-scrollbar-thumb{background:var(--line)}
+.rack.hid{display:none}
+/* Squares, never interpolated: drawn at a fixed pixel size and stretched by
+   the browser with no smoothing, so a bigger radius makes the cells smaller
+   rather than blurrier. */
+/* A real tooltip, not a title attribute: it has to appear beside the control
+   without waiting a second and a half for the browser to decide. */
+#tip{position:absolute; z-index:9; width:214px; padding:6px 8px;
+  background:color-mix(in srgb, var(--panel) 97%, transparent);
+  border:1px solid var(--line); color:var(--ink2);
+  font-size:10px; line-height:1.5; letter-spacing:.015em;
+  pointer-events:none; opacity:0; transition:opacity .1s;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+#tip.on{opacity:1}
+#tip b{color:var(--ink); font-weight:500}
+#kern{display:block; width:100%; height:auto; margin:2px 0 3px;
+  border:1px solid var(--line2); background:#06090c;
+  image-rendering:pixelated; image-rendering:crisp-edges}
+.grp{font-size:8px; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  padding:7px 0 3px; border-bottom:1px solid var(--line2); margin-bottom:1px}
+.grp:first-child{padding-top:2px}
+.row{position:relative; display:grid; grid-template-columns:var(--lab) minmax(0,1fr);
+  align-items:center; gap:5px; min-height:var(--rowh);
+  border-bottom:1px solid var(--line2); padding:0 1px}
+label.lab{font-size:8.5px; letter-spacing:.03em; text-transform:uppercase; color:var(--ink2);
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.val{position:absolute; right:4px; top:0; height:100%; z-index:1;
+  display:flex; align-items:center; pointer-events:none;
+  font-variant-numeric:tabular-nums; font-size:9.5px; font-weight:500;
+  color:#fff; -webkit-text-stroke:.5px #000; paint-order:stroke fill; text-shadow:0 0 2px #000}
+input[type=range]{-webkit-appearance:none; appearance:none; width:100%; min-width:0;
+  height:calc(var(--rowh) - 8px); background:transparent; cursor:ew-resize; margin:0; --p:50%}
+input[type=range]::-webkit-slider-runnable-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-moz-range-track{height:calc(var(--rowh) - 8px);
+  background:linear-gradient(to right, var(--accent) var(--p), var(--panel2) var(--p));
+  box-shadow:inset 0 0 0 1px var(--line2)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none; width:2px;
+  height:calc(var(--rowh) - 8px); background:var(--ink); opacity:.7; border:0}
+input[type=range]::-moz-range-thumb{width:2px; height:calc(var(--rowh) - 8px);
+  background:var(--ink); opacity:.55; border:0}
+input:focus-visible, select:focus-visible, button:focus-visible{outline:2px solid var(--focus); outline-offset:1px}
+select{font:inherit; font-size:10.5px; line-height:1.1; color:var(--ink);
+  background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 13px 0 4px; width:100%; min-width:0; height:calc(var(--rowh) - 3px);
+  -webkit-appearance:none; appearance:none; cursor:pointer;
+  background-image:linear-gradient(45deg,transparent 50%,var(--ink2) 50%),
+                   linear-gradient(135deg,var(--ink2) 50%,transparent 50%);
+  background-position:calc(100% - 9px) center, calc(100% - 5px) center;
+  background-size:4px 4px, 4px 4px; background-repeat:no-repeat}
+button{font:inherit; font-size:9.5px; letter-spacing:.05em; text-transform:uppercase;
+  color:var(--ink); background:var(--panel2); border:1px solid var(--line2); border-radius:0;
+  padding:0 5px; height:calc(var(--rowh) - 5px); cursor:pointer; white-space:nowrap}
+button:hover{border-color:var(--ink2)}
+button.on{background:var(--accent); border-color:var(--accent); color:#0A0B0D}
+.btns{display:flex; gap:3px; padding:4px 0 1px; flex-wrap:wrap}
+.btns button{flex:1 1 0; min-width:0; padding:0 3px; letter-spacing:.01em;
+  overflow:hidden; text-overflow:ellipsis}
+.seg{display:flex; border:1px solid var(--line2); overflow:hidden}
+.seg button{border:0; border-right:1px solid var(--line2); flex:1 1 0; padding:0 3px}
+.seg button:last-child{border-right:0}
+
+/* bottom-left transport + readout */
+.hud{position:absolute; left:8px; bottom:8px; z-index:3; display:flex; align-items:center;
+  gap:6px; flex-wrap:wrap; max-width:calc(100% - 210px)}
+.hud .box{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  border:1px solid var(--line); padding:2px 6px; font-size:9.5px; color:var(--ink2);
+  letter-spacing:.04em; font-variant-numeric:tabular-nums;
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+.hud .box b{color:var(--ink); font-weight:500}
+.hud .seg{background:color-mix(in srgb, var(--panel) 84%, transparent);
+  backdrop-filter:blur(9px); -webkit-backdrop-filter:blur(9px)}
+@media (max-width:560px){ .hud{max-width:calc(100% - 16px)} .hud .box{display:none} }
+#hint{position:absolute; left:8px; top:8px; z-index:3; font-size:9.5px; color:var(--ink2);
+  background:color-mix(in srgb, var(--panel) 84%, transparent); border:1px solid var(--line);
+  padding:3px 7px; letter-spacing:.03em; pointer-events:none; transition:opacity .5s}
+#hint.gone{opacity:0}
+#err{position:absolute; inset:0; display:none; place-items:center; padding:30px;
+  color:#FF9E80; background:#04080B; font-size:11px; line-height:1.6; text-align:center; z-index:9}
+
+/* --------------------------------------------------------------- writing */
+.below{max-width:880px; margin:0 auto; color:var(--ink2);
+  font-family:"IBM Plex Sans", system-ui, sans-serif; font-size:13.5px; line-height:1.65}
+.below h2{font-family:"Bricolage Grotesque", system-ui, sans-serif; font-size:11px;
+  font-weight:600; letter-spacing:.16em; text-transform:uppercase; color:var(--accent);
+  margin:26px 0 10px}
+.below h2:first-child{margin-top:0}
+.below p{margin:0 0 10px}
+.below b{color:var(--ink); font-weight:500}
+.below code{font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink)}
+.below a{color:var(--accent); text-decoration:none; border-bottom:1px solid transparent}
+.below a:hover{border-bottom-color:var(--accent)}
+.below table{width:100%; border-collapse:collapse; font-family:"IBM Plex Mono",monospace;
+  font-size:11.5px; margin:0 0 12px}
+.below th{text-align:left; font-weight:500; color:var(--ink2); font-size:9px;
+  letter-spacing:.1em; text-transform:uppercase; border-bottom:1px solid var(--line);
+  padding:4px 8px 4px 0}
+.below td{padding:3px 8px 3px 0; border-bottom:1px solid var(--line2)}
+.below td:first-child{color:var(--ink)}
+</style>
+
+<div class="page">
+<header>
+  <h1>Field Life &mdash; Brains</h1>
+  <span class="tag"><b>Nine species, nine networks, one world of matter.</b>
+  <a href="species.html">species</a> &middot; <a href="flow.html">flow</a>
+  &middot; <a href="index.html">flat</a></span>
+</header>
+
+<div class="app" id="app">
+  <canvas id="cv"></canvas>
+  <div id="hint">drag to pan &middot; wheel to zoom &middot; shift-drag to paint &middot; alt-drag to erase</div>
+  <div class="hud">
+    <div class="seg">
+      <button id="play" title="space">pause</button>
+      <button id="step1" title="one step">step</button>
+      <button id="reseed" title="R">reseed</button>
+      <button id="shuffle" title="N">brains</button>
+      <button id="full" title="F">full</button>
+      <button id="hidep" title="H">ui</button>
+    </div>
+    <div class="box" id="stat">&mdash;</div>
+  </div>
+  <div class="rack" id="rack"></div>
+  <div id="err"></div>
+</div>
+
+<div class="below" id="notes">
+<h2>The state</h2>
+<p>Three things, and nothing else.</p>
+<p>&mdash; <b>Eight matter channels.</b> Stuff lying on the ground. Deposited, spread and faded.
+Not conserved, and it must not be: fading is what makes a trail a trail.</p>
+<p>&mdash; <b>A direction per species.</b> Two numbers a vector, nine vectors a cell &mdash; which way each species is facing here. Each one is turned only by its own brain and carried only by its own mass.</p>
+<p>&mdash; <b>Nine species channels.</b> How much of each species is in this cell. Conserved,
+each one on its own.</p>
+
+<h2>The step</h2>
+<p>&mdash; <b>Perceive.</b> The kernel is turned to face <b>the smelling species' own
+direction</b> and convolved across all eight matter channels. Its lobes give a reading per channel,
+so what comes out is a <b>perception vector</b>. How many readings depends on the <b>kernel</b>
+setting: <i>both eyes</i> keeps each side separate for sixteen numbers, <i>opposed eyes</i> hands
+over only right minus left for eight, and <i>eyes and centre</i> adds the cell's own ground negated
+for twenty-four. Nine species facing nine ways means nine readings of the same ground.</p>
+<p>&mdash; <b>Think.</b> Each species has a <b>brain</b>, and it is <a
+href="https://fluoddity.com/">Fluoddity</a>'s: not a network with layers but a sum of <b>ten random
+sinusoids</b>. Each of the ten turns the whole perception into one phase and hands every output a
+different basis function of it &mdash; the fundamental and its first harmonic, in sine and cosine.
+Each brain reads its own perception vector and answers with three things: an <b>orientation
+offset</b>, an <b>affinity</b>, and a <b>matter offset</b>, one number per matter channel. Nine
+species, nine brains, nine answers.</p>
+<p>Every centre draws its <b>own frequency scale</b>, biased low, so one brain comes out smooth and
+the next one jagged. That is the whole reason for the shape: a two-layer net with a fixed input
+scale gives every draw the same character however different its numbers are, which is exactly what
+resampling used to look like here. <b>Gain</b> dilates the phase &mdash; how many oscillations a
+perception travels through &mdash; and is the one knob that changes a run most.</p>
+<p>&mdash; <b>Combine.</b> Now those answers have to become one cell.</p>
+<p>The <b>orientation offsets</b> are not averaged. Each species carries its <b>own heading</b>,
+and its own offset turns only that heading &mdash; damped by how much of that species is standing
+here, so a heading is never spun about by a brain with nothing in the cell to do the smelling.
+Nine headings a cell, nine independent turns.</p>
+<p>The <b>affinities</b> are not averaged. Each one belongs to its own species, and each species
+redistributes <i>its own</i> concentration according to <i>its own</i> affinity &mdash; its
+contents split among the nine neighbours in shares proportional to
+<code>exp(beta&middot;affinity + speed&middot;heading&middot;offset)</code> at each of them, scaled
+to sum to one. That second term is the <b>forward step</b>, the thing an ant does after it turns:
+the neighbour straight ahead is favoured and the one behind is not, so a heading stops being
+decoration and starts being momentum. Without it every move is a fresh decision about what is
+smelled right now and nothing ever keeps going straight. Nine species, nine
+independent transports, and not one of them creates or destroys anything. This is the reason they
+can stay distinct: a species is never carried by somebody else's decision.</p>
+<p>The <b>matter offsets</b> are summed, weighted by concentration, and added to the ground. Then
+the matter is spread by <b>diffuse</b> and faded by <b>decay</b>.</p>
+<p>That is the whole simulation.</p>
+
+<h2>What is deliberate</h2>
+<p>A species never senses another species. It senses the <b>ground</b>, and the ground is the only
+thing anyone writes to &mdash; the way an ant smells what has been left rather than the ants that
+left it. Every interaction in here is indirect, through matter, and a brain is free to lay down
+something that another brain runs from.</p>
+<p>The direction is <b>state</b>, and there is one per species. It is rotated by that species'
+offset and carried along with <b>that species' own mass</b> &mdash; the weight a neighbour's
+heading arrives with is exactly how much of that species arrived with it. Never read back out of
+where the mass happened to go.</p>
+<p>The kernel is <b>built from the angle</b>, not rotated: its lobe centres are computed from the
+smelling species' own heading every step, so nothing is a stored stencil being turned and resampled. Each
+lobe is read as a blurred average over its own radius rather than as a scatter of point taps,
+which is what makes them smooth blobs instead of a handful of dots.</p>
+<p style="margin-top:22px;font-size:12px">A staging page.</p>
+</div>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cv = $("cv");
+const gl = cv.getContext("webgl2", {antialias:false, alpha:false, depth:false,
+                                    preserveDrawingBuffer:false, powerPreference:"high-performance"});
+function fatal(msg){
+  const e = $("err");
+  e.style.display = "grid"; e.textContent = msg;
+  e.style.whiteSpace = "pre-wrap"; e.style.font = "11px/1.6 monospace";
+  throw new Error(msg);
+}
+if(!gl) fatal("This page needs WebGL2, which this browser did not provide.");
+if(!gl.getExtension("EXT_color_buffer_float"))
+  fatal("This GPU cannot render to float textures (EXT_color_buffer_float),\nwhich the simulation needs.");
+
+const K = 8;                 // matter channels
+// FOUR species, and four is a ceiling rather than a taste: the thinking pass
+// has to emit an affinity, a matter offset per channel, a velocity and a
+// strafe for every species at once, and past four that will not fit in the
+// eight render targets a GPU offers. Four also means the species field is one
+// vec4, which is why there is no packing anywhere below.
+const NS = 4;
+const NC = 10;               // Fourier centres in a brain, Fluoddity's number
+const NIN = 3*K + 5;         // three readings a matter channel, the flow, and a bias
+const NOUT = 4 + 1 + K;      // force, strafe, affinity, a matter offset per channel
+const ND = (NS + 1) >> 1;    // vector fields -- two species to a vec4
+
+const VS = `#version 300 es
+in vec2 a; void main(){ gl_Position = vec4(a, 0.0, 1.0); }`;
+
+const HEAD = `#version 300 es
+precision highp float; precision highp int;
+uniform float uN;
+uniform vec2 uTexel;
+const float PI = 3.14159265359;
+const float TAU = 6.28318530718;
+const ivec2 OFF[9] = ivec2[9](ivec2( 0, 0),
+  ivec2( 1, 0), ivec2( 1, 1), ivec2( 0, 1), ivec2(-1, 1),
+  ivec2(-1, 0), ivec2(-1,-1), ivec2( 0,-1), ivec2( 1,-1));
+ivec2 wrap(ivec2 p){ return ivec2(mod(vec2(p), vec2(uN))); }
+// Velocity is state and accumulates, so a low drag and a strong force can run
+// it away; a 3x3 stencil cannot move mass more than one cell a step, so past a
+// few cells per step the number means nothing and only threatens to overflow.
+// Capped well above anything useful, purely so nothing becomes an inf.
+vec2 cap(vec2 v){
+  float m = length(v);
+  return m > 16.0 ? v*(16.0/m) : v;
+}
+// exp of the transport exponent, on the same reasoning as the affinity's rail:
+// only differences matter, and an inf here becomes exp(inf - inf) = NaN.
+float wexp(float a){ return exp(clamp(a, -40.0, 40.0)); }
+// The same nine offsets as DIRECTIONS, and one over their lengths. The forward
+// step scores a neighbour on exp(speed * heading . offset), and using the RAW
+// offset there hands the diagonals a factor of root two inside the exponent --
+// so they win whenever they are anywhere near aligned, and the drift is pulled
+// towards the nearest multiple of 45 degrees. Measured: at speed 4 a heading
+// drifted up to 16.3 degrees off itself and moved 29 per cent faster in some
+// directions than others. Scoring on the UNIT offset and dividing the weight by
+// the length makes the mean displacement a weighted average of unit vectors
+// over eight evenly spaced directions, which is isotropic to high order: the
+// same measurement gives 0.23 degrees and 8.5 per cent, at the same step size.
+const vec2 UOFF[9] = vec2[9](vec2( 0.0, 0.0),
+  vec2( 1.0, 0.0), vec2( 0.70710678, 0.70710678), vec2( 0.0, 1.0),
+  vec2(-0.70710678, 0.70710678), vec2(-1.0, 0.0), vec2(-0.70710678,-0.70710678),
+  vec2( 0.0,-1.0), vec2( 0.70710678,-0.70710678));
+const float ILEN[9] = float[9](1.0, 1.0, 0.70710678, 1.0, 0.70710678,
+                               1.0, 0.70710678, 1.0, 0.70710678);
+// A species field is ONE vec4: with four species there is nothing to pack, so
+// SP and its friends are gone and a concentration is just c[s].
+// The vector fields -- velocity and strafe -- are still two species to a vec4,
+// so they get the local-array treatment a sampler array cannot have.
+vec2 getvec(vec4 d[ND], int s){ return (s & 1) == 0 ? d[s >> 1].xy : d[s >> 1].zw; }
+void setvec(inout vec4 d[ND], int s, vec2 v){
+  if((s & 1) == 0){ d[s >> 1].xy = v; } else { d[s >> 1].zw = v; }
+}
+vec2 rot(vec2 v, float a){
+  float c = cos(a), n = sin(a);
+  return vec2(v.x*c - v.y*n, v.x*n + v.y*c);
+}
+`;
+
+// A sampler array can only be indexed by a constant in GLSL ES, so the nine
+// headings live in ND separately named textures and every touch of them is
+// unrolled into a local array, which CAN be indexed by a running variable.
+// These write that unrolling so the count is in one place.
+const names = (pre, n) => Array.from({length: n}, (_, i) => pre + i);
+const decl = (pre, n) => `uniform sampler2D ${names(pre, n).join(", ")};`;
+const outs = (pre, n, at) => names("o" + pre, n)
+  .map((v, i) => `layout(location = ${at + i}) out vec4 ${v};`).join("\n");
+const reads = (dst, pre, n, at) => names("u" + pre, n)
+  .map((t, i) => `${dst}[${i}] = texelFetch(${t}, ${at}, 0);`).join(" ");
+const writes = (src, pre, n) => names("o" + pre, n)
+  .map((v, i) => `${v} = ${src}[${i}];`).join(" ");
+
+const HASH = `
+uint hash(uint x){
+  x ^= x >> 16; x *= 0x7feb352du; x ^= x >> 15; x *= 0x846ca68bu; x ^= x >> 16;
+  return x;
+}
+float rnd(ivec2 p, int k, int f){
+  uint h = hash(uint(p.x) * 0x9e3779b9u ^ hash(uint(p.y) * 0x85ebca6bu
+              ^ hash(uint(k) * 0xc2b2ae35u ^ uint(f))));
+  return float(h) * (1.0/4294967296.0) - 0.5;
+}`;
+
+/* ------------------------------------------------- 1: perceive, think, move
+   The one pass that does the thinking. It smells the ground through a kernel
+   turned to face where each species is HEADING, runs that species' brain on
+   what it found, and writes what the rest of the step needs.
+
+   The dynamics are Fluoddity's, as its author states them:
+       velocity += force;
+       position += velocity + strafe;
+   So a brain emits a FORCE, which accumulates into a velocity that persists
+   under drag, and a STRAFE, which pushes this step only and is forgotten. Both
+   come out in the species' own frame -- along its nose and across it -- and are
+   turned into the world here. Speed is state, not a setting: a species that has
+   been pushed the same way for a while is moving faster than one that has not.
+
+   The kernel is BUILT from the angle. Its lobe centres come from this species'
+   own heading every step, so no stored stencil is turned and resampled and
+   nothing aliases as a heading creeps round.                                */
+const FS_BRAIN = HEAD + `
+uniform sampler2D uM0, uM1, uC, uF;
+${decl("uV", ND)}
+uniform float uFnorm;
+uniform float uDist, uSize, uSpread, uFeather;
+uniform int uShape;   // 0 opposed eyes, 1 both eyes, 2 eyes and centre
+// Packed four to a vector. GLSL ES gives a float array one whole vec4 SLOT
+// per element, so 1160 loose floats ask for 1160 vectors against a limit of
+// 1024 and the link fails; as vec4 they ask for 290.
+uniform vec4 uFRQ[(NS*NC*NIN + 3)/4];    // a frequency over the inputs, per centre
+uniform vec4 uAMP[(NS*NC*NOUT + 3)/4];   // an amplitude over the outputs, per centre
+#define FRQ(i) uFRQ[(i) >> 2][(i) & 3]
+#define AMP(i) uAMP[(i) >> 2][(i) & 3]
+uniform float uBeta, uMoff, uMnorm, uCnorm, uCrowd, uGain, uSweep;
+uniform float uDrag, uForce, uSwerve, uStrafe;
+uniform int uMirror;
+layout(location = 0) out vec4 oE;       // exp(beta*affinity), one per species
+layout(location = 1) out vec4 oP0;      // matter to lay down, channels 0..3
+layout(location = 2) out vec4 oP1;      //                     channels 4..7
+${outs("V", ND, 3)}                     // the new velocity, two species a vector
+${outs("S", ND, 3 + ND)}                // the strafe, which is not carried
+
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 uv = (vec2(p) + 0.5)*uTexel;
+  vec4 vv[ND];
+  ${reads("vv", "V", ND, "p")}
+
+  // ---- perceive: ONE Gaussian a lobe, read off the mip chain.
+  // A Gaussian-weighted average over a disc IS a blurred read, so a lobe is a
+  // single tap at the level whose footprint is SIZE. The centre tap does not
+  // depend on which way anyone faces, so it is read once and shared.
+  float lod = max(0.0, log2(max(uSize, 1.0)) + uFeather*1.6);
+  vec4 ctr0 = textureLod(uM0, uv, lod);
+  vec4 ctr1 = textureLod(uM1, uv, lod);
+  // SWEEP runs the gain across the world instead of holding it fixed, the way
+  // Fluoddity sweeps a parameter over its canvas. One frame then shows a whole
+  // gradient of behaviour under one set of rules.
+  float gain = uGain*exp(uSweep*(uv.x - 0.5)*2.0);
+
+  vec4 c = texelFetch(uC, p, 0);
+  float tot = dot(c, vec4(1.0));
+
+  vec4 e = vec4(0.0), q0 = vec4(0.0), q1 = vec4(0.0);
+  vec4 nv[ND], st[ND];
+  for(int i = 0; i < ND; i++){ nv[i] = vec4(0.0); st[i] = vec4(0.0); }
+
+  for(int s = 0; s < NS; s++){
+    float conc = c[s];
+    vec2 vel = getvec(vv, s);
+    // A species with no speed still has to face somewhere to smell; it keeps
+    // pointing the way it last went rather than snapping to an axis.
+    float sp = length(vel);
+    vec2 fwd = sp > 1e-6 ? vel/sp : vec2(1.0, 0.0);
+    vec2 lat = vec2(-fwd.y, fwd.x);
+    float th = atan(fwd.y, fwd.x);
+    vec2 ep = vec2(cos(th + uSpread*0.5), sin(th + uSpread*0.5));
+    vec2 en = vec2(cos(th - uSpread*0.5), sin(th - uSpread*0.5));
+    vec4 rgt0 = textureLod(uM0, uv + ep*uDist*uTexel, lod);
+    vec4 rgt1 = textureLod(uM1, uv + ep*uDist*uTexel, lod);
+    vec4 lft0 = textureLod(uM0, uv + en*uDist*uTexel, lod);
+    vec4 lft1 = textureLod(uM1, uv + en*uDist*uTexel, lod);
+    // The FLOW, read at the same two places and turned into this species' own
+    // frame. Fluoddity's ground is a velocity field and it is the ONLY thing
+    // its sensors read: eight scalar heaps can say "there is more over there"
+    // and can never say "the grain runs this way".
+    vec2 fr = textureLod(uF, uv + ep*uDist*uTexel, lod).xy*uFnorm;
+    vec2 fl = textureLod(uF, uv + en*uDist*uTexel, lod).xy*uFnorm;
+
+    // The SHAPE decides how those taps become readings. Taps that share a
+    // reading are summed with their sign, so a shape with one reading per
+    // channel is a different function than one with two: a brain can build a
+    // difference out of two eyes and can never pull two eyes out of one.
+    //   0 opposed      right minus left            -- one reading  (K + 1)
+    //   1 both eyes    right and left kept apart   -- two readings (2K + 1)
+    //   2 and centre   the eyes, and the middle negated -- three   (3K + 1)
+    float x[NIN];
+    for(int i = 0; i < NIN; i++) x[i] = 0.0;
+    for(int i = 0; i < 4; i++){
+      // Centred on the typical reading, so a lobe hands over how much more or
+      // less there is than usual rather than a number that can only be
+      // positive: matter is floored at zero, and a sum of sinusoids over
+      // one-orthant inputs only ever sees a cone of its own input space.
+      float r0 = rgt0[i]*uMnorm - 1.0, r1 = rgt1[i]*uMnorm - 1.0;
+      float l0 = lft0[i]*uMnorm - 1.0, l1 = lft1[i]*uMnorm - 1.0;
+      if(uShape == 0){
+        x[i] = r0 - l0;  x[4 + i] = r1 - l1;
+      } else {
+        x[i]      = r0;  x[4 + i]  = r1;
+        x[8 + i]  = l0;  x[12 + i] = l1;
+        if(uShape == 2){
+          x[16 + i] = 1.0 - ctr0[i]*uMnorm;  x[20 + i] = 1.0 - ctr1[i]*uMnorm;
+        }
+      }
+    }
+    x[3*K + 0] = dot(fr, fwd); x[3*K + 1] = dot(fr, lat);
+    x[3*K + 2] = dot(fl, fwd); x[3*K + 3] = dot(fl, lat);
+    x[3*K + 4] = 1.0;
+
+    // ---- the brain, which is Fluoddity's: no hidden layer and no squashing,
+    // just a sum of NC random sinusoids. Each centre turns the whole
+    // perception into ONE phase and hands every output a different basis
+    // function of it, so a brain is a band-limited random function rather than
+    // a squashed two-layer net. GAIN dilates the phase -- how many
+    // oscillations a perception travels through -- which is their sensor_gain.
+    //
+    // MIRROR runs it twice, the second time with the eyes swapped, and
+    // averages: everything ACROSS the nose the other way round, everything
+    // along it the same. Without it a brain has an arbitrary handedness baked
+    // in at seeding and spirals that way for ever.
+    float o[NOUT];
+    for(int i = 0; i < NOUT; i++) o[i] = 0.0;
+    for(int m = 0; m < 2; m++){
+      if(m == 1 && uMirror == 0) break;
+      float y[NIN];
+      if(m == 0){ for(int j = 0; j < NIN; j++) y[j] = x[j]; }
+      else {
+        if(uShape == 0){
+          for(int j = 0; j < 3*K; j++) y[j] = -x[j];   // it IS right minus left
+        } else {
+          for(int j = 0; j < 2*K; j++) y[j] = x[(j + K) % (2*K)];
+          for(int j = 2*K; j < 3*K; j++) y[j] = x[j];  // the centre stays
+        }
+        y[3*K + 0] =  x[3*K + 2]; y[3*K + 1] = -x[3*K + 3];
+        y[3*K + 2] =  x[3*K + 0]; y[3*K + 3] = -x[3*K + 1];
+        y[3*K + 4] = 1.0;
+      }
+      float t[NOUT];
+      for(int i = 0; i < NOUT; i++) t[i] = 0.0;
+      for(int cc = 0; cc < NC; cc++){
+        int fb = (s*NC + cc)*NIN, ab = (s*NC + cc)*NOUT;
+        float ph = 0.0;
+        for(int j = 0; j < NIN; j++) ph += FRQ(fb + j)*y[j];
+        ph *= gain;
+        // A per-centre phase offset, so the centres do not all agree at the
+        // origin and a brain has something to say about an empty world.
+        float off = 2.0*float(cc)*0.6283 + AMP(ab + NOUT - 1)*PI;
+        // Four basis shapes -- the fundamental and its first harmonic, in sine
+        // and cosine, each at its own fraction of the offset. Only four are
+        // distinct, so they are shared by every output that lands on them.
+        vec4 b = vec4(sin(ph + off), cos(ph + off*0.7),
+                      sin(ph*2.0 + off*1.3), cos(ph*2.0 + off*0.5));
+        for(int i = 0; i < NOUT; i++) t[i] += AMP(ab + i)*b[i & 3];
+      }
+      if(m == 0){ for(int i = 0; i < NOUT; i++) o[i] = t[i]; }
+      else {
+        // 0 along, 1 across, 2 along, 3 across: the across half flips.
+        o[0] = (o[0] + t[0])*0.5;  o[1] = (o[1] - t[1])*0.5;
+        o[2] = (o[2] + t[2])*0.5;  o[3] = (o[3] - t[3])*0.5;
+        for(int i = 4; i < NOUT; i++) o[i] = (o[i] + t[i])*0.5;
+      }
+    }
+
+    // ---- velocity += force, in the species' own frame, under drag. Damped by
+    // how much of the species is here, so an empty cell's velocity is not
+    // thrown about by a brain with nobody standing in it to do the smelling.
+    float here = min(1.0, conc*uCnorm);
+    vec2 force = (fwd*o[0]*uForce + lat*o[1]*uSwerve)*here;
+    setvec(nv, s, cap(vel*(1.0 - uDrag) + force));
+    // ---- strafe pushes this step and is forgotten, never accumulating.
+    setvec(st, s, cap((fwd*o[2] + lat*o[3])*uStrafe*here));
+    // The affinity is NOT averaged. It belongs to its own species and only
+    // that species moves by it, which is why they stay distinct. Clamped at
+    // FORTY, not ten: a softmax reads only DIFFERENCES, and clamping absolute
+    // values destroys them -- at ten, beta above about four did nothing at all.
+    e[s] = exp(clamp(uBeta*o[4] - uCrowd*tot*uCnorm, -40.0, 40.0));
+    // The matter offsets are summed, weighted by who is here to lay them.
+    for(int k = 0; k < 4; k++){
+      q0[k] += conc*tanh(o[5 + k]);
+      q1[k] += conc*tanh(o[9 + k]);
+    }
+  }
+  oE = e;
+  oP0 = q0*uMoff*uCnorm; oP1 = q1*uMoff*uCnorm;
+  ${writes("nv", "V", ND)}
+  ${writes("st", "S", ND)}
+}`;
+
+/* --------------------------------------------------- 2: the share to give
+   MaCE, with the bias vector in it. A cell divides what it holds by the total
+   weight of its nine neighbours; the next pass multiplies back. That is what
+   makes the transport conservative for ANY weights, so the bias below is free
+   to be whatever the brains asked for.                                      */
+const FS_SHARE = HEAD + `
+uniform sampler2D uE, uC;
+${decl("uV", ND)}
+${decl("uS", ND)}
+uniform float uSpeed;
+layout(location = 0) out vec4 oS;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 vv[ND], ss[ND];
+  ${reads("vv", "V", ND, "p")}
+  ${reads("ss", "S", ND, "p")}
+  // position += velocity + strafe. The bias vector is exactly that sum, and
+  // its LENGTH is how far a species is trying to go this step -- speed is
+  // state now, not a setting, so a species that has been pushed the same way
+  // for a while streams and one that has not dawdles.
+  float z[NS];
+  for(int i = 0; i < NS; i++) z[i] = 0.0;
+  for(int k = 0; k < 9; k++){
+    vec4 a = texelFetch(uE, wrap(p + OFF[k]), 0);
+    for(int i = 0; i < NS; i++)
+      z[i] += a[i]*wexp(uSpeed*dot(getvec(vv, i) + getvec(ss, i), UOFF[k]))*ILEN[k];
+  }
+  vec4 c = texelFetch(uC, p, 0);
+  vec4 o = vec4(0.0);
+  // Guard 0/0 only. The floor must sit far below the smallest honest Z or mass
+  // is silently deleted.
+  for(int i = 0; i < NS; i++) o[i] = c[i]/max(z[i], 1e-30);
+  oS = o;
+}`;
+
+/* ------------------------------- 3: collect, and carry each species' velocity
+   What arrives here from neighbour q is E(p)*S(q) FOR THAT SPECIES, and that
+   is exactly the weight q's velocity arrives with. The velocity is carried,
+   not renormalised: its length is the species' speed and throwing that away
+   was the whole difference between a heading and a velocity.                */
+const FS_MOVE = HEAD + `
+uniform sampler2D uE, uSh;
+${decl("uV", ND)}
+${decl("uS", ND)}
+uniform float uSpeed;
+layout(location = 0) out vec4 oC;
+${outs("V", ND, 1)}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 e = texelFetch(uE, p, 0);
+  vec2 acc[NS];
+  float wt[NS], got[NS];
+  for(int i = 0; i < NS; i++){ acc[i] = vec2(0.0); wt[i] = 0.0; got[i] = 0.0; }
+  for(int k = 0; k < 9; k++){
+    ivec2 q = wrap(p + OFF[k]);
+    vec4 a = texelFetch(uSh, q, 0);
+    vec4 vq[ND], sq[ND];
+    ${reads("vq", "V", ND, "q")}
+    ${reads("sq", "S", ND, "q")}
+    // q sent to p, so the offset q measured its step by is p - q.
+    for(int i = 0; i < NS; i++){
+      vec2 vi = getvec(vq, i);
+      float w = a[i]*wexp(uSpeed*dot(vi + getvec(sq, i), -UOFF[k]))*ILEN[k];
+      got[i] += w;
+      float m = e[i]*w;
+      acc[i] += m*vi; wt[i] += m;
+    }
+  }
+  vec4 oc = vec4(0.0);
+  for(int i = 0; i < NS; i++) oc[i] = got[i];
+  oC = e*oc;
+
+  vec4 vp[ND];
+  ${reads("vp", "V", ND, "p")}
+  vec4 ov[ND];
+  for(int i = 0; i < ND; i++) ov[i] = vec4(0.0);
+  for(int i = 0; i < NS; i++){
+    // Nothing of this species came from anywhere: keep the velocity it had,
+    // rather than inventing one and having it snap when mass finally arrives.
+    setvec(ov, i, wt[i] > 1e-20 ? acc[i]/wt[i] : getvec(vp, i));
+  }
+  ${writes("ov", "V", ND)}
+}`;
+
+/* --------------------------------------- 4: the ground takes what was laid
+   Matter is NOT conserved and must not be. Decay is what makes a trail a
+   trail rather than a smear that never forgets, and diffuse is what lets
+   anyone smell it from further off than the cell it was dropped on.        */
+const FS_MATTER = HEAD + `
+uniform sampler2D uM0, uM1, uP0, uP1, uF, uC;
+${decl("uV", ND)}
+uniform float uDecay, uDiff, uCnorm;
+layout(location = 0) out vec4 oM0;
+layout(location = 1) out vec4 oM1;
+layout(location = 2) out vec4 oF;
+// The FLOW is now literally Fluoddity's canvas: not a choice a brain makes but
+// the VELOCITY of the mass here, weighted by how much of each species is
+// present. Their agents deposit velocity; so do ours, now that we have one. It then fades and spreads
+// with exactly the same decay and diffusion as the matter, because it is the
+// same kind of thing: a mark left on the ground that outlives whoever left it.
+vec2 flowAt(ivec2 q){
+  vec4 c = texelFetch(uC, q, 0);
+  vec4 vv[ND];
+  ${reads("vv", "V", ND, "q")}
+  vec2 f = vec2(0.0);
+  for(int i = 0; i < NS; i++) f += c[i]*getvec(vv, i);
+  return f*uCnorm;
+}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 s0 = vec4(0.0), s1 = vec4(0.0);
+  vec2 sf = vec2(0.0);
+  // A BINOMIAL 1-2-1 blur, not a flat 3x3 box. The box is not isotropic: run
+  // it forty times on a point and the blob is 6.7 per cent wider along the
+  // diagonals than along the axes, which over a whole run reads as square. The
+  // binomial is -1.9 per cent, and costs nothing but the weights.
+  for(int dy = -1; dy <= 1; dy++)
+    for(int dx = -1; dx <= 1; dx++){
+      ivec2 q = wrap(p + ivec2(dx, dy));
+      float w = (dx == 0 ? 2.0 : 1.0)*(dy == 0 ? 2.0 : 1.0);
+      s0 += w*(texelFetch(uM0, q, 0) + texelFetch(uP0, q, 0));
+      s1 += w*(texelFetch(uM1, q, 0) + texelFetch(uP1, q, 0));
+      sf += w*(texelFetch(uF, q, 0).xy + flowAt(q));
+    }
+  vec2 cf = texelFetch(uF, p, 0).xy + flowAt(p);
+  oF = vec4(clamp(uDecay*mix(cf, sf/16.0, uDiff), -6.0e4, 6.0e4), 0.0, 1.0);
+  vec4 c0 = texelFetch(uM0, p, 0) + texelFetch(uP0, p, 0);
+  vec4 c1 = texelFetch(uM1, p, 0) + texelFetch(uP1, p, 0);
+  // Floored at zero because a brain may emit a negative offset, and capped
+  // because matter is float16: an inf reaches the softmax as exp(inf - inf),
+  // which is NaN, and one NaN cell poisons the field within a few steps.
+  oM0 = clamp(uDecay*mix(c0, s0/16.0, uDiff), 0.0, 6.0e4);
+  oM1 = clamp(uDecay*mix(c1, s1/16.0, uDiff), 0.0, 6.0e4);
+}`;
+
+const FS_RHO = HEAD + `
+uniform sampler2D uC;
+out vec4 oRho;
+void main(){
+  oRho = vec4(dot(texelFetch(uC, ivec2(gl_FragCoord.xy), 0), vec4(1.0)));
+}`;
+
+/* How a run starts. The matter always starts at NOTHING -- the ground has to
+   be written before it can be read, and starting it full is starting with a
+   history nobody laid down. Only the species are placed, four ways:
+
+     0  one ball in the middle, every species evenly mixed inside it
+     1  a ball each, laid out on a grid, so they begin apart and have to meet
+     2  one ball in the middle, but shaped inside by a CPPN
+     3  scattered over the whole grid, shaped by a CPPN
+     4  many small balls thrown thin across the whole world, one species each
+     5  a fitted layout: a blob per species where its part of an animal goes
+
+   The amount is scaled by the area actually filled, so FILL means the same
+   total however small the ball is.                                         */
+const FS_SEED = HEAD + HASH + `
+uniform float uAmp, uRad, uCScale;
+uniform float uCA[24], uCV[64];
+uniform int uSeed, uMode, uUse, uSpots;
+uniform ivec2 uGrid;
+// A FITTED start: one blob per species at the place its part of the animal has
+// to end up, holding the mass that part needs. xy is where, z is what fraction
+// of the total. The rule was fitted against exactly this, and against nothing
+// else -- a rule that grows an animal from a seed carrying its axis is not the
+// same rule as one that grows it from a disc, and only the first exists.
+uniform vec4 uBlob[NS];
+layout(location = 0) out vec4 oC;
+${outs("V", ND, 1)}
+
+vec4 cppnAt(vec2 q){
+  vec4 g = vec4(0.0);
+  for(int i = 0; i < 8; i++){
+    float z = sin(uCA[3*i]*q.x + uCA[3*i+1]*q.y + uCA[3*i+2]);
+    g += vec4(uCV[8*i], uCV[8*i+1], uCV[8*i+2], uCV[8*i+3])*z;
+  }
+  g = exp(g*uCScale);
+  return g/dot(g, vec4(1.0));
+}
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 fp = vec2(p) + 0.5;
+  vec4 c = vec4(0.0);
+
+  if(uMode == 1){
+    // A ball each, on a grid. Every species starts alone and has to travel to
+    // meet anybody, which is the only way to see who wins a border.
+    vec2 cell = uN/vec2(uGrid);
+    for(int s = 0; s < uUse; s++){
+      vec2 mid = (vec2(float(s - (s/uGrid.x)*uGrid.x), float(s/uGrid.x)) + 0.5)*cell;
+      vec2 d = fp - mid;
+      d -= uN*floor(d/uN + 0.5);                 // nearest copy round the torus
+      if(length(d) < uRad) c[s] = uAmp;
+    }
+  } else if(uMode == 4){
+    // Many small balls thrown thin. The sites sit on a lattice with their
+    // centres jittered well off it, so it scatters rather than reading as a
+    // grid, and the lattice is what makes it cheap: a cell only looks at the
+    // nine sites nearest it instead of at every ball in the world. Most of
+    // the world is left empty in between, which is the point -- a species has
+    // to build something out of a speck before it meets anybody.
+    float sp = uN/float(uSpots);
+    ivec2 home = ivec2(floor(fp/sp));
+    for(int k = 0; k < 9; k++){
+      ivec2 g = home + OFF[k];
+      // The hash is taken on the WRAPPED site so the pattern closes on the
+      // torus; the centre is built from the unwrapped one so it lands near
+      // this cell rather than on the far side of the world.
+      ivec2 gw = ivec2(mod(vec2(g), vec2(float(uSpots))));
+      vec2 mid = (vec2(g) + 0.5)*sp + vec2(rnd(gw, 1, uSeed), rnd(gw, 2, uSeed))*sp*0.7;
+      vec2 d = fp - mid;
+      d -= uN*floor(d/uN + 0.5);
+      if(length(d) < uRad){
+        c[min(int((rnd(gw, 3, uSeed) + 0.5)*float(uUse)), uUse - 1)] += uAmp;
+      }
+    }
+  } else if(uMode == 5){
+    for(int s = 0; s < NS; s++){
+      vec2 d = fp - uBlob[s].xy*uN;
+      d -= uN*floor(d/uN + 0.5);
+      if(length(d) < uRad) c[s] = uAmp*uBlob[s].z;
+    }
+  } else if(uMode == 3){
+    c = cppnAt(fp/uN*TAU);
+    float on = (rnd(p, 0, uSeed) + 0.5) < uRad ? 1.0 : 0.0;   // uRad is fill here
+    c *= uAmp*on;
+  } else {
+    vec2 d = fp - vec2(uN*0.5);
+    if(length(d) < uRad){
+      if(uMode == 2) c = cppnAt(fp/uN*TAU)*uAmp*float(NS);
+      else for(int s = 0; s < uUse; s++) c[s] = uAmp;
+    }
+  }
+  oC = c;
+  // Each species starts moving its own way, at a slow drift rather than from
+  // rest: at exactly zero every brain would smell through the same arbitrary
+  // fallback direction on the first step.
+  vec4 ov[ND];
+  for(int i = 0; i < ND; i++) ov[i] = vec4(0.0);
+  for(int i = 0; i < NS; i++){
+    float a = (rnd(p, 16 + i, uSeed) + 0.5)*TAU;
+    setvec(ov, i, vec2(cos(a), sin(a))*0.25);
+  }
+  ${writes("ov", "V", ND)}
+}`;
+
+const FS_PAINT = HEAD + `
+uniform sampler2D uC;
+uniform vec2 uAt;
+uniform float uRad, uAmt;
+uniform int uKind;
+layout(location = 0) out vec4 oC;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 c = texelFetch(uC, p, 0);
+  vec2 d = vec2(p) + 0.5 - uAt;
+  d -= uN*floor(d/uN + 0.5);
+  float t = 1.0 - smoothstep(uRad*0.55, uRad, length(d));
+  if(t > 0.0){
+    if(uAmt < 0.0) c *= 1.0 - t;
+    else c[uKind] += uAmt*t;
+  }
+  oC = c;
+}`;
+
+const FS_DRAW = HEAD + `
+uniform sampler2D uRho, uC, uM0, uM1, uF;
+${decl("uV", ND)}
+uniform vec2 uRes, uPan;
+uniform float uZoom, uExp, uFloor, uCnorm, uMnorm, uFnorm;
+uniform vec3 uPal[NS];
+uniform int uView;
+out vec4 oCol;
+vec3 hue(float h){
+  return clamp(abs(mod(h*6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+}
+void main(){
+  // The simulation wraps; the picture does not.
+  vec2 uv = (gl_FragCoord.xy - 0.5*uRes)/(uZoom*uRes.y) + uPan/uN + 0.5;
+  if(uv.x < 0.0 || uv.x >= 1.0 || uv.y < 0.0 || uv.y >= 1.0){
+    vec2 e = max(abs(uv - 0.5) - 0.5, 0.0)*uZoom*uRes.y;
+    float edge = 1.0 - smoothstep(0.0, 1.5, max(e.x, e.y));
+    oCol = vec4(mix(vec3(0.016, 0.031, 0.043), vec3(0.16, 0.18, 0.21), edge), 1.0);
+    return;
+  }
+  // Read by index. The matter carries filtering because the LOBES need it at a
+  // fractional radius; the picture does not, and taking it blends neighbouring
+  // cells into each other and smears the boundary between them.
+  ivec2 c = ivec2(floor(uv*uN));
+  vec4 a4 = texelFetch(uC, c, 0);
+  vec4 m0 = texelFetch(uM0, c, 0), m1 = texelFetch(uM1, c, 0);
+  float tot = dot(a4, vec4(1.0));
+  float v = 1.0 - exp(-max(tot*uCnorm - uFloor, 0.0)*uExp);
+
+  if(uView == 1){                                   // the matter
+    // The flat page's blend, not an additive one. Colour is the WEIGHTED MEAN
+    // of the channels' hues, weighted by the square of how much of each is
+    // there, and brightness is a separate curve on the total. Adding the hues
+    // instead drives everything to white as soon as two channels overlap, and
+    // then all the information about which is which is gone. This keeps hue
+    // saying what is there and brightness saying how much.
+    vec3 hue = vec3(0.0);
+    float tot = 0.0, wsum = 0.0;
+    for(int i = 0; i < 4; i++){
+      float a = max(m0[i], 0.0)*uMnorm, b = max(m1[i], 0.0)*uMnorm;
+      tot += a + b;
+      wsum += a*a + b*b;
+      hue += uPal[i]*a*a + uPal[4 + i]*b*b;
+    }
+    // Averaged over the channels, not summed. MNORM puts a typical CHANNEL at
+    // about one, so the sum of eight of them sat near four and the exposure
+    // curve saturated: measured, 73 per cent of cells came out above 0.99 and
+    // the whole field rendered at full brightness, which threw away every bit
+    // of contrast the matter had. Dividing by the channel count makes EXPOSURE
+    // mean the same thing here as it does in the species view.
+    float al = 1.0 - exp(-max(tot/float(K) - uFloor, 0.0)*uExp);
+    oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
+    return;
+  }
+  if(uView == 2){ oCol = vec4(vec3(v), 1.0); return; }
+  if(uView == 3){
+    // Four velocities a cell, so the picture shows the one that matters: their
+    // mean weighted by how much of each species is here, hue for the way it
+    // points and brightness for how fast.
+    vec4 vv[ND];
+    ${reads("vv", "V", ND, "c")}
+    vec2 d = vec2(0.0);
+    for(int i = 0; i < NS; i++) d += a4[i]*getvec(vv, i);
+    if(dot(d, d) < 1e-24){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
+    oCol = vec4(hue(atan(d.y, d.x)/TAU + 0.5)*v, 1.0);
+    return;
+  }
+  if(uView == 5){
+    // The flow: hue is which way the ground remembers things went, brightness
+    // how strongly it remembers. Where this is smooth, something is combing
+    // the field; where it is speckled, nothing agrees for two cells running.
+    vec2 f = texelFetch(uF, c, 0).xy*uFnorm;
+    float L = length(f);
+    oCol = vec4(hue(atan(f.y, f.x)/TAU + 0.5)*(1.0 - exp(-L*uExp*2.0))
+                + vec3(0.016, 0.024, 0.040), 1.0);
+    return;
+  }
+  if(uView == 4){
+    if(tot < 1e-8){ oCol = vec4(0.03, 0.035, 0.045, 1.0); return; }
+    // Purity: one clean species is a saturated hue, an even blend of all
+    // eight is GREY. The colour says how mixed a cell is, not who won.
+    float inv = 1.0/tot;
+    vec3 col = vec3(0.0);
+    float best = 0.0;
+    for(int i = 0; i < NS; i++){
+      float w = a4[i]*inv;
+      col += uPal[i]*w; best = max(best, w);
+    }
+    float sat = clamp((best*float(NS) - 1.0)/float(NS - 1), 0.0, 1.0);
+    col = mix(vec3(dot(col, vec3(0.3333))), col, sat);
+    oCol = vec4(clamp(col*(0.22 + 0.78*v)*1.7, 0.0, 1.0), 1.0);
+    return;
+  }
+  vec3 hue = vec3(0.0);                             // the species, same blend
+  float sum = 0.0, wsum = 0.0;
+  for(int i = 0; i < NS; i++){
+    float a = max(a4[i], 0.0)*uCnorm;
+    sum += a; wsum += a*a; hue += uPal[i]*a*a;
+  }
+  float al = 1.0 - exp(-max(sum - uFloor, 0.0)*uExp);
+  oCol = vec4((hue/max(wsum, 1e-12))*al + vec3(0.016, 0.024, 0.040), 1.0);
+}`;
+
+const FS_SUM = `#version 300 es
+precision highp float;
+uniform sampler2D uSrc;
+uniform int uSrcN;
+out vec4 oS;
+void main(){
+  ivec2 p = ivec2(gl_FragCoord.xy)*4;
+  float s = 0.0;
+  for(int dy = 0; dy < 4; dy++)
+    for(int dx = 0; dx < 4; dx++){
+      ivec2 q = p + ivec2(dx, dy);
+      if(q.x < uSrcN && q.y < uSrcN) s += texelFetch(uSrc, q, 0).r;
+    }
+  oS = vec4(s);
+}`;
+
+/* ================================================================== plumbing */
+function compile(src, type){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if(!gl.getShaderParameter(sh, gl.COMPILE_STATUS)){
+    const log = gl.getShaderInfoLog(sh);
+    const n = /ERROR: \d+:(\d+)/.exec(log);
+    const ctx = n ? src.split("\n").slice(Math.max(0, n[1] - 3), +n[1] + 2).join("\n") : "";
+    fatal("Shader would not compile:\n\n" + log + "\n" + ctx);
+  }
+  return sh;
+}
+function program(fs){
+  const defs = `#define K ${K}\n#define NS ${NS}\n#define NC ${NC}\n` +
+               `#define NIN ${NIN}\n#define NOUT ${NOUT}\n` +
+               `#define ND ${ND}\n`;
+  const put = s => s.replace(/^(#version[^\n]*\n)/, "$1" + defs);
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(put(VS), gl.VERTEX_SHADER));
+  gl.attachShader(p, compile(put(fs), gl.FRAGMENT_SHADER));
+  gl.bindAttribLocation(p, 0, "a");
+  gl.linkProgram(p);
+  if(!gl.getProgramParameter(p, gl.LINK_STATUS)) fatal("Link failed:\n" + gl.getProgramInfoLog(p));
+  const u = {}, n = gl.getProgramParameter(p, gl.ACTIVE_UNIFORMS);
+  for(let i = 0; i < n; i++){
+    const nm = gl.getActiveUniform(p, i).name.replace(/\[0\]$/, "");
+    u[nm] = gl.getUniformLocation(p, nm);
+  }
+  p.u = u;
+  return p;
+}
+let curP = null;
+function use(p){ if(curP !== p){ gl.useProgram(p); curP = p; } return p.u; }
+function tex(unit, t){ gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, t); return unit; }
+
+const quadVAO = gl.createVertexArray();
+{
+  gl.bindVertexArray(quadVAO);
+  const b = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, b);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 3,-1, -1,3]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  gl.bindVertexArray(null);
+}
+const drawQuad = () => { gl.bindVertexArray(quadVAO); gl.drawArrays(gl.TRIANGLES, 0, 3); };
+
+const fbo = gl.createFramebuffer();
+const MAXBUF = gl.getParameter(gl.MAX_DRAW_BUFFERS);
+// Nine affinities, eight deposits and nine turns leave the thinking pass
+// writing eight targets at once. Every desktop GPU offers eight; software
+// renderers tend to stop at six, and at this grid size they were never going
+// to keep up anyway.
+if(MAXBUF < 7)
+  fatal("This GPU offers only " + MAXBUF + " draw buffers, and this needs seven.\n"
+      + "One pass writes the affinities, the eight deposits, and a new\n"
+      + "velocity and a strafe for each species, all at once.");
+const BUFS = [];
+for(let i = 1; i <= MAXBUF; i++) BUFS.push(Array.from({length:i}, (_, k) => gl.COLOR_ATTACHMENT0 + k));
+function target(list, w, h){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  const a = Array.isArray(list) ? list : [list];
+  for(let i = 0; i < MAXBUF; i++)
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D,
+                            i < a.length ? a[i] : null, 0);
+  gl.drawBuffers(BUFS[a.length - 1]);
+  gl.viewport(0, 0, w, h);
+}
+function make2D(w, h, ifmt, filt = gl.NEAREST, wrapMode = gl.REPEAT, mips = false){
+  const t = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  const levels = mips ? Math.floor(Math.log2(Math.max(w, h))) + 1 : 1;
+  gl.texStorage2D(gl.TEXTURE_2D, levels, ifmt, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, mips ? gl.LINEAR_MIPMAP_LINEAR : filt);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, filt);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, wrapMode);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, wrapMode);
+  t.w = w; t.h = h;
+  return t;
+}
+
+const P = {
+  brain: program(FS_BRAIN), share: program(FS_SHARE), move: program(FS_MOVE),
+  matter: program(FS_MATTER), rho: program(FS_RHO), seed: program(FS_SEED),
+  paint: program(FS_PAINT), draw: program(FS_DRAW), sum: program(FS_SUM),
+};
+
+/* ===================================================================== state */
+const S = {
+  // Fluoddity's shipped defaults wherever one carries over, since the brain
+  // is now its brain:
+  //   sensor_angle 0.45, applied BOTH ways, so 162 degrees between the eyes
+  //   sensor_distance 1.0, which works out at 2.56 cells whatever the world
+  //     size -- the 1/sqrt(world) in its formula cancels the canvas scaling
+  //   trail_persistence 0.938, trail_diffusion 1.0
+  //   disable_symmetry false, so the mirrored evaluation is on
+  // What does not carry: its forces, drag and strafe belong to particles with
+  // momentum and we transport by affinity instead; its sensor_gain is in
+  // units of a velocity field scaled by 38.855*sqrt(world) and ours is a
+  // normalised concentration, so GAIN is the one number no conversion could
+  // reach. It started at the median of their presets and is now 0.5, which is
+  // where the search put it: over 360 draws the sixty most structured had a
+  // median gain of 0.45 against 1.00 for the sample. BETA has no analogue -- Fluoddity has
+  // no softmax over neighbours -- so it stays where this rule reads crisp.
+  // SIZE and FEATHER stay too: Fluoddity's sensor is a bare point, and a
+  // point tap at any distance aliases into dots as a heading creeps round.
+  N: 768, steps: 1, running: true, frame: 0, prec: 16,
+  dist: 2.5, size: 1, spread: 162, feather: 0.2, shape: 1, mirror: 1,
+  beta: 8, moff: 1, crowd: 0, decay: 0.938, diff: 1,
+  gain: 0.5, sweep: 0, speed: 2,
+  // Fluoddity's own force numbers: drag 0.504, axial_force 0.371,
+  // lateral_force 0.707 (its sign lives in the brain's weights, which are
+  // symmetric, so only the magnitude carries over), strafe_power 0.224.
+  drag: 0.504, force: 0.37, swerve: 0.71, strafe: 0.22,
+  fill: 0.1, cscale: 1.6, gscale: 40, mode: 1, ball: 0.55, use: NS,
+  exp: 1.5, floor: 0.05, view: 1, kkind: 0,
+  zoom: 1, panx: 0, pany: 0, brush: 26, kind: 0, seed: 1,
+  frq: null, amp: null, ca: null, cv: null, brain: 1, blobs: null,
+};
+function hueRing(t){
+  const h = ((t % 1) + 1) % 1 * 6, x = 1 - Math.abs(h % 2 - 1);
+  return [[1,x,0],[x,1,0],[0,1,x],[0,x,1],[x,0,1],[1,0,x]][Math.floor(h) % 6];
+}
+const PAL = new Float32Array(NS*3);
+for(let i = 0; i < NS; i++){
+  const c = hueRing(i/NS);
+  PAL[3*i] = c[0]; PAL[3*i+1] = c[1]; PAL[3*i+2] = c[2];
+}
+function gauss(){
+  const u = Math.max(1e-9, Math.random());
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*Math.random());
+}
+const pad4 = n => new Float32Array(Math.ceil(n/4)*4);   // whole vec4s
+// Fluoddity's seeding, verbatim where it matters. Amplitudes are UNIFORM on
+// [-1, 1], not Gaussian, and every centre draws its OWN frequency scale --
+// biased low by squaring, so most centres are smooth and a few are sharp.
+// That last part is the bit that was missing: with one fixed input scale
+// every draw has the same frequency content, which is why resampling used to
+// give the same character every time however different the numbers were.
+//   (Fluoddity reuses one hash for both the scale and the first frequency
+//   component, which correlates them; that looks like a slip rather than a
+//   choice, so the draws here are independent.)
+// Seeded, so a run is a NUMBER and not a lucky afternoon: a preset that names
+// its brain seed replays exactly, here and in the offline search that found it.
+function mulberry32(a){
+  return function(){
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0)/4294967296;
+  };
+}
+function rollBrains(seed){
+  if(seed !== undefined) S.brain = seed >>> 0;
+  const r = mulberry32(S.brain);
+  S.frq = pad4(NS*NC*NIN); S.amp = pad4(NS*NC*NOUT);
+  for(let s = 0; s < NS; s++) for(let c = 0; c < NC; c++){
+    const scale = 1 + 2*r()**2;
+    const fb = (s*NC + c)*NIN, ab = (s*NC + c)*NOUT;
+    for(let j = 0; j < NIN; j++) S.frq[fb + j] = (r()*2 - 1)*scale;
+    for(let j = 0; j < NOUT; j++) S.amp[ab + j] = r()*2 - 1;
+  }
+}
+function newBrains(){ rollBrains((Math.random()*4294967296) >>> 0); }
+// Ten uniform amplitudes against four basis shapes put an output's spread at
+// about 1.3, which is where the old net sat -- so BETA and TURN still mean
+// what they meant. The phase, though, grows with how many inputs there are,
+// and Fluoddity has four: divide it back down so GAIN reads the same at any
+// kernel shape.
+const active = () => S.shape === 0 ? K + 1 : (S.shape === 2 ? 3*K + 1 : 2*K + 1);
+const gain = () => S.gain*2.0/Math.sqrt(active());
+function rollCPPN(){
+  const f = Math.max(1, Math.round(S.N/Math.max(4, S.gscale)));
+  S.ca = new Float32Array(24); S.cv = new Float32Array(64);
+  for(let i = 0; i < 8; i++){
+    S.ca[3*i]     = Math.round((Math.random()*2 - 1)*f);
+    S.ca[3*i + 1] = Math.round((Math.random()*2 - 1)*f);
+    S.ca[3*i + 2] = Math.random()*2*Math.PI;
+    const amp = 1/(1 + i*0.55);
+    for(let j = 0; j < 8; j++) S.cv[8*i + j] = gauss()*amp;
+  }
+}
+rollBrains(); rollCPPN();
+
+let G = {};
+const linOK = !!gl.getExtension("OES_texture_float_linear");
+function alloc(){
+  for(const t of (G.all || [])) gl.deleteTexture(t);
+  const N = S.N, wide = S.prec === 32;
+  const F = wide ? gl.RGBA32F : gl.RGBA16F;
+  const RG = wide ? gl.RG32F : gl.RG16F;
+  const R = wide ? gl.R32F : gl.R16F;
+  const LF = (!wide || linOK) ? gl.LINEAR : gl.NEAREST;
+  const g = {N};
+  g.c = make2D(N, N, F, LF); g.cb = make2D(N, N, F, LF);
+  // The MATTER is what the lobes read, so the matter carries the mip chain:
+  // one tap at the right level is the Gaussian average over a lobe.
+  g.m0 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.m1 = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.m0b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.m1b = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  // The flow is read at the lobes like the matter, so it carries a mip chain
+  // for the same reason: one tap at the right level is the blurred average.
+  g.f = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.fb = make2D(N, N, gl.RGBA16F, gl.LINEAR, gl.REPEAT, true);
+  g.p0 = make2D(N, N, gl.RGBA16F); g.p1 = make2D(N, N, gl.RGBA16F);
+  // E and S are always 32-bit: S is conc/Z, Z runs to a few times exp(beta),
+  // and at 16-bit a third of them flush to zero and take their mass with them.
+  g.e = make2D(N, N, gl.RGBA32F); g.sh = make2D(N, N, gl.RGBA32F);
+  // A VELOCITY each, and a strafe each: four vec2s a cell apiece, two to a
+  // texture. The velocity is state and ping-pongs; the strafe is written fresh
+  // every step and never carried, so it needs no second copy.
+  g.v = []; g.vb = []; g.st = [];
+  for(let i = 0; i < ND; i++){
+    g.v.push(make2D(N, N, F, LF)); g.vb.push(make2D(N, N, F, LF));
+    g.st.push(make2D(N, N, F, LF));
+  }
+  g.rho = make2D(N, N, R, LF);
+  g.pyr = [];
+  for(let n = Math.ceil(N/4); ; n = Math.ceil(n/4)){
+    g.pyr.push(make2D(n, n, gl.R32F, gl.NEAREST, gl.CLAMP_TO_EDGE));
+    if(n === 1) break;
+  }
+  g.all = [g.c, g.cb, g.m0, g.m1, g.m0b, g.m1b, g.p0, g.p1, g.e, g.sh,
+           g.f, g.fb, ...g.v, ...g.vb, ...g.st, g.rho, ...g.pyr];
+  G = g;
+}
+function memMB(){
+  const N = G.N, w = S.prec === 32 ? 2 : 1;
+  return (2*N*N*8*w + 4*N*N*8 + 8*N*N*16 + 3*ND*N*N*8*w + N*N*2*w
+          + G.pyr.reduce((a, t) => a + t.w*t.h*4, 0))/1048576;
+}
+
+let meanRho = S.fill;
+// Both normalisers run off FILL, the number that was asked for, and never off
+// the measured mass. Measuring it looks harmless and is not: the measurement
+// only refreshes every couple of hundred frames or when the brush is used, so
+// painting made it jump, and the jump went two places at once. The picture
+// stepped from bright to dim in a frame, which is the flicker; and every
+// brain's inputs are scaled by the same number, so a dab of paint in one
+// corner silently changed what every cell in the field perceived. The
+// measured value is still shown in the readout, where a surprise is useful
+// rather than harmful.
+const cnorm = () => 1/Math.max(1e-6, S.fill);
+// The lobes want a reading of order one whatever deposit and decay are set to.
+// The steady mean of the matter is offset*fill/(1-decay), which is known
+// rather than measured -- so it does not move when the field does.
+const mnorm = () => (1 - S.decay)/Math.max(1e-6, S.moff*S.fill);
+function common(u){ gl.uniform1f(u.uN, G.N); gl.uniform2f(u.uTexel, 1/G.N, 1/G.N); }
+// uD0..uD4 and uT0..uT2 are separate names rather than sampler arrays: GLSL ES
+// only lets a sampler array be indexed by a constant, so the taps get unrolled
+// into a local array in the shader and the binding is unrolled here.
+function bindRun(u, name, list, from){
+  for(let i = 0; i < list.length; i++) gl.uniform1i(u[name + i], tex(from + i, list[i]));
+  return from + list.length;
+}
+function remip(){
+  for(const t of [G.m0, G.m1, G.f]){ gl.bindTexture(gl.TEXTURE_2D, t); gl.generateMipmap(gl.TEXTURE_2D); }
+}
+function makeRho(){
+  const u = use(P.rho); common(u);
+  gl.uniform1i(u.uC, tex(0, G.c));
+  target(G.rho, G.N, G.N); drawQuad();
+}
+function reseed(seed){
+  S.seed = seed === undefined ? (Math.random()*1e9) | 0 : seed | 0;
+  const u = use(P.seed); common(u);
+  const N = G.N;
+  // A layout with no hole in it: eight species on a 3x3 leaves the last square
+  // empty, so pick the columns that divide the count most nearly squarely --
+  // eight becomes 4x2, nine stays 3x3.
+  let gw = 1, gh = S.use, best = 1e9;
+  for(let w = 1; w <= S.use; w++){
+    const h = Math.ceil(S.use/w);
+    // Empty squares cost, but so does a single column: five species want a
+    // 3x2 with one hole, not a 1x5 stripe.
+    const score = (w*h - S.use)*2.5 + Math.abs(w - h);
+    if(score < best){ best = score; gw = w; gh = h; }
+  }
+  // The amount is set from the area actually covered, so FILL means the same
+  // total mass whether it is one small ball or the whole grid.
+  // How thin the scatter is: sites a spacing apart, balls a fraction of that
+  // spacing wide, so the gaps grow as BALL shrinks.
+  const spots = Math.max(1, Math.round(N/Math.max(4, S.gscale)));
+  let rad, amp;
+  if(S.mode === 3){ rad = S.fill; amp = 1; }
+  else if(S.mode === 4){
+    rad = Math.max(0.75, S.ball*(N/spots)*0.5);
+    amp = S.fill*N*N/Math.max(Math.PI*rad*rad*spots*spots, 1);
+  }
+  else if(S.mode === 5){
+    // The blob radius the fit used, as a fraction of the grid, so the same
+    // layout lands at any resolution. Each species then takes its own share.
+    rad = Math.max(1.0, 0.055*N);
+    amp = S.fill*N*N/Math.max(Math.PI*rad*rad, 1);
+  }
+  else {
+    rad = S.ball*N*(S.mode === 1 ? 0.5/Math.max(gw, gh) : 0.5);
+    const area = Math.PI*rad*rad*(S.mode === 1 ? S.use : 1);
+    amp = S.fill*N*N/Math.max(area, 1)/(S.mode === 1 ? 1 : S.use);
+  }
+  gl.uniform1f(u.uAmp, amp); gl.uniform1f(u.uRad, rad);
+  gl.uniform1f(u.uCScale, S.cscale);
+  gl.uniform1fv(u.uCA, S.ca); gl.uniform1fv(u.uCV, S.cv);
+  gl.uniform1i(u.uSeed, S.seed);
+  gl.uniform1i(u.uMode, S.mode); gl.uniform2i(u.uGrid, gw, gh);
+  gl.uniform1i(u.uUse, S.use); gl.uniform1i(u.uSpots, spots);
+  // xy where, z how much. Cleared to nothing when no fitted rule is loaded.
+  const bl = new Float32Array(NS*4);
+  for(let i = 0; i < NS; i++){
+    const b = (S.blobs || [])[i];
+    if(b){ bl[4*i] = b.x; bl[4*i + 1] = b.y; bl[4*i + 2] = b.frac; }
+  }
+  gl.uniform4fv(u.uBlob, bl);
+  target([G.c, ...G.v], G.N, G.N); drawQuad();
+  for(const t of [G.m0, G.m1, G.m0b, G.m1b, G.f, G.fb]){
+    target(t, G.N, G.N); gl.clearBufferfv(gl.COLOR, 0, [0, 0, 0, 0]);
+  }
+  remip(); makeRho();
+  meanRho = S.fill; S.frame = 0; mass = null; massDue = true;
+}
+function step(){
+  const N = G.N;
+  {                                     // perceive, think, move
+    const u = use(P.brain); common(u);
+    gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
+    gl.uniform1i(u.uC, tex(2, G.c)); gl.uniform1i(u.uF, tex(3, G.f));
+    gl.uniform1f(u.uFnorm, 1 - S.decay); bindRun(u, "uV", G.v, 4);
+    gl.uniform1f(u.uDist, S.dist); gl.uniform1f(u.uSize, S.size);
+    gl.uniform1f(u.uSpread, S.spread*Math.PI/180);
+    gl.uniform1f(u.uFeather, S.feather);
+    gl.uniform1i(u.uShape, S.shape); gl.uniform1i(u.uMirror, S.mirror);
+    gl.uniform1f(u.uBeta, S.beta);
+    gl.uniform1f(u.uDrag, S.drag); gl.uniform1f(u.uForce, S.force);
+    gl.uniform1f(u.uSwerve, S.swerve); gl.uniform1f(u.uStrafe, S.strafe);
+    gl.uniform1f(u.uMoff, S.moff); gl.uniform1f(u.uCrowd, S.crowd);
+    gl.uniform1f(u.uMnorm, mnorm()); gl.uniform1f(u.uCnorm, cnorm());
+    gl.uniform1f(u.uGain, gain()); gl.uniform1f(u.uSweep, S.sweep);
+    gl.uniform4fv(u.uFRQ, S.frq); gl.uniform4fv(u.uAMP, S.amp);
+    target([G.e, G.p0, G.p1, ...G.vb, ...G.st], N, N); drawQuad();
+    [G.v, G.vb] = [G.vb, G.v];
+  }
+  {                                     // each species' own nine shares
+    const u = use(P.share); common(u);
+    gl.uniform1i(u.uE, tex(0, G.e)); gl.uniform1i(u.uC, tex(1, G.c));
+    bindRun(u, "uS", G.st, bindRun(u, "uV", G.v, 2));
+    gl.uniform1f(u.uSpeed, S.speed);
+    target(G.sh, N, N); drawQuad();
+  }
+  {                                     // collect, and carry the velocity
+    const u = use(P.move); common(u);
+    gl.uniform1i(u.uE, tex(0, G.e)); gl.uniform1i(u.uSh, tex(1, G.sh));
+    bindRun(u, "uS", G.st, bindRun(u, "uV", G.v, 2));
+    gl.uniform1f(u.uSpeed, S.speed);
+    target([G.cb, ...G.vb], N, N); drawQuad();
+    [G.c, G.cb] = [G.cb, G.c];
+    [G.v, G.vb] = [G.vb, G.v];
+  }
+  {                                     // the ground takes what was laid
+    const u = use(P.matter); common(u);
+    gl.uniform1i(u.uM0, tex(0, G.m0)); gl.uniform1i(u.uM1, tex(1, G.m1));
+    gl.uniform1i(u.uP0, tex(2, G.p0)); gl.uniform1i(u.uP1, tex(3, G.p1));
+    gl.uniform1i(u.uF, tex(4, G.f)); gl.uniform1i(u.uC, tex(5, G.c));
+    bindRun(u, "uV", G.v, 6);
+    gl.uniform1f(u.uDecay, S.decay); gl.uniform1f(u.uDiff, S.diff);
+    gl.uniform1f(u.uCnorm, cnorm());
+    target([G.m0b, G.m1b, G.fb], N, N); drawQuad();
+    [G.m0, G.m0b] = [G.m0b, G.m0]; [G.m1, G.m1b] = [G.m1b, G.m1];
+    [G.f, G.fb] = [G.fb, G.f];
+    remip();
+  }
+  makeRho();
+  S.frame++;
+}
+function paintAt(gx, gy, amount){
+  const u = use(P.paint); common(u);
+  gl.uniform1i(u.uC, tex(0, G.c));
+  gl.uniform2f(u.uAt, gx, gy);
+  gl.uniform1f(u.uRad, S.brush); gl.uniform1f(u.uAmt, amount);
+  gl.uniform1i(u.uKind, S.kind);
+  target(G.cb, G.N, G.N); drawQuad();
+  [G.c, G.cb] = [G.cb, G.c];
+  makeRho();
+  massDue = true;
+}
+const readback = new Float32Array(4);
+function sumTexture(src0){
+  const u = use(P.sum);
+  let src = src0, srcN = G.N;
+  for(const dst of G.pyr){
+    gl.uniform1i(u.uSrc, tex(0, src)); gl.uniform1i(u.uSrcN, srcN);
+    target(dst, dst.w, dst.h); drawQuad();
+    src = dst; srcN = dst.w;
+  }
+  gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, readback);
+  return readback[0];
+}
+function render(){
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.viewport(0, 0, cv.width, cv.height);
+  const u = use(P.draw); common(u);
+  gl.uniform1i(u.uRho, tex(0, G.rho));
+  gl.uniform1i(u.uC, tex(1, G.c));
+  gl.uniform1i(u.uM0, tex(2, G.m0)); gl.uniform1i(u.uM1, tex(3, G.m1));
+  gl.uniform1i(u.uF, tex(4, G.f));
+  bindRun(u, "uV", G.v, 5);
+  gl.uniform1f(u.uFnorm, 1 - S.decay);
+  gl.uniform2f(u.uRes, cv.width, cv.height);
+  gl.uniform2f(u.uPan, S.panx, S.pany);
+  gl.uniform1f(u.uZoom, S.zoom); gl.uniform1f(u.uExp, S.exp);
+  gl.uniform1f(u.uFloor, S.floor);
+  gl.uniform1f(u.uCnorm, cnorm()); gl.uniform1f(u.uMnorm, mnorm());
+  gl.uniform3fv(u.uPal, PAL);
+  gl.uniform1i(u.uView, S.view);
+  drawQuad();
+}
+
+/* ================================================================== pointer */
+function gridAt(e){
+  const r = cv.getBoundingClientRect();
+  const px = (e.clientX - r.left)/r.width*cv.width;
+  const py = (1 - (e.clientY - r.top)/r.height)*cv.height;
+  const ux = (px - 0.5*cv.width)/(S.zoom*cv.height) + S.panx/G.N + 0.5;
+  const uy = (py - 0.5*cv.height)/(S.zoom*cv.height) + S.pany/G.N + 0.5;
+  return [ux*G.N, uy*G.N];
+}
+let drag = null;
+cv.addEventListener("pointerdown", e => {
+  cv.setPointerCapture(e.pointerId);
+  $("hint").classList.add("gone");
+  if(e.shiftKey || e.altKey){
+    drag = {mode:"paint", erase:e.altKey};
+    cv.classList.add("painting");
+    if(!e.altKey) S.kind = (Math.random()*NS) | 0;
+    const [x, y] = gridAt(e); paintAt(x, y, e.altKey ? -1 : 1);
+  } else {
+    drag = {mode:"pan", x:e.clientX, y:e.clientY};
+    cv.classList.add("dragging");
+  }
+});
+cv.addEventListener("pointermove", e => {
+  if(!drag) return;
+  if(drag.mode === "paint"){
+    const [x, y] = gridAt(e); paintAt(x, y, drag.erase ? -1 : 1);
+  } else {
+    const r = cv.getBoundingClientRect();
+    const k = G.N/(S.zoom*cv.height)*(cv.width/r.width), lim = G.N*0.75;
+    S.panx = Math.max(-lim, Math.min(lim, S.panx - (e.clientX - drag.x)*k));
+    S.pany = Math.max(-lim, Math.min(lim, S.pany + (e.clientY - drag.y)*k));
+    drag.x = e.clientX; drag.y = e.clientY;
+  }
+});
+function endDrag(){ drag = null; cv.classList.remove("painting", "dragging"); }
+cv.addEventListener("pointerup", endDrag);
+cv.addEventListener("pointercancel", endDrag);
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  S.zoom = Math.min(16, Math.max(0.25, S.zoom*Math.exp(-e.deltaY*0.0015)));
+}, {passive:false});
+addEventListener("keydown", e => {
+  if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName)) return;
+  const k = e.key.toLowerCase();
+  if(k === " "){ e.preventDefault(); toggleRun(); }
+  else if(k === "r") reseed();
+  else if(k === "n") newBrains();      // brains only; the world carries on
+  else if(k === "h") $("rack").classList.toggle("hid");
+  else if(k === "f") toggleFull();
+});
+function toggleRun(){ S.running = !S.running; $("play").textContent = S.running ? "pause" : "play"; }
+function toggleFull(){
+  if(document.fullscreenElement) document.exitFullscreen();
+  else $("app").requestFullscreen && $("app").requestFullscreen();
+}
+
+/* ======================================================================= ui */
+const rack = $("rack");
+const UI = {}, SEL = {};
+const tipEl = document.createElement("div");
+tipEl.id = "tip"; $("app").appendChild(tipEl);
+function tip(el, html){
+  if(!html) return el;
+  el.addEventListener("pointerenter", () => {
+    tipEl.innerHTML = html; tipEl.classList.add("on");
+    const a = $("app").getBoundingClientRect(), r = el.getBoundingClientRect();
+    tipEl.style.top = Math.max(6, Math.min(a.height - tipEl.offsetHeight - 6,
+                                           r.top - a.top - 4)) + "px";
+    tipEl.style.left = (r.left - a.left - tipEl.offsetWidth - 9) + "px";
+  });
+  el.addEventListener("pointerleave", () => tipEl.classList.remove("on"));
+  return el;
+}
+function group(name){
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = name; rack.appendChild(d);
+}
+function row(label){
+  const d = document.createElement("div");
+  d.className = "row";
+  const l = document.createElement("label");
+  l.className = "lab"; l.textContent = label;
+  d.appendChild(l); rack.appendChild(d);
+  return d;
+}
+const fmt = (v, dp) => dp === 0 ? String(Math.round(v)) : v.toFixed(dp);
+function slider(label, key, min, max, stp, dp, after, help){
+  const d = tip(row(label), help);
+  const wrap = document.createElement("div");
+  wrap.style.position = "relative"; wrap.style.minWidth = "0";
+  const r = document.createElement("input");
+  r.type = "range"; r.min = min; r.max = max; r.step = stp; r.value = S[key];
+  const v = document.createElement("span");
+  v.className = "val"; v.textContent = fmt(S[key], dp);
+  const paint = () => r.style.setProperty("--p", ((S[key] - min)/(max - min)*100) + "%");
+  r.addEventListener("input", () => {
+    S[key] = parseFloat(r.value); v.textContent = fmt(S[key], dp); paint(); if(after) after();
+  });
+  paint();
+  wrap.appendChild(r); wrap.appendChild(v); d.appendChild(wrap);
+  return UI[key] = {set(x){ S[key] = x; r.value = x; v.textContent = fmt(x, dp); paint(); }};
+}
+function picker(label, key, opts, after, help){
+  const d = tip(row(label), help);
+  const s = document.createElement("select");
+  for(const o of opts){
+    const e = document.createElement("option");
+    e.value = String(o.v); e.textContent = o.t; s.appendChild(e);
+  }
+  s.value = String(S[key]);
+  s.addEventListener("change", () => {
+    const n = parseFloat(s.value);
+    S[key] = isNaN(n) ? s.value : n;
+    if(after) after();
+  });
+  d.appendChild(s);
+  // Registered so a preset can move it. Setting it does NOT fire the change
+  // handler: applying a preset would otherwise reseed once per control.
+  SEL[key] = s;
+  return s;
+}
+function buttons(defs){
+  const d = document.createElement("div");
+  d.className = "btns"; rack.appendChild(d);
+  for(const [t, fn] of defs){
+    const b = document.createElement("button");
+    b.textContent = t; b.onclick = fn; d.appendChild(b);
+  }
+  return d;
+}
+/* The taps a kernel is made of: [x, y, weight], the cell facing +x. This is
+   the SAME list the shader works from, so the picture below the controls is
+   the kernel the brains are actually smelling through, sign and all. */
+function kernelTaps(){
+  const a = S.spread*Math.PI/360;
+  const rgt = [Math.cos(a)*S.dist,  Math.sin(a)*S.dist];
+  const lft = [Math.cos(a)*S.dist, -Math.sin(a)*S.dist];
+  if(S.shape === 0) return [[rgt[0], rgt[1], 1], [lft[0], lft[1], -1]];
+  if(S.shape === 2) return [[rgt[0], rgt[1], 1], [lft[0], lft[1], 1], [0, 0, -1]];
+  return [[rgt[0], rgt[1], 1], [lft[0], lft[1], 1]];
+}
+/* The kernel, drawn as it is: a continuous function of position sampled on
+   the grid, so smooth blobs shown as squares. Warm counts positive, cool
+   negative, and the cell faces right. */
+function drawKernel(){
+  const k = $("kern"); if(!k) return;
+  const g2 = k.getContext("2d");
+  const W = k.width;
+  // A display floor on the drawn width. Jones' sensor is a POINT, and an
+  // honest picture of a point at nine cells out is a speck you cannot see, so
+  // the drawn blob never goes under about two cells. The number that matters
+  // is where the lobes sit and how far apart, and that stays true.
+  const sigMin = 1.8;
+  const sigD = Math.max(sigMin, S.size*(0.6 + 0.9*S.feather));
+  const R = Math.max(3, Math.ceil(S.dist + 3.0*sigD));
+  const side = 2*R + 1, cs = W/side;
+  const acc = new Float64Array(side*side);
+  const sig = sigD;
+  const lobes = kernelTaps();
+  for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
+    let v = 0;
+    for(const [cx, cy, w] of lobes){
+      const dx = x - R - cx, dy = y - R - cy;
+      v += w*Math.exp(-0.5*(dx*dx + dy*dy)/(sig*sig));
+    }
+    acc[y*side + x] = v;
+  }
+  let mx = 0;
+  for(const v of acc) mx = Math.max(mx, Math.abs(v));
+  mx = mx || 1;
+  g2.fillStyle = "#06090c"; g2.fillRect(0, 0, W, W);
+  const BG = [6, 9, 12];
+  for(let y = 0; y < side; y++) for(let x = 0; x < side; x++){
+    const v = acc[y*side + x]/mx;
+    if(Math.abs(v) < 2e-3) continue;
+    const c = v > 0 ? [255, 118, 64] : [87, 158, 255];
+    const t = Math.min(1, Math.abs(v)*0.9 + 0.1);
+    g2.fillStyle = "rgb(" + c.map((q, i) => Math.round(BG[i] + (q - BG[i])*t)).join(",") + ")";
+    const x0 = Math.round(x*cs), x1 = Math.round((x + 1)*cs);
+    const y0 = Math.round((side - 1 - y)*cs), y1 = Math.round((side - y)*cs);
+    g2.fillRect(x0, y0, x1 - x0, y1 - y0);
+  }
+  const m = Math.max(2, Math.ceil(cs));
+  g2.strokeStyle = "rgba(255,255,255,.65)"; g2.lineWidth = 1;
+  g2.strokeRect(Math.floor(R*cs) + 0.5, Math.floor(R*cs) + 0.5, m - 1, m - 1);
+  g2.strokeStyle = "rgba(255,255,255,.30)";
+  g2.beginPath(); g2.moveTo(W/2, W/2); g2.lineTo(W/2 + R*cs*0.92, W/2); g2.stroke();
+}
+function buildKernel(){
+  const k = document.createElement("canvas");
+  k.id = "kern"; k.width = 320; k.height = 320;
+  rack.appendChild(k);
+  const d = document.createElement("div");
+  d.className = "grp"; d.textContent = "the kernel";
+  rack.insertBefore(d, k);
+}
+/* -------------------------------------------------------------- presets
+   Found by search, not by hand: staging/brains/sweep.py runs the same rule on
+   the CPU over a few hundred random parameter draws and scores each on whether
+   its matter ends up in COHERENT DIRECTIONAL structure -- filaments rather
+   than blobs or boiling -- then the survivors were judged by eye off a contact
+   sheet. Each carries the seeds it was found with, and the page's generator is
+   the search's generator, so a preset replays rather than merely rhymes.     */
+const PRESETS = [
+  {name: "foam", brain: 56768818, world: 279142374,
+   p: {shape: 0, mirror: 1, dist: 3.25, size: 1.05, spread: 16, feather: 0.08, gain: 1.48, speed: 1.15, beta: 26.25, drag: 0.671, force: 0.22, swerve: 0.82, strafe: 0.58, moff: 1, crowd: 0, decay: 0.88, diff: 0.39, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "roe", brain: 389886952, world: 116812560,
+   p: {shape: 1, mirror: 1, dist: 3.78, size: 3, spread: 176, feather: 0.3, gain: 0.63, speed: 4.55, beta: 5.75, drag: 0.593, force: 0.9, swerve: 1.01, strafe: 0.62, moff: 1.1, crowd: 0, decay: 0.944, diff: 0.15, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "tissue", brain: 324331151, world: 467253125,
+   p: {shape: 1, mirror: 1, dist: 1.5, size: 3.5, spread: 150, feather: 0.73, gain: 0.64, speed: 4, beta: 12.75, drag: 0.387, force: 0.4, swerve: 1.33, strafe: 0.78, moff: 1.3, crowd: 0.75, decay: 0.949, diff: 0.18, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "membrane", brain: 590951523, world: 101940585,
+   p: {shape: 1, mirror: 0, dist: 4, size: 3.5, spread: 11, feather: 0.24, gain: 0.22, speed: 0.15, beta: 20.75, drag: 0.623, force: 0.85, swerve: 0.4, strafe: 0.35, moff: 0.2, crowd: 0.35, decay: 0.902, diff: 0.36, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "colonies", brain: 11026348, world: 916395159,
+   p: {shape: 1, mirror: 1, dist: 2.5, size: 2.5, spread: 85, feather: 0.8, gain: 0.41, speed: 3.2, beta: 6.4, drag: 0.656, force: 0.17, swerve: 1.02, strafe: 0.53, moff: 2, crowd: 0.1, decay: 0.859, diff: 0.01, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "cortex", brain: 195070709, world: 922044621,
+   p: {shape: 1, mirror: 1, dist: 1.5, size: 3, spread: 113, feather: 0.05, gain: 0.27, speed: 3.2, beta: 3.9, drag: 0.785, force: 0.12, swerve: 0.01, strafe: 0.37, moff: 0.75, crowd: 0, decay: 0.851, diff: 0.02, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "lichen", brain: 943190199, world: 961883171,
+   p: {shape: 2, mirror: 0, dist: 1, size: 3.5, spread: 161, feather: 0.26, gain: 0.35, speed: 1.85, beta: 8, drag: 0.355, force: 1.22, swerve: 1.26, strafe: 0.25, moff: 1.95, crowd: 0, decay: 0.965, diff: 0.1, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "spores", brain: 363909647, world: 909452152,
+   p: {shape: 2, mirror: 0, dist: 5, size: 1, spread: 93, feather: 0.97, gain: 0.3, speed: 4.65, beta: 8.25, drag: 0.766, force: 0.55, swerve: 0.52, strafe: 0.27, moff: 2.15, crowd: 0, decay: 0.833, diff: 0.37, fill: 0.1, ball: 0.55, sweep: 0, mode: 1, view: 1}},
+  {name: "amber", brain: 29470058, world: 787955227,
+   p: {shape: 1, mirror: 1, dist: 3.3, size: 3, spread: 40, feather: 0.59, gain: 0.29, speed: 1.5, beta: 20.6, drag: 0.758, force: 0.46, swerve: 0.89, strafe: 0.35, moff: 1.9, crowd: 0, decay: 0.919, diff: 0.45, fill: 0.18, ball: 0.58, sweep: 0, mode: 1, gscale: 28, view: 1}},
+  {name: "thatch", brain: 124885066, world: 774272171,
+   p: {shape: 0, mirror: 0, dist: 1.5, size: 3.5, spread: 146, feather: 0.16, gain: 0.38, speed: 1.1, beta: 11.1, drag: 0.243, force: 0.83, swerve: 0.09, strafe: 0.7, moff: 0.27, crowd: 0, decay: 0.87, diff: 0.27, fill: 0.18, ball: 0.74, sweep: 0, mode: 0, gscale: 55, view: 1}},
+  {name: "berries", brain: 969830774, world: 742450111,
+   p: {shape: 0, mirror: 1, dist: 2.5, size: 2.5, spread: 129, feather: 0.16, gain: 0.26, speed: 4.8, beta: 27.9, drag: 0.501, force: 0.27, swerve: 1.3, strafe: 0.76, moff: 1.4, crowd: 0, decay: 0.923, diff: 0.36, fill: 0.18, ball: 0.8, sweep: 0, mode: 1, gscale: 60, view: 1}},
+  {name: "plankton", brain: 359185599, world: 711956535,
+   p: {shape: 2, mirror: 1, dist: 3, size: 1.5, spread: 38, feather: 0.17, gain: 0.24, speed: 1.6, beta: 18.1, drag: 0.138, force: 1.08, swerve: 1.23, strafe: 0.51, moff: 1.8, crowd: 0, decay: 0.903, diff: 0.31, fill: 0.23, ball: 0.85, sweep: 0, mode: 4, gscale: 28, view: 1}},
+  {name: "filigree", brain: 569957205, world: 40574340,
+   p: {shape: 0, mirror: 0, dist: 1.5, size: 1, spread: 85, feather: 0.53, gain: 0.26, speed: 3.85, beta: 11, drag: 0.126, force: 1.11, swerve: 0.74, strafe: 0.07, moff: 0.26, crowd: 0, decay: 0.877, diff: 0.15, fill: 0.05, ball: 0.52, sweep: 0, mode: 4, gscale: 21, view: 1}},
+  {name: "shale", brain: 921371920, world: 507668066,
+   p: {shape: 1, mirror: 1, dist: 1, size: 4, spread: 95, feather: 0.38, gain: 0.93, speed: 1, beta: 4.55, drag: 0.317, force: 0.79, swerve: 0.73, strafe: 0.11, moff: 1.55, crowd: 0, decay: 0.865, diff: 0.01, fill: 0.19, ball: 0.86, sweep: 0, mode: 4, gscale: 20, view: 1}},
+  {name: "nacre", brain: 859932786, world: 258121042,
+   p: {shape: 1, mirror: 1, dist: 1.5, size: 3.5, spread: 111, feather: 0.49, gain: 0.42, speed: 4.35, beta: 12.7, drag: 0.472, force: 1.38, swerve: 1.01, strafe: 0.53, moff: 0.25, crowd: 0, decay: 0.984, diff: 0.28, fill: 0.14, ball: 0.52, sweep: 0, mode: 1, gscale: 64, view: 1}},
+  {name: "shallows", brain: 604035380, world: 218563247,
+   p: {shape: 1, mirror: 1, dist: 1.5, size: 2.5, spread: 60, feather: 0.56, gain: 0.24, speed: 0.45, beta: 4.75, drag: 0.388, force: 0.67, swerve: 0.86, strafe: 0.24, moff: 2.3, crowd: 0, decay: 0.928, diff: 0.36, fill: 0.09, ball: 0.24, sweep: 0, mode: 4, gscale: 25, view: 1}},
+  {name: "silt", brain: 444584035, world: 247712942,
+   p: {shape: 0, mirror: 0, dist: 4, size: 2, spread: 70, feather: 0.65, gain: 2.24, speed: 4.95, beta: 14.55, drag: 0.662, force: 0.78, swerve: 0.28, strafe: 0.35, moff: 0.33, crowd: 0, decay: 0.886, diff: 0.32, fill: 0.21, ball: 0.6, sweep: 0, mode: 1, gscale: 68, view: 1}},
+  {name: "anemone", brain: 989760553, world: 545061091,
+   p: {shape: 0, mirror: 0, dist: 1, size: 2, spread: 54, feather: 0.57, gain: 0.65, speed: 2.45, beta: 14.25, drag: 0.189, force: 0.72, swerve: 0.75, strafe: 0.01, moff: 0.21, crowd: 0, decay: 0.955, diff: 0.31, fill: 0.21, ball: 0.54, sweep: 0, mode: 0, gscale: 25, view: 1}},
+  {name: "bloom", brain: 837232771, world: 903242390,
+   p: {shape: 0, mirror: 1, dist: 3, size: 1.5, spread: 58, feather: 0.72, gain: 0.72, speed: 0.8, beta: 5.95, drag: 0.764, force: 0.18, swerve: 0.24, strafe: 0.04, moff: 0.41, crowd: 0, decay: 0.824, diff: 0.44, fill: 0.04, ball: 0.45, sweep: 0, mode: 1, gscale: 22, view: 1}},
+  {name: "cavern", brain: 540855119, world: 625435210,
+   p: {shape: 0, mirror: 1, dist: 1.5, size: 3, spread: 89, feather: 0.99, gain: 0.52, speed: 0.5, beta: 15.05, drag: 0.114, force: 1.02, swerve: 1.06, strafe: 0.52, moff: 1.05, crowd: 2, decay: 0.833, diff: 0.2, fill: 0.21, ball: 0.38, sweep: 0, mode: 1, gscale: 54, view: 1}},
+  // The two axes the search had never touched. USE below four is a regime none
+  // of the earlier nineteen hundred runs could reach: one species is four times
+  // the mass with nobody to argue with, and it makes a compact creature on black
+  // rather than a texture over the whole frame. SWEEP runs the gain across the
+  // world, so one frame holds several behaviours at once.
+  {name: "cell", brain: 710866095, world: 569453919,
+   p: {shape: 2, mirror: 0, dist: 1.71, size: 3.02, spread: 78, feather: 0.56, gain: 0.236, sweep: 0, speed: 1.84, beta: 9.47, drag: 0.84, force: 0.782, swerve: 0.425, strafe: 0.034, moff: 1.94, crowd: 0, decay: 0.809, diff: 0.48, fill: 0.093, ball: 0.39, use: 1, mode: 1, gscale: 66, view: 1}},
+  {name: "raspberry", brain: 125713053, world: 176153499,
+   p: {shape: 1, mirror: 0, dist: 6.99, size: 1.03, spread: 36, feather: 0.51, gain: 0.453, sweep: 0, speed: 0.12, beta: 10.69, drag: 0.868, force: 1.093, swerve: 0.739, strafe: 0.251, moff: 0.26, crowd: 0, decay: 0.947, diff: 0.34, fill: 0.142, ball: 0.23, use: 1, mode: 0, gscale: 53, view: 1}},
+  {name: "dendrite", brain: 898700205, world: 146235177,
+   p: {shape: 2, mirror: 0, dist: 2.29, size: 2.25, spread: 83, feather: 0.61, gain: 2.807, sweep: 0, speed: 3.98, beta: 19.36, drag: 0.436, force: 1.016, swerve: 0.987, strafe: 0.644, moff: 0.86, crowd: 0, decay: 0.914, diff: 0.31, fill: 0.104, ball: 0.5, use: 1, mode: 1, gscale: 43, view: 1}},
+  {name: "medusa", brain: 227068055, world: 793645486,
+   p: {shape: 0, mirror: 1, dist: 4.49, size: 2.41, spread: 104, feather: 0.85, gain: 0.237, sweep: 1.12, speed: 2.59, beta: 7.46, drag: 0.523, force: 0.63, swerve: 0.367, strafe: 0.772, moff: 1.42, crowd: 0, decay: 0.926, diff: 0, fill: 0.093, ball: 0.3, use: 4, mode: 0, gscale: 75, view: 1}},
+  {name: "provinces", brain: 762064737, world: 731219368,
+   p: {shape: 0, mirror: 1, dist: 1.93, size: 2.62, spread: 144, feather: 0.1, gain: 0.222, sweep: 2.14, speed: 3.82, beta: 4.28, drag: 0.537, force: 0.499, swerve: 0.55, strafe: 0.4, moff: 0.3, crowd: 0, decay: 0.872, diff: 0.36, fill: 0.244, ball: 0.79, use: 4, mode: 1, gscale: 69, view: 1}},
+  {name: "raft", brain: 355259415, world: 952993487,
+   p: {shape: 1, mirror: 1, dist: 3.87, size: 2.38, spread: 118, feather: 0.38, gain: 0.649, sweep: 0, speed: 0.37, beta: 3.22, drag: 0.065, force: 0.377, swerve: 0.701, strafe: 0.236, moff: 1.23, crowd: 0, decay: 0.856, diff: 0.46, fill: 0.071, ball: 0.35, use: 1, mode: 4, gscale: 33, view: 1}},
+  {name: "mycelium", brain: 186467232, world: 108508032,
+   p: {shape: 1, mirror: 1, dist: 4.45, size: 2.75, spread: 29, feather: 0.3, gain: 0.691, sweep: 0, speed: 0.38, beta: 13.06, drag: 0.819, force: 0.169, swerve: 0.092, strafe: 0.307, moff: 0.45, crowd: 0.13, decay: 0.857, diff: 0.48, fill: 0.046, ball: 0.35, use: 1, mode: 4, gscale: 59, view: 1}},
+  {name: "shedding", brain: 514239455, world: 721897027,
+   p: {shape: 2, mirror: 0, dist: 1.68, size: 1.27, spread: 35, feather: 0.34, gain: 0.461, sweep: 0, speed: 4.79, beta: 3.6, drag: 0.2, force: 0.814, swerve: 0.877, strafe: 0.233, moff: 0.8, crowd: 0, decay: 0.89, diff: 0.27, fill: 0.188, ball: 0.31, use: 1, mode: 1, gscale: 52, view: 1}},
+  {name: "halo", brain: 457157967, world: 348350359,
+   p: {shape: 1, mirror: 1, dist: 4.18, size: 2.53, spread: 113, feather: 0.06, gain: 0.21, sweep: 0, speed: 0.19, beta: 3.14, drag: 0.821, force: 1.267, swerve: 0.253, strafe: 0.54, moff: 1.66, crowd: 1.26, decay: 0.912, diff: 0.06, fill: 0.031, ball: 0.46, use: 1, mode: 1, gscale: 61, view: 1}},
+  {name: "terraces", brain: 463518982, world: 81275893,
+   p: {shape: 1, mirror: 0, dist: 1.91, size: 1.25, spread: 155, feather: 0.25, gain: 0.299, sweep: 0.98, speed: 0.5, beta: 21, drag: 0.251, force: 1.438, swerve: 1.419, strafe: 0.697, moff: 0.65, crowd: 0, decay: 0.964, diff: 0.15, fill: 0.041, ball: 0.87, use: 2, mode: 1, gscale: 42, view: 1}},
+  // FITTED, not found. train/train_gecko_brains.py pushes the error between
+  // what the rule grows and a lizard back through one step of the rule, a few
+  // thousand times. It carries its own weights because there is no seed that
+  // draws them, and its own layout because it was never shown another.
+  {name: "gecko \u2014 fitted", fitted: true,
+   p: {shape: 1, mirror: 1, dist: 2.5, size: 1, spread: 162, feather: 0.2, gain: 0.3872, sweep: 0, speed: 1.8392, beta: 2.5799, drag: 0.6294, force: 0.3257, swerve: 0.3597, strafe: 0.209, moff: 0.7127, crowd: 0.0, decay: 0.9393, diff: 0.2689, fill: 0.1, view: 1},
+   blobs: [{frac: 0.2075, x: 0.7835, y: 0.4911}, {frac: 0.472, x: 0.5721, y: 0.5199}, {frac: 0.2546, x: 0.5523, y: 0.4888}, {frac: 0.0658, x: 0.264, y: 0.54}],
+   frq: [
+    0.1626,-0.01837,-0.004652,-0.4628,0.484,-0.2067,-0.4066,-0.1545,-0.01804,0.995,0.5042,-0.1869,0.05907,0.9516,0.6734,0.1494,
+    -0.3587,0.8321,0.4284,-0.4454,0.7097,0.07128,-0.7396,-0.4433,-0.8782,-1.07,0.08673,-0.3863,0.4819,0.3263,0.148,0.7664,
+    -0.3861,0.09301,0.5774,0.3101,0.1222,0.7681,0.113,0.5369,-0.88,-0.9272,-1.052,-0.005725,0.8275,-0.8921,0.4068,-0.9022,
+    -0.6794,-0.3486,-0.4157,0.302,-0.8572,1.153,0.1538,0.3521,-0.8186,0.6113,-0.1943,-0.4532,0.2196,0.2694,-0.05177,-0.5031,
+    0.1686,-0.2792,-0.3567,-0.3618,0.6678,-0.8244,0.4742,0.5117,-0.7693,-0.7546,-0.7748,-0.9842,0.9768,1.026,-0.1624,1.091,
+    0.3295,-1.141,-0.8536,-0.5789,-1.031,-0.5898,0.4474,-0.003501,-0.2582,0.1057,0.9345,0.09886,0.4955,-0.2341,-0.8407,0.2528,
+    0.4679,0.7065,-0.8146,-0.1013,-0.86,0.07025,0.1783,0.3259,-0.3437,-0.1463,0.2457,-0.97,0.4926,0.9681,-0.7127,1.001,
+    0.1846,0.9337,0.9487,-0.9247,1.023,-0.03772,0.2384,-0.6928,-1.342,0.03164,0.2917,0.6691,-1.327,-1.452,0.6451,-0.3165,
+    0.01073,-0.4208,-0.02673,0.2222,-1.334,0.5329,0.1589,0.6671,-0.7462,1.051,0.9635,-0.7256,1.292,0.2149,1.333,1.385,
+    0.1221,0.1064,0.2274,0.5696,-0.8224,0.07461,0.9371,-0.6848,-0.567,0.0792,0.2524,0.5072,0.1034,0.3091,-0.3847,0.9026,
+    -0.6918,0.655,0.5468,0.8797,0.894,-0.3342,0.7195,-0.7351,0.7024,-0.7616,-0.6331,-0.8215,0.9254,0.2204,-1.601,-1.755,
+    0.1406,-0.5783,0.4324,1.207,-1.5,-2.121,0.1591,1.391,1.279,-0.05984,-0.6414,0.6337,1.464,-1.978,-0.2075,1.657,
+    1.688,2.03,0.8463,2.164,-2.119,0.4148,0.3193,1.649,0.468,1.39,-2.002,-0.3615,0.746,1.255,0.4389,1.311,
+    -0.7895,-0.3364,1.814,1.337,1.371,-1.954,-0.03504,-1.824,1.936,1.643,1.054,-1.295,-1.201,-1.375,0.7795,1.726,
+    -0.2748,-1.985,-0.4618,0.2546,0.07038,1.189,0.5948,-0.7163,-1.161,0.03546,-0.6916,-1.246,-0.8102,-1.576,0.2044,-0.3258,
+    -0.9284,0.4109,-0.07734,-1.085,0.8353,-1.543,-0.06336,1.348,1.402,0.9115,-0.3297,0.3839,-1.191,-0.0537,1.473,-0.7181,
+    -1.675,1.384,0.6985,1.223,-0.5508,-1.072,-0.4842,-0.7919,0.2723,-0.6779,-0.7908,-1.93,-1.074,-1.832,-0.002803,1.484,
+    1.208,0.4671,-1.83,-0.2899,-0.2289,1.905,0.4432,1.56,2.231,-0.3114,-2.069,-1.979,2.037,-1.037,0.1108,0.9398,
+    -0.1586,-2.441,-0.2152,0.2707,-0.596,0.1279,0.2466,0.5626,-0.5765,1.234,1.197,0.9102,-0.9471,-0.7874,0.1677,-0.7291,
+    0.01466,-0.6934,-0.5947,0.1644,-1.13,0.3579,-0.09819,-0.59,-0.7048,-0.8353,1.039,0.02141,-0.2445,-0.217,-1.133,-1.999,
+    -1.743,-0.4901,-1.042,0.8145,1.522,-1.466,1.555,-0.5885,-0.6771,2.25,-1.412,0.5969,0.7641,0.7626,-1.102,1.952,
+    -1.637,-0.7888,2.277,-0.5198,-0.9259,-2.066,-2.264,-1.815,-0.6641,-1.544,1.013,-0.723,-0.586,-0.6603,0.9702,0.01187,
+    0.2404,0.2209,0.9503,-0.01646,-0.2024,-0.4041,-0.7432,-0.2936,0.1675,0.3006,0.1951,-0.076,0.9005,0.1844,-0.3239,-0.6057,
+    -0.9494,-0.6511,0.4335,1.013,-0.1862,0.8192,-0.3651,0.2652,0.7355,-1.094,-0.2102,-0.5761,-0.3118,1.072,-0.7088,0.9234,
+    0.05308,-1.124,-0.04259,-0.1237,-0.784,1.139,-0.8232,1.128,-0.8104,-0.219,0.6714,-0.6204,-0.8176,-0.5099,0.6869,-0.9783,
+    -0.9089,0.9531,0.4087,-0.2988,1.229,-0.6989,0.2322,-0.06234,-0.885,-0.5675,0.8144,0.9614,-0.7379,0.1198,0.8172,-0.4158,
+    0.07377,-0.08369,-0.5081,0.1753,0.7266,0.7466,-0.2819,-0.8236,-0.4134,-0.238,0.1696,0.4509,0.3366,-0.3188,-0.9482,0.3869,
+    0.1556,-0.7141,0.213,-1.241,-0.9351,0.613,0.6061,1.127,-0.9448,-0.2347,0.1842,1.095,0.7839,0.1453,0.9659,0.01424,
+    -1.091,0.7833,-1.12,-0.02168,0.7121,-1.266,0.7236,-1.38,-0.1663,0.7374,1.299,0.5894,0.4124,0.7876,-0.3836,0.3159,
+    -0.3393,-0.7136,0.9079,-0.9996,-0.6744,0.1398,-0.2395,0.04247,-0.7432,-0.762,-0.9206,-1.043,0.5514,-0.4356,0.9302,0.7514,
+    -0.9446,-0.9134,-0.7347,-0.7707,0.896,-0.1131,0.7524,0.004128,0.5259,-0.7975,-0.9837,1.035,-0.9265,2.672,-2.253,2.313,
+    -0.3233,0.2586,-0.5493,2.521,-0.08967,1.312,-0.4683,2.128,-0.3156,1.898,0.2586,0.6183,-2.801,0.2222,-2.291,-1.264,
+    -1.44,2.776,-2.043,0.9859,-1.991,-0.1937,2.202,-2.207,-0.8483,0.6776,0.4147,0.6895,-1.476,-0.8108,2.046,-0.1471,
+    -0.9904,-1.343,-2.204,-2.178,-0.1574,0.3569,1.518,-1.95,0.2655,0.1009,-0.5702,-1.426,-0.3768,2.399,-1.941,0.8444,
+    -0.7522,0.7224,0.7668,-0.71,-0.667,0.6075,0.7849,-2.255,2.16,0.2785,1.272,-1.799,1.358,1.467,-0.1403,2.53,
+    0.4197,1.613,0.2665,0.5531,0.5293,2.246,1.087,-1.464,0.3259,1.26,-2.258,-1.038,0.9417,-0.5396,-0.7593,-1.488,
+    1.096,1.622,2.375,-2.389,1.344,-1.298,1.443,0.2579,0.1356,-0.1477,-1.39,1.203,-0.8294,1.662,0.1119,1.04,
+    0.7105,0.4314,-0.09823,-1.267,-1.257,-1.328,1.742,1.115,1.598,-0.07364,0.361,0.8906,-0.9855,1.604,-1.242,-1.186,
+    0.5004,0.3814,0.06573,0.4302,0.4309,0.08971,-0.5364,0.5363,-0.8658,1.012,-0.974,-0.2461,-0.4693,0.003763,0.1768,-0.4416,
+    0.9266,-0.3774,0.1276,-0.721,0.04779,-0.02323,0.3238,-0.7068,-0.9251,-0.7875,-0.805,-0.1775,0.6412,0.9303,-1.022,1.086,
+    -2.663,2.225,-0.02091,-0.4195,1.082,2.195,-2.419,1.811,2.804,2.003,0.9959,1.72,-0.7743,-2.028,1.062,2.166,
+    -2.379,-2.204,-0.5631,-1.656,0.8609,-2.688,2.134,-2.541,-0.7981,-2.238,2.272,0.5016,-0.3961,0.1887,0.9171,-0.8911,
+    0.8728,0.2498,0.5423,-0.6184,-0.003762,-0.5429,0.5588,-0.1372,1.055,0.06419,0.329,-0.6107,-0.4111,-0.01509,0.2804,0.7701,
+    0.1634,-0.3506,0.09559,-0.6351,0.8771,-0.4818,0.9247,0.2232,-0.4479,0.1284,-0.895,-0.4414,0.4017,0.07682,-0.9575,0.1353,
+    0.05852,0.2302,-0.00827,0.5517,0.3269,0.9071,0.4184,-0.5209,0.4994,-1.04,0.5544,-0.1316,-0.18,0.412,-0.2442,0.1081,
+    -0.9265,-0.6423,0.458,0.3511,-0.1753,-0.9915,0.7881,-0.3915,0.613,0.977,0.424,0.1198,-0.1676,-0.6478,0.515,-0.02149,
+    -0.6134,0.75,0.04088,-0.6667,0.6589,0.9331,-0.6646,-0.7945,-0.9482,-0.4583,0.13,-1.036,-0.8772,-0.3331,0.3008,-0.6224,
+    0.3797,-0.3711,0.7527,0.1754,0.2851,-0.4925,0.03444,-0.7936,-0.8178,0.07833,-0.3476,0.4505,0.69,-0.1114,0.8252,-0.04024,
+    0.09279,0.2155,0.5243,-0.9076,0.276,-0.9557,0.8755,0.2283,1.022,0.4656,-0.01211,-1.029,0.6121,0.8333,0.1958,-0.3323,
+    -1.308,-1.293,-0.6244,1.528,-1.045,-1.043,1.307,0.8537,-0.2043,1.314,0.3948,-1.407,1.608,1.597,0.2924,-1.66,
+    -1.398,0.5661,0.4094,-0.5514,0.2199,1.41,-0.8525,0.04867,-0.83,-1.128,1.133,0.1019,0.2622,0.2337,-0.04437,-0.7046,
+    0.189,-1.058,-0.1044,0.7847,-0.8948,-0.2708,0.9195,0.08534,-0.09119,0.2086,-0.02033,0.3382,-0.9029,-0.1268,0.5839,-1.011,
+    0.217,0.8457,-0.1383,-1.001,-0.6182,0.5768,-0.6873,-0.2183,0.1683,-0.5169,-0.3229,0.7549,0.2962,0.4166,-0.5294,-0.4947,
+    -0.9283,-0.7593,0.7271,0.5936,0.5879,0.4292,-0.5673,0.6651,0.0426,0.3963,0.792,0.2945,0.6404,0.777,-0.009597,0.8794,
+    0.2439,0.567,0.1485,0.5106,0.8786,0.6657,0.3752,-0.8377,1.019,0.4334,0.3836,0.01261,-0.5105,0.04478,-0.3988,0.7281,
+    -0.08624,0.4724,-1.118,-0.1048,-0.6568,0.9204,0.6092,-0.7494,0.8037,-0.2761,-0.7984,-0.7066,-0.09324,-0.7194,0.04928,-0.24,
+    -0.09382,0.4276,0.5245,-1.996,-1.386,0.7367,1.521,0.1459,0.7021,-1.118,0.5724,1.885,1.557,2.14,1.509,-2.245,
+    0.8265,0.008924,2.123,1.527,-1.2,-0.539,1.712,-1.067,0.8316,-1.865,0.5931,1.784,-0.207,-1.967,-0.4008,-1.176,
+    0.3754,-0.2848,0.8751,0.4182,0.07127,0.2769,-0.7265,0.8462,0.7108,0.09099,0.9657,0.7527,-0.9782,-0.8357,-0.7488,-0.3872,
+    0.5519,-0.4732,0.7736,-0.874,-0.5177,0.7439,-0.4266,-0.7416,-0.02724,0.8895,-0.339,0.5082,-0.2779,-0.161,0.3099,-0.05967,
+    -0.8108,-0.4899,-0.3774,0.4604,-0.7802,0.3752,0.01268,0.03165,0.3806,0.5878,-0.8356,-0.8239,0.489,0.546,0.5152,-0.4501,
+    -0.3883,-0.1339,0.9551,-0.4302,0.2055,-0.3033,0.3267,-0.4762,-0.05748,0.7598,-0.4204,-0.1027,-0.5175,-0.912,-0.003748,0.8229,
+    0.8986,0.3515,0.377,0.2612,-1.021,-0.1092,0.3453,-0.8008,-0.5944,-0.4343,-0.1928,0.002459,-0.7127,0.3168,0.1679,0.7503,
+    -0.5524,-0.1094,0.7891,0.6631,-0.3904,-0.3559,-0.7382,-0.03827,0.8087,-0.8805,-0.03673,1.073,0.8289,-1.085,0.8777,0.794,
+    0.8955,-0.335,0.334,0.4123,-0.5185,0.1453,0.479,0.8106,0.9905,-0.5875,-0.1811,0.251,0.1943,-0.4047,0.6832,-0.8469,
+    -0.7333,-0.1747,0.5835,0.6378,-0.3289,0.8751,-0.8602,-0.8801,0.2152,0.5566,0.4222,-0.06772,1.091,-1.125,0.457,0.431,
+    0.4692,-0.8792,-0.1913,-0.7944,0.5657,0.4127,0.3064,1.145,1.185,-0.9915,-0.545,0.4279,0.2782,-0.002955,1.044,0.8863,
+    1.257,0.3341,0.4712,-0.6065,0.6265,0.3689,0.5183,0.2081,-0.4144,0.4163,0.7053,0.1322,-0.1194,-1.097,0.6792,0.1149,
+    -0.8684,-0.8217,-0.908,0.5124,-0.7921,-0.271,-0.7268,-0.4454,0.9764,-0.6498,0.7111,0.3085,-0.2332,-0.2391,0.06333,-0.08265,
+    0.2462,-0.03561,1.091,-0.723,-1.1,0.503,0.03595,0.7579,0.06883,-0.5263,-0.2016,0.7571,0.1394,-0.2603,0.9234,1.068,
+    0.2493,0.04778,-0.8104,0.4608,-0.3685,-1.125,-0.4595,0.3059,0.9103,-0.6553,0.8411,-1.036,0.4966,-1.401,1.392,0.6894,
+    0.9557,-1.445,0.803,-1.153,1.398,-0.1538,1.169,-0.6822,0.2562,1.208,1.234,0.9877,-0.8533,-0.6237,0.05795,0.5434,
+    1.215,1.017,0.4833,0.02298,-0.9307,0.1987,-0.3376,0.7857],
+   amp: [
+    -0.2059,-0.6865,0.4522,-0.3348,0.02352,0.1664,-0.2468,0.7971,-0.9697,0.8358,0.07456,0.5349,-0.8549,0.107,0.4586,-0.1261,
+    0.2902,-0.01307,-0.771,-0.3117,-0.959,-0.08177,-0.05731,-0.2872,0.5036,0.6053,-0.3343,-0.1416,0.2105,-0.4543,0.03518,0.3779,
+    -0.4174,-0.03638,0.3371,0.5541,-0.8702,0.06294,-0.7331,-0.128,-0.1089,0.2629,0.2913,-0.005947,-0.9108,-0.7836,0.7341,0.7018,
+    0.9753,0.3739,0.5444,0.01941,-0.2593,0.09739,-0.4665,-0.5505,0.01956,0.1622,-0.4374,-0.4377,-0.9413,-0.7815,0.262,-0.5861,
+    0.9107,-0.5928,-0.1853,-0.434,-0.01014,0.01757,-0.278,-0.09199,-0.8581,-0.0004854,-0.483,0.6235,0.8984,0.1868,-0.2528,-0.02491,
+    0.4159,0.2386,0.00207,0.3554,0.3367,-0.2728,-0.4856,0.115,-0.7226,0.897,0.1564,-0.2186,0.3291,0.01074,0.5566,-0.001709,
+    -0.8076,-0.1592,0.9282,-0.6039,-0.1045,0.3585,-0.1526,-0.4359,-0.0702,0.1801,0.08415,0.02462,-0.0131,-0.2046,0.4291,0.6026,
+    -0.03586,0.5305,-0.6983,-0.4784,-0.1544,-0.3275,-0.2634,0.4331,0.07081,0.002135,-0.2316,-0.645,-0.3233,0.5583,-0.6866,0.2134,
+    -0.576,-0.7529,-0.622,-0.1549,0.7147,-0.2506,0.0008484,0.9416,0.6234,0.271,-0.3054,-0.9951,0.7442,0.3961,0.1053,0.8122,
+    0.2013,-0.3772,-0.3082,-0.004193,0.7928,0.976,-0.07461,-0.1154,0.3123,0.2747,-0.4397,0.432,0.000198,0.8136,-0.02956,0.5758,
+    0.009207,0.8525,-0.09424,0.5976,0.3047,0.8501,0.3563,-0.2048,0.08666,-0.1969,0.4277,0.9449,0.199,0.006463,0.6405,-0.8372,
+    0.03258,-0.4818,-0.1684,-0.7432,-0.6466,0.5917,-0.3069,0.4858,0.4923,0.8554,0.0006305,0.7333,0.38,0.2001,-0.1179,-0.3246,
+    0.6876,-0.91,0.4679,-0.3786,-0.6693,-0.5447,-0.2316,7.458e-05,0.3821,-0.2222,0.2747,0.7423,-0.00709,0.05154,-0.3154,-0.2455,
+    0.04384,-0.3724,0.716,-0.1304,-0.006324,-0.3874,0.4921,0.6687,-0.4408,-0.5114,0.08408,0.6065,-0.2128,-0.7334,0.1258,0.0301,
+    -0.09076,0.004316,-0.1116,0.2928,0.9604,-0.2691,-0.7123,0.9353,0.1473,0.593,0.8219,0.3215,-0.3589,0.00669,0.001493,-0.322,
+    0.1351,0.634,-0.3896,0.5287,0.2364,0.2041,0.4706,-0.1216,-0.7528,0.3476,-0.1904,-0.005477,-0.0565,0.2634,-0.9292,-0.7476,
+    0.06004,0.646,0.315,-0.2377,0.4519,0.5181,0.1856,0.3912,-0.002034,-0.1054,0.8507,-0.8702,-0.1241,-0.456,-0.9314,0.5827,
+    0.1417,-1.101,-0.4015,-0.5981,-1.096,-0.003065,-0.6191,0.6883,0.9189,0.4023,0.7708,-0.4816,-0.6036,0.2437,0.7062,0.2404,
+    -0.3342,-0.1717,-0.007959,0.1004,0.5618,-0.9376,-0.6819,0.3996,-0.9991,-0.3018,-0.03524,0.8068,0.7609,0.5354,-0.3825,0.01102,
+    -0.5035,-0.6264,0.8704,0.8245,0.3144,0.04703,-0.9399,-0.6387,0.09859,-0.09909,0.3372,0.4651,-0.003775,0.1052,0.8533,-0.771,
+    0.7562,-0.804,-0.02806,-0.2551,-0.3922,0.3201,-0.8781,0.8507,-0.5227,-0.01057,0.7532,0.4484,0.449,-0.1368,-0.4526,-0.6783,
+    0.9612,-0.6344,-0.6111,-0.3262,0.6215,0.5064,0.02707,-0.4594,0.1036,0.9519,0.7626,0.7266,0.04745,0.9262,-0.9409,-0.673,
+    0.3539,0.2001,-0.876,-0.01104,-0.6799,-0.6319,0.5964,0.9519,-0.881,0.1809,-0.06824,-0.8804,-0.5716,0.6586,-0.6864,0.468,
+    0.002681,0.4884,-0.4976,0.7115,0.1888,0.9259,0.06323,-0.763,-0.09784,-0.4689,0.9551,-0.9185,0.7804,0.003468,-0.2099,-0.6499,
+    0.3983,-0.3168,0.6659,0.5928,-0.9177,-0.2199,0.03011,0.5327,-0.5428,-0.5137,0.1755,-0.4064,-0.9293,0.1146,0.4723,-0.08671,
+    0.1083,0.2706,0.4049,0.9241,0.7031,-0.7501,-0.08323,-0.03328,-0.8279,0.3229,0.008854,-0.02668,0.6511,-0.7707,-0.8851,0.3337,
+    -0.04321,-0.184,0.3158,-0.3941,-0.2539,0.6132,0.9836,0.7535,0.4968,0.8261,0.3886,0.1936,-0.589,0.3595,0.2873,-0.203,
+    -0.7943,0.3429,0.3291,-0.3933,0.9864,-0.07146,-0.1406,-0.1259,-0.8451,-0.1734,-0.002002,0.4087,-0.181,-0.8933,0.159,0.6707,
+    0.5537,0.8172,0.5992,-0.007407,0.3306,0.6372,-0.5452,0.8546,-0.7405,-0.8134,0.4176,-0.1178,0.6752,0.9426,0.8292,-0.5806,
+    0.7378,0.3761,-0.2289,-0.8061,0.6967,-0.3742,0.8327,-0.7227,-0.2401,-0.1744,-0.7471,-0.7527,0.2729,-0.4851,-0.364,-0.5623,
+    -0.2201,0.2314,-0.67,-0.2869,-0.06049,-0.04564,0.527,-0.1488,-0.2367,0.669,0.1754,0.9772,-0.9504,-0.9581,0.3347,0.8457,
+    -0.575,-0.8307,0.1544,0.06306,-0.143,0.5468,0.6559,-0.1254,0.6216,0.6269,0.2707,-0.863,0.3492,0.6526,0.6269,0.04633,
+    0.6435,-0.4012,-0.5435,0.6918,0.167,0.6344,0.2198,0.02981]},
+];
+function applyPreset(i){
+  const P = PRESETS[i]; if(!P) return;
+  for(const k in P.p){
+    S[k] = P.p[k];
+    if(UI[k]) UI[k].set(P.p[k]);
+    else if(SEL[k]) SEL[k].value = String(P.p[k]);
+  }
+  // A fitted preset's weights are sized for the NS, NC and NIN it was fitted
+  // at. Change any of those and set() throws "offset is out of bounds" and the
+  // page dies on a preset click, so check rather than trust.
+  const fitOK = P.frq && P.frq.length === NS*NC*NIN && P.amp.length === NS*NC*NOUT;
+  if(P.frq && !fitOK)
+    console.warn(`preset "${P.name}" was fitted for a different rule shape `
+      + `(${P.frq.length} weights, this build wants ${NS*NC*NIN}) -- skipped`);
+  if(fitOK){
+    // A FITTED rule. Every other preset names a brain seed and the page draws
+    // the weights from it, which is why one is three numbers. A fit has no
+    // seed -- its weights are wherever the fit put them -- so they travel with
+    // it, and the layout it was fitted against travels too. Loading one
+    // without its layout would be loading half a preset: this rule was never
+    // shown anything else.
+    S.frq = pad4(NS*NC*NIN); S.frq.set(P.frq);
+    S.amp = pad4(NS*NC*NOUT); S.amp.set(P.amp);
+    S.blobs = P.blobs; S.mode = 5;
+    if(SEL.mode) SEL.mode.value = "5";
+  } else {
+    S.blobs = null;
+    rollBrains(P.brain);
+  }
+  rollCPPN();
+  reseed(P.world === undefined ? 1 : P.world);
+  drawKernel();
+}
+function buildUI(){
+  buildKernel();
+  if(PRESETS.length){
+    group("presets");
+    const d = tip(row("load"),
+      "Parameter sets found by <b>search</b>, not by hand: the same rule runs "
+      + "on the CPU over a few hundred random draws, each scored on whether "
+      + "its matter ends up in coherent directional structure &mdash; "
+      + "filaments rather than blobs or boiling &mdash; and the survivors were "
+      + "picked off a contact sheet by eye. Each carries the seeds it was "
+      + "found with, so loading one <b>replays it exactly</b>. Move anything "
+      + "afterwards and you are off the preset and on your own.");
+    const sel = document.createElement("select");
+    for(const [i, P] of PRESETS.entries()){
+      const o = document.createElement("option");
+      o.value = String(i); o.textContent = P.name; sel.appendChild(o);
+    }
+    sel.value = "";
+    const blank = document.createElement("option");
+    blank.value = "-1"; blank.textContent = "\u2014"; sel.insertBefore(blank, sel.firstChild);
+    sel.value = "-1";
+    sel.addEventListener("change", () => applyPreset(parseInt(sel.value, 10)));
+    d.appendChild(sel);
+    tip(buttons([["again", () => { const i = parseInt(sel.value, 10);
+                                   if(i >= 0) applyPreset(i); }]]),
+      "Reloads the preset in the box, throwing away whatever you have moved "
+      + "since. The seeds are part of it, so you get the same run back.");
+  }
+
+  group("perception");
+  picker("kernel", "shape", [{v:1, t:"both eyes"}, {v:0, t:"opposed eyes"},
+                             {v:2, t:"eyes and centre"}], drawKernel,
+    "What the kernel is made of, and so what a brain gets to smell. "
+    + "<b>both eyes</b> gives each side as its own reading, so a brain can "
+    + "tell \"plenty everywhere\" from \"plenty on one side\". "
+    + "<b>opposed eyes</b> hands over only right minus left &mdash; the "
+    + "classic slime-mold difference, half the inputs, and blind to how much "
+    + "there is in total. <b>eyes and centre</b> adds a third reading: the "
+    + "cell's own ground, negated, so a brain sees the two sides <i>and</i> "
+    + "how much better they are than where it is standing. "
+    + "Changing this changes what the first layer is wired to, so a brain "
+    + "behaves differently under each &mdash; it is not just a picture.");
+  slider("distance", "dist", 1, 60, 0.5, 1, drawKernel,
+    "How far out the two lobes sit, in cells. The <b>scale of everything</b> "
+    + "&mdash; the size of the structures that form is set here more than by "
+    + "any other knob. Jones' physarum uses <b>9</b>.");
+  slider("size", "size", 0.5, 24, 0.5, 1, drawKernel,
+    "The radius of each lobe &mdash; one Gaussian, read as a <b>blurred "
+    + "average</b> over that disc. At <b>1</b> it is Jones' point sensor.");
+  slider("spread", "spread", 0, 180, 1, 0, drawKernel,
+    "The angle <b>between</b> the two lobes. Narrow puts them both nearly "
+    + "straight ahead; wide makes it a plain left-versus-right sensor. Jones "
+    + "uses <b>45&deg;</b>; Fluoddity's presets run out at 110&ndash;160&deg;, "
+    + "which is where a lot of its variety lives.");
+  slider("feather", "feather", 0, 1, 0.01, 2, drawKernel,
+    "How soft the lobe's edge is. At <b>0</b> a reading jumps as a cell crosses "
+    + "the boundary, which is what makes movement look sharp and twitchy. Jones "
+    + "has no analogue &mdash; his sensors are points.");
+
+  group("brains");
+  picker("symmetry", "mirror", [{v:1,t:"mirrored"}, {v:0,t:"handed"}], null,
+    "<b>mirrored</b> runs each brain twice, the second time with its eyes "
+    + "swapped, and averages &mdash; the turn the other way round, everything "
+    + "else the same. A brain then has no handedness of its own, so it cannot "
+    + "spiral one way for ever just because that is how it was drawn. It is "
+    + "Fluoddity's default and it <b>doubles the cost of thinking</b>; "
+    + "<b>handed</b> turns it off and lets the bias stand.");
+  slider("gain", "gain", 0.05, 6, 0.05, 2, null,
+    "How far a perception travels through the brain's sinusoids &mdash; "
+    + "Fluoddity's <b>sensor_gain</b>, and the knob that changes a run most. "
+    + "Low, and every brain is riding the flat part of its own function, so "
+    + "they all behave much the same and the field is smooth. High, and a "
+    + "small change in what is smelled swings the answer right across, which "
+    + "is where the sharp, fussy structure comes from. Fluoddity's presets sit "
+    + "around <b>1.5</b>. It costs nothing to move &mdash; it does not reroll "
+    + "the brains, so the same nine rules can be run soft or savage.");
+  slider("speed", "speed", 0, 6, 0.05, 2, null,
+    "How many cells a unit of velocity is worth &mdash; the exchange rate "
+    + "between the brains' force units and the grid. It scales <b>velocity + "
+    + "strafe</b> together when they bias the nine shares, so it sets how "
+    + "ballistic the whole field is without touching what any brain decided. "
+    + "Mass is conserved at any value.");
+  slider("sweep", "sweep", 0, 2.5, 0.05, 2, null,
+    "Runs <b>gain</b> across the world from left to right instead of holding "
+    + "it fixed, the way Fluoddity sweeps a parameter over its canvas. At "
+    + "<b>2</b> the left edge is about a seventh of the gain of the middle "
+    + "and the right edge seven times it, so one frame shows a whole gradient "
+    + "of behaviour under one set of rules rather than a single point sampled "
+    + "from it. The fastest way to find out what a set of brains can do.");
+  slider("beta", "beta", 0.5, 30, 0.5, 1, null,
+    "How <b>decisively</b> a species commits to its affinity. Low and it hands "
+    + "its concentration to all nine neighbours in nearly equal shares, which is "
+    + "a fog; high and nearly everything goes to the best one. The temperature "
+    + "of the transport, and the sharpest knob on the page.");
+  slider("force", "force", 0, 2, 0.01, 2, null,
+    "How hard a brain's <b>along-the-nose</b> push is added to its species' "
+    + "velocity. Velocity is <b>state</b>: it accumulates, so a species pushed "
+    + "the same way for a while ends up moving faster than one that is not, "
+    + "and speed is something the field works out rather than something you "
+    + "set. Fluoddity's axial_force is 0.371.");
+  slider("swerve", "swerve", 0, 2, 0.01, 2, null,
+    "The same push, <b>across</b> the nose &mdash; what makes a species turn "
+    + "rather than accelerate. Fluoddity keeps this about twice the along-"
+    + "the-nose force at 0.707, which is why its agents curve so readily.");
+  slider("drag", "drag", 0, 1, 0.005, 3, null,
+    "How much of the velocity is thrown away each step. At <b>0</b> nothing "
+    + "ever slows and a push is remembered for ever; at <b>1</b> there is no "
+    + "memory at all and the velocity is whatever the last force said, which "
+    + "is the old heading-only behaviour. Fluoddity sits at 0.504, about two "
+    + "steps of memory.");
+  slider("strafe", "strafe", 0, 2, 0.01, 2, null,
+    "A push that moves the mass <b>this step and is then forgotten</b>, never "
+    + "accumulating into the velocity. Fluoddity's author gives the whole "
+    + "rule as <i>velocity += force; position += velocity + strafe</i>, and "
+    + "this is that second term: a way to sidestep without changing where you "
+    + "are pointed or how fast you are going. Its strafe_power is 0.224.");
+  slider("crowd", "crowd", 0, 8, 0.05, 2, null,
+    "How hard a species is pushed away from density that is already there. "
+    + "<b>Nothing else in here pushes back on crowding</b>, and without it the "
+    + "thing runs away: a brain that likes where it already is piles up, what "
+    + "it lays down is proportional to how much of it is there, and what it "
+    + "lays down is what attracted it. Measured, though, that runaway does "
+    + "<b>not</b> happen: peak concentration falls over time with this at zero, "
+    + "which is where it now starts. It is a knob for pushing species apart, "
+    + "not a fix &mdash; and it costs contrast, so turn it up on purpose.");
+  slider("deposit", "moff", 0, 4, 0.05, 2, null,
+    "How much the brains' matter offsets actually lay down. At 0 nothing is "
+    + "written to the ground, nobody can smell anything, and the field freezes.");
+  tip(buttons([["new brains", newBrains],
+               ["new field", () => { rollCPPN(); reseed(); }]]),
+    "<b>New brains</b> resamples the networks and <b>nothing else</b> &mdash; "
+    + "the matter and the species stay exactly where they are, so the same "
+    + "world carries on under a new rule. <b>New field</b> keeps the brains and "
+    + "rolls where the species start.");
+
+  group("ground");
+  slider("decay", "decay", 0.70, 0.995, 0.001, 3, null,
+    "How much of the matter survives each step. <b>This is what makes a trail a "
+    + "trail</b> rather than a smear that never forgets. Matter is not "
+    + "conserved, which is exactly why it is allowed to fade.");
+  slider("diffuse", "diff", 0, 1, 0.01, 2, null,
+    "How far matter spreads as it sits. At zero it stays exactly on the cell it "
+    + "was dropped on, where nobody can smell it from a distance.");
+
+  group("view");
+  picker("show", "view", [{v:0,t:"species"}, {v:1,t:"matter"}, {v:5,t:"flow"},
+                          {v:4,t:"purity"}, {v:2,t:"density"}, {v:3,t:"direction"}], null,
+    "<b>species</b> and <b>matter</b> are each channel as a colour, blended. "
+    + "<b>flow</b> is the vector half of the ground &mdash; which way it "
+    + "remembers things went, which is the only signed thing a brain smells. "
+    + "<b>purity</b> paints a cell grey when it is an even mixture and a "
+    + "saturated hue when it is one clean species &mdash; the view for asking "
+    + "whether they are staying apart.");
+  slider("exposure", "exp", 0.1, 8, 0.05, 2, null, "Brightness. Nothing to do with the simulation.");
+  slider("floor", "floor", 0, 2, 0.01, 2, null,
+    "Subtracted before the brightness curve, so the empty half of the field goes "
+    + "properly black instead of grey. Nothing to do with the simulation.");
+  slider("brush", "brush", 4, 90, 1, 0, null,
+    "Radius of the brush. <b>Shift-drag</b> adds a random species, "
+    + "<b>alt-drag</b> takes away.");
+
+  group("run");
+  slider("species", "use", 1, NS, 1, 0, reseed,
+    "How many of the four species are actually put down. <b>Set it to 1</b> to "
+    + "watch a single brain on its own, which is the only way to see what one "
+    + "rule does without seven others averaging into its turn.");
+  picker("start", "mode", [{v:0,t:"one ball, mixed"}, {v:1,t:"a ball each"},
+                           {v:4,t:"many small balls"},
+                           {v:2,t:"one ball, cppn"}, {v:3,t:"scattered"},
+                           {v:5,t:"fitted layout"}],
+         reseed,
+    "How a run begins. The <b>matter always starts empty</b> &mdash; the ground "
+    + "has to be written before it can be read. <b>A ball each</b> puts every "
+    + "species alone on its own square of a grid, so they begin apart and have "
+    + "to travel to meet, which is the only way to watch who wins a border. "
+    + "<b>Many small balls</b> throws specks of single species thin across the "
+    + "whole world instead &mdash; <b>patch</b> sets how far apart they land "
+    + "and <b>ball</b> how small they are, so a low ball leaves most of the "
+    + "world empty and everything has to be grown from a speck. "
+    + "<b>Fitted layout</b> only means anything with a fitted rule loaded: it "
+    + "puts a blob of each species where that species' part of the animal has "
+    + "to end up, which is the seed the fit was actually trained against.");
+  slider("ball", "ball", 0.05, 1, 0.01, 2, reseed,
+    "How big the starting ball is, as a fraction of the space it has &mdash; "
+    + "of its square under <b>a ball each</b>, of the spacing between specks "
+    + "under <b>many small balls</b>, where it is what makes the scatter "
+    + "sparse. Does nothing when the start is <b>scattered</b>.");
+  slider("fill", "fill", 0.02, 1, 0.01, 2, null,
+    "How much is laid down at a reseed. It is <b>conserved from then on</b>, so "
+    + "this is the one setting really about the whole run rather than the next "
+    + "step.");
+  slider("patch", "gscale", 4, 200, 1, 0, () => { rollCPPN(); reseed(); },
+    "How coarse the starting layout is. Big patches give regions that share a "
+    + "species and are wide enough to build something before they meet a region "
+    + "that does not. Under <b>many small balls</b> it is the spacing between "
+    + "specks, in cells.");
+  picker("grid", "N", [{v:256,t:"256"}, {v:512,t:"512"}, {v:768,t:"768"},
+                       {v:1024,t:"1024"}, {v:1536,t:"1536"}],
+         () => { alloc(); rollCPPN(); reseed(); },
+    "Cells per side. Everything else is measured in cells, so a bigger grid at "
+    + "the same settings shows more of the same thing rather than finer detail.");
+  picker("precision", "prec", [{v:16,t:"16-bit"}, {v:32,t:"32-bit exact"}],
+         () => { alloc(); reseed(); },
+    "What the species channels are kept in. The working textures are 32-bit "
+    + "either way &mdash; at 16-bit they lost mass.");
+  slider("steps/f", "steps", 1, 8, 1, 0, null, "Simulation steps per drawn frame.");
+  tip(buttons([["roll", () => { newBrains(); rollCPPN(); reseed(); }], ["reseed", () => reseed()]]),
+    "<b>Roll</b> is new brains and a new start. <b>Reseed</b> keeps the brains.");
+}
+
+$("play").onclick = toggleRun;
+$("step1").onclick = () => { step(); massDue = true; };
+$("reseed").onclick = reseed;
+$("shuffle").onclick = newBrains;
+$("full").onclick = toggleFull;
+$("hidep").onclick = () => rack.classList.toggle("hid");
+
+/* ===================================================================== loop */
+function resize(){
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const w = Math.max(1, Math.round(cv.clientWidth*dpr));
+  const h = Math.max(1, Math.round(cv.clientHeight*dpr));
+  if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
+}
+new ResizeObserver(resize).observe(cv);
+
+let ema = 16, tPrev = performance.now(), fpsAcc = 0, fpsN = 0, shown = 0;
+let mass = null, massAt = -1e9, massDue = false;
+function tick(now){
+  requestAnimationFrame(tick);
+  const dt = now - tPrev; tPrev = now;
+  resize();
+  if(S.running) for(let i = 0; i < S.steps; i++) step();
+  render();
+  if(dt < 250){ ema = ema*0.9 + dt*0.1; fpsAcc += dt; fpsN++; }
+  if(S.frame - massAt >= 200 || massDue){
+    massAt = S.frame; massDue = false;
+    const t = sumTexture(G.rho);
+    if(isFinite(t) && t > 0){ meanRho = t/(G.N*G.N); mass = meanRho; }
+    tPrev = performance.now();
+  }
+  if(now - shown > 420){
+    shown = now;
+    const fps = fpsN ? 1000/(fpsAcc/fpsN) : 0;
+    fpsAcc = 0; fpsN = 0;
+    const cells = G.N*G.N;
+    $("stat").innerHTML =
+      `<b>${fps.toFixed(0)}</b> fps &middot; <b>${ema.toFixed(1)}</b> ms &middot; ` +
+      `<b>${G.N}&sup2;</b>&times;<b>${NS}</b> &middot; ` +
+      `${(cells*S.steps/1e6*(S.running ? 1000/Math.max(ema, 1) : 0)).toFixed(0)}M cell-steps/s &middot; ` +
+      `${memMB().toFixed(0)} MB` +
+      (mass !== null ? ` &middot; mass <b>${mass.toFixed(5)}</b>` : "");
+  }
+}
+
+alloc();
+buildUI();
+reseed();
+drawKernel();
+resize();
+requestAnimationFrame(tick);
+</script>

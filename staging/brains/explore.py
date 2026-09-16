@@ -1,0 +1,340 @@
+"""A CPU port of staging/brains.html, faithful enough to search its parameters.
+
+Not a rewrite -- a transcription. Every number below is read off the shader, and
+the one check that says so is mass: the species channels are conserved exactly
+by construction, so a run whose total drifts means the port is wrong, not the
+rule. Perception is the one honest approximation: the page reads a lobe as one
+tap off the mip chain, and here it is a gaussian blur at the same radius, then
+bilinear-sampled. Regimes transfer; exact pixels do not.
+"""
+import numpy as np
+
+K, NS, NC = 8, 4, 10
+NOUT = 4 + 1 + K      # force, strafe, affinity, matter offsets
+OFF = [(0, 0), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
+# Unit offsets and one over their lengths. Scoring the forward step on the RAW
+# offset gives the diagonals a root-two head start inside the exponent, which
+# drags the drift onto multiples of 45 degrees; on the unit offset, divided by
+# the length, the mean displacement is an average of unit vectors over eight
+# evenly spaced directions and tracks the heading to a fraction of a degree.
+_LEN = [1.0] + [(1.0 if (a == 0 or b == 0) else 2.0 ** 0.5) for a, b in OFF[1:]]
+UOFF = [(a / l, b / l) for (a, b), l in zip(OFF, _LEN)]
+ILEN = [1.0 / l for l in _LEN]
+# binomial 1-2-1, which is far closer to isotropic than a flat 3x3 box
+BW = [(2.0 if a == 0 else 1.0) * (2.0 if b == 0 else 1.0) for a, b in OFF]
+
+
+def mulberry32(seed):
+    """The same generator the page uses, so a brain seed means the same thing
+    on both sides and a preset actually replays instead of merely rhyming."""
+    a = np.uint32(seed)
+    M = np.uint32(0xFFFFFFFF)
+
+    def nxt():
+        nonlocal a
+        a = np.uint32((int(a) + 0x6D2B79F5) & 0xFFFFFFFF)
+        t = np.uint32((int(a ^ (a >> np.uint32(15))) * int(np.uint32(1) | a)) & 0xFFFFFFFF)
+        t = np.uint32((int(t) + (int(t ^ (t >> np.uint32(7))) * int(np.uint32(61) | t))) & 0xFFFFFFFF) ^ t
+        return float(int(np.uint32(t ^ (t >> np.uint32(14))))) / 4294967296.0
+    return nxt
+
+
+def _h32(x):
+    old = np.seterr(over="ignore")
+    x = x.astype(np.uint32)
+    x ^= x >> np.uint32(16); x *= np.uint32(0x7feb352d)
+    x ^= x >> np.uint32(15); x *= np.uint32(0x846ca68b)
+    x ^= x >> np.uint32(16)
+    np.seterr(**old)
+    return x
+
+
+def glsl_rnd(px, py, k, f):
+    old = np.seterr(over="ignore")
+    """The seed shader's hash, ported exactly, so an initial field replays too."""
+    inner = _h32(np.uint32(k) * np.uint32(0xc2b2ae35) ^ np.uint32(f & 0xFFFFFFFF))
+    mid = _h32(px.astype(np.uint32) * np.uint32(0x85ebca6b) ^ inner)
+    h = _h32(py.astype(np.uint32) * np.uint32(0x9e3779b9) ^ mid)
+    np.seterr(**old)
+    return h.astype(np.float64) * (1.0 / 4294967296.0) - 0.5
+
+
+NIN = 3 * K + 5      # three readings a matter channel, the flow, and a bias
+
+
+def cap(v, m=16.0):
+    """Velocity accumulates; a 3x3 stencil can never use more than a few cells a
+    step, so past this the number only threatens to overflow."""
+    L = np.hypot(v[..., 0], v[..., 1])[..., None]
+    return np.where(L > m, v * (m / np.maximum(L, 1e-12)), v)
+
+
+def roll_at(a, off):
+    """a[p + off], with p indexed as [y, x] and off given as (dx, dy)."""
+    return np.roll(np.roll(a, -off[1], axis=0), -off[0], axis=1)
+
+
+def blur(m, sigma):
+    """Separable gaussian over the first two axes, wrapping."""
+    if sigma < 0.05:
+        return m
+    r = max(1, int(np.ceil(3 * sigma)))
+    t = np.arange(-r, r + 1)
+    w = np.exp(-0.5 * (t / sigma) ** 2)
+    w /= w.sum()
+    out = np.zeros_like(m)
+    for i, s in enumerate(t):
+        out += w[i] * np.roll(m, int(s), axis=0)
+    m2 = out
+    out = np.zeros_like(m)
+    for i, s in enumerate(t):
+        out += w[i] * np.roll(m2, int(s), axis=1)
+    return out
+
+
+def gather(field, x, y):
+    """Bilinear read of (N, N, C) at wrapped float coordinates."""
+    N = field.shape[0]
+    x0 = np.floor(x).astype(np.int32)
+    y0 = np.floor(y).astype(np.int32)
+    fx = (x - x0)[..., None]
+    fy = (y - y0)[..., None]
+    x0m, y0m = x0 % N, y0 % N
+    x1m, y1m = (x0 + 1) % N, (y0 + 1) % N
+    f = field.reshape(N * N, -1)
+    a = f[y0m * N + x0m]
+    b = f[y0m * N + x1m]
+    c = f[y1m * N + x0m]
+    d = f[y1m * N + x1m]
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
+
+
+class Brains:
+    def __init__(self, P, seed):
+        self.P = P
+        self.N = N = P["N"]
+        self.nin = NIN
+        # --- rollBrains: Fluoddity's seeding, drawn in the page's exact order
+        r = mulberry32(seed)
+        self.frq = np.empty((NS, NC, self.nin), np.float32)
+        self.amp = np.empty((NS, NC, NOUT), np.float32)
+        for si in range(NS):
+            for c in range(NC):
+                scale = 1 + 2 * r() ** 2
+                for j in range(self.nin):
+                    self.frq[si, c, j] = (r() * 2 - 1) * scale
+                for j in range(NOUT):
+                    self.amp[si, c, j] = r() * 2 - 1
+        # the per-centre phase offset, and the four basis shapes' constants
+        off = 2 * np.arange(NC) * 0.6283 + self.amp[:, :, NOUT - 1] * np.pi   # (NS, NC)
+        self.bcos = np.stack([np.cos(off), np.cos(off * 0.7),
+                              np.cos(off * 1.3), np.cos(off * 0.5)], -1)      # (NS,NC,4)
+        self.bsin = np.stack([np.sin(off), np.sin(off * 0.7),
+                              np.sin(off * 1.3), np.sin(off * 0.5)], -1)
+        self.bcos = self.bcos.astype(np.float32)
+        self.bsin = self.bsin.astype(np.float32)
+        self.frqT = np.ascontiguousarray(self.frq.transpose(0, 2, 1))   # (NS,NIN,NC)
+        self.oidx = [[i for i in range(NOUT) if i % 4 == r] for r in range(4)]
+        self.reset()
+
+    # ------------------------------------------------------------------ seed
+    def reset(self):
+        P, N = self.P, self.N
+        self.M = np.zeros((N, N, K), np.float32)          # matter: starts empty
+        self.F = np.zeros((N, N, 2), np.float32)          # flow: the vector half
+        self.C = np.zeros((N, N, NS), np.float32)         # species
+        yy, xx = np.mgrid[0:N, 0:N]
+        fp = np.stack([xx + 0.5, yy + 0.5], -1).astype(np.float32)
+        mode = int(P.get("mode", 1))
+        use = max(1, min(NS, int(P.get("use", NS))))
+        if mode == 1:
+            # a ball each, on a grid: everyone starts alone and has to travel
+            gw, gh, best = 1, use, 1e9
+            for w in range(1, use + 1):
+                h = -(-use // w)
+                sc = (w * h - use) * 2.5 + abs(w - h)
+                if sc < best:
+                    best, gw, gh = sc, w, h
+            rad = P["ball"] * N * 0.5 / max(gw, gh)
+            amp = P["fill"] * N * N / max(np.pi * rad * rad * use, 1)
+            cell = N / np.array([gw, gh], np.float32)
+            for s in range(use):
+                mid = (np.array([s % gw, s // gw], np.float32) + 0.5) * cell
+                d = fp - mid
+                d -= N * np.floor(d / N + 0.5)
+                self.C[..., s] = np.where(np.hypot(d[..., 0], d[..., 1]) < rad, amp, 0)
+        elif mode == 4:
+            # many small balls thrown thin, on a jittered lattice, one species each
+            spots = max(1, round(N / max(4, P.get("gscale", 40))))
+            sp = N / spots
+            rad = max(0.75, P["ball"] * sp * 0.5)
+            amp = P["fill"] * N * N / max(np.pi * rad * rad * spots * spots, 1)
+            home = np.floor(fp / sp).astype(np.int32)
+            for k in OFF:
+                g = home + np.array(k, np.int32)
+                gw_ = g % spots
+                jx = glsl_rnd(gw_[..., 0], gw_[..., 1], 1, P["seed"])
+                jy = glsl_rnd(gw_[..., 0], gw_[..., 1], 2, P["seed"])
+                mid = (g + 0.5) * sp + np.stack([jx, jy], -1) * sp * 0.7
+                d = fp - mid
+                d -= N * np.floor(d / N + 0.5)
+                inside = np.hypot(d[..., 0], d[..., 1]) < rad
+                sd = np.minimum((glsl_rnd(gw_[..., 0], gw_[..., 1], 3, P["seed"]) + 0.5)
+                                * use, use - 1).astype(np.int32)
+                for s in range(use):
+                    self.C[..., s] += np.where(inside & (sd == s), amp, 0)
+        elif mode == 5:
+            # a fitted layout: a blob per species where its part of the animal
+            # goes, holding the mass that part needs
+            rad = max(1.0, 0.055*N)
+            amp = P["fill"]*N*N/max(np.pi*rad*rad, 1)
+            for s, b in enumerate(P.get("blobs", [])[:NS]):
+                d = fp - np.array([b["x"]*N, b["y"]*N], np.float32)
+                d -= N*np.floor(d/N + 0.5)
+                self.C[..., s] = np.where(np.hypot(d[..., 0], d[..., 1]) < rad,
+                                          amp*b["frac"], 0)
+        else:
+            # one ball in the middle, every species evenly mixed inside it
+            rad = P["ball"] * N * 0.5
+            amp = P["fill"] * N * N / max(np.pi * rad * rad, 1) / use
+            d = fp - N * 0.5
+            inside = np.hypot(d[..., 0], d[..., 1]) < rad
+            for s in range(use):
+                self.C[..., s] = np.where(inside, amp, 0)
+        # each species faces its own way -- the seed shader's own hash
+        a = np.stack([(glsl_rnd(xx, yy, 16 + s, P["seed"]) + 0.5) * 2 * np.pi
+                      for s in range(NS)], -1).astype(np.float32)
+        self.D = (np.stack([np.cos(a), np.sin(a)], -1) * 0.25).astype(np.float32)
+        yy, xx = np.mgrid[0:N, 0:N]
+        self.px = (xx + 0.5).astype(np.float32)
+        self.py = (yy + 0.5).astype(np.float32)
+        self.mass0 = self.C.sum()
+
+    # ------------------------------------------------------------------ step
+    def step(self):
+        P, N = self.P, self.N
+        cnorm = 1.0 / max(1e-6, P["fill"])
+        mnorm = (1 - P["decay"]) / max(1e-6, P["moff"] * P["fill"])
+        # SWEEP runs the gain across the world instead of holding it fixed, the
+        # way Fluoddity sweeps a parameter over its canvas. One frame then shows
+        # a whole gradient of behaviour under one set of rules. Never searched
+        # before now, and it is the axis Fluoddity leans on hardest.
+        gain = np.float32(P["gain"] * 2.0 / np.sqrt(self.nin))
+        if P.get("sweep", 0.0) > 0:
+            # _brain works flattened, (species, cell, centre), so the per-cell
+            # factor has to arrive shaped to broadcast on the cell axis.
+            gx = (self.px / N - 0.5) * 2.0
+            gain = gain * np.exp(np.float32(P["sweep"]) * gx).reshape(1, N * N, 1)
+        lod = max(0.0, np.log2(max(P["size"], 1.0)) + P["feather"] * 1.6)
+        Mb = blur(self.M, 0.42 * (2.0 ** lod))
+        Mf = Mb.reshape(N * N, K)
+        Fb = blur(self.F, 0.42 * (2.0 ** lod)).reshape(N * N, 2)
+        fnorm = np.float32((1 - P["decay"]) * P.get("flow", 1.0))
+        ctr = (Mb * mnorm - 1.0)[:, :, None, :]              # (N,N,1,K), shared
+
+        sp_ = np.hypot(self.D[..., 0], self.D[..., 1])       # speed is STATE now
+        fw = np.where(sp_[..., None] > 1e-6, self.D / np.maximum(sp_, 1e-12)[..., None],
+                      np.array([1.0, 0.0], np.float32))
+        th = np.arctan2(fw[..., 1], fw[..., 0])              # (N,N,NS)
+        hs = np.float32(np.radians(P["spread"]) * 0.5)
+        rgt = self._tap(Mf, th + hs) * mnorm - 1.0           # (N,N,NS,K)
+        lft = self._tap(Mf, th - hs) * mnorm - 1.0
+        one = np.ones((N, N, NS, 1), np.float32)
+        Z = np.zeros((N, N, NS, K), np.float32)
+        ctrb = np.broadcast_to(ctr, (N, N, NS, K))
+        # the flow at each lobe, turned into the reading species' own frame
+        fwd = fw
+        lat = np.stack([-fw[..., 1], fw[..., 0]], -1)
+        fr = self._tap(Fb, th + hs, 2) * fnorm
+        fl = self._tap(Fb, th - hs, 2) * fnorm
+        F = np.stack([(fr * fwd).sum(-1), (fr * lat).sum(-1),
+                      (fl * fwd).sum(-1), (fl * lat).sum(-1)], -1)
+        Fm = np.stack([F[..., 2], -F[..., 3], F[..., 0], -F[..., 1]], -1)
+
+        if P["shape"] == 0:
+            x = np.concatenate([rgt - lft, Z, Z, F, one], -1)
+            xm = np.concatenate([lft - rgt, Z, Z, Fm, one], -1)
+        elif P["shape"] == 2:
+            x = np.concatenate([rgt, lft, -ctrb, F, one], -1)
+            xm = np.concatenate([lft, rgt, -ctrb, Fm, one], -1)
+        else:
+            x = np.concatenate([rgt, lft, Z, F, one], -1)
+            xm = np.concatenate([lft, rgt, Z, Fm, one], -1)
+
+        o = self._brain(x, gain)
+        if P["mirror"]:
+            om = self._brain(xm, gain)
+            o = np.concatenate([(o[..., :1] - om[..., :1]) * 0.5,
+                                (o[..., 1:] + om[..., 1:]) * 0.5], -1)
+
+        tot = self.C.sum(-1)
+        here = np.minimum(1.0, self.C * cnorm)[..., None]
+        # velocity += force, under drag; strafe pushes this step and is dropped
+        force = (fwd * o[..., 0:1] * P["force"] + lat * o[..., 1:2] * P["swerve"]) * here
+        self.D = cap(self.D * np.float32(1 - P["drag"]) + force)
+        strafe = cap((fwd * o[..., 2:3] + lat * o[..., 3:4]) * np.float32(P["strafe"]) * here)
+        E = np.exp(np.clip(P["beta"] * o[..., 4]
+                           - P["crowd"] * tot[..., None] * cnorm, -40, 40))
+        dep = (self.C[..., None] * np.tanh(o[..., 5:])).sum(2) * np.float32(P["moff"] * cnorm)
+
+        # ---- transport: exp(beta*affinity + speed*heading.offset), per species
+        sp = np.float32(P["speed"])
+        bias = self.D + strafe                    # position += velocity + strafe
+        Bx, By = bias[..., 0], bias[..., 1]
+        z = np.zeros_like(E)
+        g = [np.exp(np.clip(sp * (Bx * o0 + By * o1), -40, 40)) * np.float32(il)
+             for (o0, o1), il in zip(UOFF, ILEN)]
+        for k, off in enumerate(OFF):
+            z += roll_at(E, off) * g[k]
+        S = self.C / np.maximum(z, 1e-30)
+        got = np.zeros_like(E)
+        acc = np.zeros_like(self.D)
+        for k, off in enumerate(OFF):
+            w = roll_at(S / g[k], off) * np.float32(ILEN[k] * ILEN[k])
+            got += w
+            acc += w[..., None] * roll_at(self.D, off)
+        # carried, NOT renormalised: the length is the species' speed
+        self.D = np.where(got[..., None] > 1e-20,
+                          acc / np.maximum(got, 1e-30)[..., None], self.D)
+        self.C = E * got
+
+        # ---- the ground, matter and flow alike
+        c = self.M + dep
+        s9 = sum(np.float32(w) * roll_at(c, off) for w, off in zip(BW, OFF)) / np.float32(16.0)
+        self.M = np.clip(P["decay"] * (c * (1 - P["diff"]) + s9 * P["diff"]),
+                         0, 6e4).astype(np.float32)
+        cf = self.F + (self.C[..., None] * self.D).sum(2) * np.float32(cnorm)
+        f9 = sum(np.float32(w) * roll_at(cf, off) for w, off in zip(BW, OFF)) / np.float32(16.0)
+        self.F = np.clip(P["decay"] * (cf * (1 - P["diff"]) + f9 * P["diff"]),
+                         -6e4, 6e4).astype(np.float32)
+
+    def _tap(self, Mf, ang, C=K):
+        """Bilinear read of the blurred matter DIST cells along each angle."""
+        N, P = self.N, self.P
+        x = self.px[..., None] + np.cos(ang) * P["dist"]
+        y = self.py[..., None] + np.sin(ang) * P["dist"]
+        x0 = np.floor(x); y0 = np.floor(y)
+        fx = (x - x0)[..., None]; fy = (y - y0)[..., None]
+        x0 = x0.astype(np.int32) % N; y0 = y0.astype(np.int32) % N
+        x1 = (x0 + 1) % N; y1 = (y0 + 1) % N
+        a = Mf[y0 * N + x0]; b = Mf[y0 * N + x1]
+        c = Mf[y1 * N + x0]; e = Mf[y1 * N + x1]   # (N,N,NS,C)
+        return (a + (b - a) * fx) + ((c + (e - c) * fx) - (a + (b - a) * fx)) * fy
+
+    def _brain(self, x, gain):
+        """(N,N,NS,NIN) -> (N,N,NS,NOUT). Batched gemm, species on the batch axis."""
+        N = self.N
+        xt = np.ascontiguousarray(x.transpose(2, 0, 1, 3).reshape(NS, N * N, self.nin))
+        ph = np.matmul(xt, self.frqT) * gain                  # (NS, M, NC)
+        s1 = np.sin(ph); c1 = np.cos(ph)
+        s2 = 2 * s1 * c1; c2 = 1 - 2 * s1 * s1                # first harmonic, for free
+        bc, bs = self.bcos[:, None, :, :], self.bsin[:, None, :, :]
+        B = (s1 * bc[..., 0] + c1 * bs[..., 0],
+             c1 * bc[..., 1] - s1 * bs[..., 1],
+             s2 * bc[..., 2] + c2 * bs[..., 2],
+             c2 * bc[..., 3] - s2 * bs[..., 3])
+        o = np.empty((NS, N * N, NOUT), np.float32)
+        for r in range(4):
+            idx = self.oidx[r]
+            o[..., idx] = np.matmul(B[r], self.amp[:, :, idx])
+        return o.reshape(NS, N, N, NOUT).transpose(1, 2, 0, 3)
