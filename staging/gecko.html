@@ -32,8 +32,12 @@
     <button id="play" class="on">Pause</button>
     <button id="step1">Step</button>
     <button id="reset">Reset</button>
-    <label>speed <input id="rate" type="range" min="1" max="8" step="1" value="2"></label>
-    <label>density <input id="dens" type="range" min="10" max="140" step="1" value="58"></label>
+    <label>speed <input id="rate" type="range" min="0" max="100" step="1" value="52"></label>
+    <label>surface <input id="iso" type="range" min="1" max="160" step="1" value="34"></label>
+    <label>edge <input id="edge" type="range" min="1" max="100" step="1" value="26"></label>
+    <label>opacity <input id="dens" type="range" min="20" max="600" step="5" value="260"></label>
+    <label>gloss <input id="spec" type="range" min="0" max="100" step="1" value="34"></label>
+    <label>shade <input id="shadow" type="range" min="0" max="100" step="1" value="45"></label>
     <label>cut <input id="cut" type="range" min="0" max="100" step="1" value="100"></label>
     <span id="status">…</span>
   </div>
@@ -251,7 +255,8 @@ void main(){
 const FS_MARCH = HEAD + `
 uniform sampler2D uCol; uniform int uN;
 uniform vec3 uEye, uRight, uUp, uFwd;
-uniform vec2 uRes; uniform float uSigma, uCut;
+uniform vec2 uRes;
+uniform float uIso, uEdge, uSigma, uCut, uSpec, uShadow;
 out vec4 o;
 
 vec4 vol(vec3 p){                       // p in 0..1
@@ -263,6 +268,21 @@ vec4 vol(vec3 p){                       // p in 0..1
     s += texelFetch(uCol, at(i0 + ivec3(i,j,k), 0, uN), 0)*w;
   }
   return s;
+}
+
+/* How much animal is here, on a scale that has an EDGE on it.
+
+   Plain emission and absorption has no edges by construction: opacity rises
+   smoothly with density, so a body whose density falls off over three or four
+   cells is drawn as a fog that fades out over three or four cells. Putting a
+   step in the middle of that -- zero below the threshold, one above, with a
+   controlled softness across it -- is what gives the thing a surface, and it is
+   the same trick as the flat page's floor. The edge control is how wide the step is: at
+   zero it is a hard isosurface and it aliases, a little wider and it is a clean
+   boundary a couple of cells thick. */
+float inside(vec3 p){
+  float d = vol(p).a;
+  return smoothstep(uIso - uEdge, uIso + uEdge, d);
 }
 
 void main(){
@@ -279,26 +299,67 @@ void main(){
   if(tf <= max(tn, 0.0)){ o = vec4(pow(bg, vec3(1.0/2.2)), 1.0); return; }
   tn = max(tn, 0.0);
 
-  float dt = 1.0/float(uN)*0.85;
-  vec3 key = normalize(vec3(0.45, 0.78, 0.44));
+  // Two step sizes. Most of a ray is empty and only needs to be told so, which
+  // costs one probe; the part that is inside the animal wants half a cell so a
+  // boundary two cells wide gets four samples across it. Stepping the whole ray
+  // at the fine size spends nearly all of its time proving that nothing is
+  // there.
+  float dtNear = 0.5/float(uN), dtFar = 1.6/float(uN);
+  vec3 key  = normalize(vec3(0.42, 0.80, 0.43));
+  vec3 fill = normalize(vec3(-0.55, 0.15, -0.60));
+  float h = 1.15/float(uN);
+
+  // Start each ray a random fraction of a step in. Marching every ray from the
+  // same place lays the sampling grid over the picture and it shows up as
+  // banding wherever a surface is nearly parallel to it.
+  uint hs = uint(gl_FragCoord.x)*73856093u ^ uint(gl_FragCoord.y)*19349663u;
+  hs ^= hs >> 13; hs *= 0x85ebca6bu; hs ^= hs >> 16;
+  float jit = float(hs & 0xffffu)/65536.0;
+
   vec3 acc = vec3(0.0); float trans = 1.0;
-  float h = 1.0/float(uN);
-  for(int i=0;i<420;i++){
-    float t = tn + (float(i) + 0.5)*dt;
-    if(t > tf || trans < 0.01) break;
+  float t = tn + dtNear*jit;
+  for(int i=0;i<640;i++){
+    if(t > tf || trans < 0.004) break;
     vec3 p = ro + rd*t + 0.5;
-    if(p.x > uCut) continue;                       // the cross section
+    if(p.x > uCut){ t += dtFar; continue; }        // the cross section
     vec4 v = vol(p);
-    if(v.a < 1e-4) continue;
-    float a = 1.0 - exp(-v.a*uSigma*dt);
+    float s = smoothstep(uIso - uEdge, uIso + uEdge, v.a);
+    if(s < 0.002){ t += dtFar; continue; }
+    float a = 1.0 - exp(-s*uSigma*dtNear);
     vec3 alb = v.rgb/max(v.a, 1e-4);
+
+    // The normal comes off the raw density, not the stepped field. Taking it
+    // off the step looks like the right idea -- shading that turns exactly
+    // where the surface does -- and it ribs the whole body: the interpolated
+    // field is piecewise linear inside a cell, and a steep smoothstep of it has
+    // a crease at every cell face. The crispness is the opacity function's job.
+    // The normal only has to point the right way, and density points it
+    // smoothly.
     vec3 n = vec3(vol(p+vec3(h,0,0)).a - vol(p-vec3(h,0,0)).a,
                   vol(p+vec3(0,h,0)).a - vol(p-vec3(0,h,0)).a,
                   vol(p+vec3(0,0,h)).a - vol(p-vec3(0,0,h)).a);
     float nl = length(n);
-    float lam = nl > 1e-6 ? clamp(dot(-n/nl, key), 0.0, 1.0) : 0.5;
-    acc += trans*a*alb*(0.34 + 1.05*lam);
+    vec3 nrm = nl > 1e-5 ? -n/nl : -rd;
+
+    float lam  = clamp(dot(nrm, key), 0.0, 1.0);
+    float back = clamp(dot(nrm, fill), 0.0, 1.0);
+    float rim  = pow(clamp(1.0 - dot(nrm, -rd), 0.0, 1.0), 3.0);
+    float sp   = pow(clamp(dot(normalize(key - rd), nrm), 0.0, 1.0), 26.0);
+
+    // a few long taps toward the light, so limbs sit against the body instead
+    // of floating in front of it
+    float sh = 1.0;
+    if(uShadow > 0.0 && trans > 0.35){          // only where it will be seen
+      for(int k=1;k<=4;k++)
+        sh -= uShadow*0.25*inside(p + key*(float(k)*0.065));
+      sh = clamp(sh, 0.0, 1.0);
+    }
+
+    vec3 lit = alb*(0.20 + 1.15*lam*sh + 0.26*back) + vec3(0.9,0.95,1.0)*sp*uSpec
+             + alb*rim*0.30;
+    acc += trans*a*lit;
     trans *= 1.0 - a;
+    t += dtNear;
   }
   o = vec4(pow(clamp(acc + trans*bg, 0.0, 1.0), vec3(1.0/2.2)), 1.0);
 }`;
@@ -385,6 +446,16 @@ function uniformI(prog, name, v){ if(prog.u[name] != null) gl.uniform1i(prog.u[n
 /* ---------------------------------------------------------------- the world */
 let F = null, T = null, PR = null, kernTex = [], steps = 0, playing = true;
 let yaw = 0.85, pitch = 0.22, dist = 1.75;
+let owed = 0, last = 0;                  // steps owed, and when we last looked
+
+/* Steps per SECOND, on a log scale, because the interesting range is wide and
+   nearly all of it is at the slow end. The slider used to be steps per frame,
+   which meant the slowest it would go was one step every frame -- sixty a
+   second, and no way down from there. Now the bottom of the range is a step
+   every seven seconds, which is slow enough to watch a limb arrive. */
+function stepsPerSecond(){
+  return 0.15*Math.pow(400.0, (+document.getElementById('rate').value)/100);
+}
 
 async function boot(){
   F = await (await fetch('gecko-fit.json', {cache:'no-store'})).json();
@@ -525,7 +596,7 @@ window.stats = function(which){
 };
 const el = id => document.getElementById(id);
 el('play').onclick = () => {
-  playing = !playing;
+  playing = !playing; owed = 0;
   el('play').textContent = playing ? 'Pause' : 'Play';
   el('play').classList.toggle('on', playing);
 };
@@ -552,10 +623,17 @@ function frame(){
   const w = Math.floor(cv.clientWidth*dpr), h = Math.floor(cv.clientHeight*dpr);
   if(cv.width !== w || cv.height !== h){ cv.width = w; cv.height = h; }
 
+  const now = performance.now();
+  const dtms = last ? Math.min(now - last, 250) : 0;
+  last = now;
   if(playing){
-    const n = +el('rate').value;
-    for(let i=0;i<n;i++) step();
-    paint();
+    owed += dtms*0.001*stepsPerSecond();
+    // a cap, so a stall or a hidden tab does not come back and run a thousand
+    let n = Math.min(Math.floor(owed), 16);
+    owed -= n;
+    if(n > 0){ for(let i=0;i<n;i++) step(); paint(); }
+  } else {
+    owed = 0;
   }
 
   const cy = Math.cos(yaw), sy = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
@@ -569,9 +647,14 @@ function frame(){
   run(PR.march, [['uCol', T.col]],
       [['uN', F.N], ['uEye', eye], ['uFwd', fwd], ['uRight', right], ['uUp', up],
        ['uRes', [cv.width, cv.height]],
-       ['uSigma', +el('dens').value], ['uCut', +el('cut').value/100*1.001]]);
+       ['uIso', +el('iso').value/100], ['uEdge', +el('edge').value/200],
+       ['uSigma', +el('dens').value], ['uSpec', +el('spec').value/100],
+       ['uShadow', +el('shadow').value/100],
+       ['uCut', +el('cut').value/100*1.001]]);
 
-  el('status').textContent = 'step ' + steps;
+  const sps = stepsPerSecond();
+  el('status').textContent = 'step ' + steps + '  ·  ' +
+    (sps >= 1 ? sps.toFixed(1) + ' steps/s' : 'a step every ' + (1/sps).toFixed(1) + ' s');
   requestAnimationFrame(frame);
 }
 
