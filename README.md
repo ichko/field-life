@@ -79,6 +79,8 @@ seed has to arrive already holding what the picture costs.
 | `staging/volume.html` | the same rule on a cube instead of a sheet: a WebGL2 volumetric test, self-contained |
 | `staging/fluid.html` | a different rule on the same idea: four fluids with a density, a velocity and a pressure per cell, pushing on each other by a matrix, carried by the MaCE move; and a trained rule that grows a gecko from a disc |
 | `staging/fluid-sweep.html`, `staging/fluid-sweep/` | a shelf of fluid worlds found by sweeping, each a gif and a link back into the page |
+| `staging/fluoddity.html` | [Fluoddity](https://github.com/aphid91/Fluoddity) re-implemented from its shaders in one WebGL2 page: the particles, the velocity trail, the Fourier brain and its mirror, with all 131 of its presets |
+| `staging/fluoddity-ca.html` | the same model with the particles taken out: every cell holds a mass and a velocity, runs the brain on the trail and pushes its mass bilinearly to where it lands |
 | `train/fluid_gecko.py` | the fluid page's step in JAX, and the training that fits its rule to the gecko |
 
 ## Running it
