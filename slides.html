@@ -1,0 +1,762 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Field Life Talk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* A 1280x720 stage scaled to the window. Text left, a live canvas right. */
+:root{
+  --bg:#F2F5F6; --fg:#111A1E; --mut:#5E6D72; --line:#D3DCDF;
+  --accent:#6246C8; --screen:#05090C; --pos:#DD5A40; --neg:#4A5AC8;
+  --display:"Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#070C0F; --fg:#E1EBEF; --mut:#87999F; --line:#1D2930;
+    --accent:#A78BFA; --screen:#020406; --pos:#FF7F66; --neg:#8894FF; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#070C0F; --fg:#E1EBEF; --mut:#87999F; --line:#1D2930;
+  --accent:#A78BFA; --screen:#020406; --pos:#FF7F66; --neg:#8894FF; color-scheme:dark;
+}
+html,body{height:100%}
+body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body);
+  overflow:hidden; -webkit-font-smoothing:antialiased}
+#deck{position:fixed; inset:0; display:grid; place-items:center}
+#stage{width:1280px; height:720px; position:relative; transform-origin:center center; flex:none}
+.slide{position:absolute; inset:0; padding:56px 64px; display:none;
+  grid-template-columns:400px 1fr; gap:48px; align-items:start}
+.slide.on{display:grid}
+.slide.wide{grid-template-columns:1fr}
+.txt{display:flex; flex-direction:column; gap:18px; min-width:0}
+.eyebrow{font:500 12px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--mut)}
+h1,h2{font-family:var(--display); font-weight:600; margin:0; text-wrap:balance; letter-spacing:-.01em}
+h1{font-size:84px; line-height:1}
+h2{font-size:44px; line-height:1.05}
+p{margin:0; font-size:21px; line-height:1.4; color:var(--fg); max-width:30ch}
+p.small{font-size:14px; color:var(--mut); max-width:none}
+.mono{font-family:var(--mono)}
+.eq{font:400 18px/1.6 var(--mono); color:var(--fg)}
+.eq i{font-style:italic}
+.screen{background:var(--screen); display:block; image-rendering:auto}
+.view{display:flex; flex-direction:column; gap:12px; align-items:flex-start; min-width:0}
+.row{display:flex; gap:20px; align-items:flex-start; flex-wrap:wrap}
+.ctl{display:flex; gap:10px; align-items:center; flex-wrap:wrap; font:400 13px/1 var(--mono); color:var(--mut)}
+button,select{font:500 13px/1 var(--mono); color:var(--fg); background:transparent;
+  border:1px solid var(--line); padding:7px 11px; cursor:pointer; border-radius:2px}
+button:hover,select:hover{border-color:var(--mut)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+select{background:var(--bg)}
+input[type=range]{accent-color:var(--accent); width:140px}
+.val{min-width:3.5em; color:var(--fg); font-variant-numeric:tabular-nums}
+.readout{font:400 14px/1.4 var(--mono); color:var(--mut); font-variant-numeric:tabular-nums}
+.readout b{font-weight:500; color:var(--fg)}
+.cap{font:400 13px/1.3 var(--mono); color:var(--mut)}
+a{color:var(--accent)}
+.refs{list-style:none; margin:0; padding:0; display:grid; gap:14px; font-size:18px; line-height:1.4; max-width:60ch}
+.refs span{color:var(--mut)}
+#nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px));
+  display:flex; gap:8px; align-items:center; font:400 12px/1 var(--mono); color:var(--mut); z-index:2}
+#nav button{padding:5px 9px}
+#count{min-width:4.5em; text-align:center; font-variant-numeric:tabular-nums}
+@media (prefers-reduced-motion: reduce){ *{transition:none!important} }
+</style>
+
+<div id="deck"><div id="stage">
+
+<!-- 1 -->
+<section class="slide" data-sim="title">
+  <div class="txt" style="padding-top:150px">
+    <h1>Field Life</h1>
+    <p>Particle life as a grid of concentrations.</p>
+    <p class="small">Iliya Zhechev · <a href="https://www.izhv.eu/field-life" target="_blank" rel="noopener">izhv.eu/field-life</a></p>
+  </div>
+  <div class="view"><canvas id="c-title" class="screen" width="160" height="160" style="width:608px;height:608px"></canvas></div>
+</section>
+
+<!-- 2 -->
+<section class="slide" data-sim="pl">
+  <div class="txt">
+    <div class="eyebrow">1 · Particle life</div>
+    <h2>Particle life</h2>
+    <p>Dots of a few colours. Each pair attracts or repels, depending only on the two colours.</p>
+    <p class="small">Ventrella, <i>Clusters</i> · Mohr, particle-life.com</p>
+  </div>
+  <div class="view">
+    <canvas id="c-pl" class="screen" style="width:560px;height:560px"></canvas>
+    <div class="ctl"><button id="pl-new">new matrix</button><button id="pl-reset">scatter</button></div>
+  </div>
+</section>
+
+<!-- 3 -->
+<section class="slide" data-sim="mat">
+  <div class="txt">
+    <div class="eyebrow">1 · Particle life</div>
+    <h2>The matrix</h2>
+    <p><span class="mono">M[a][b]</span>: how much <i>a</i> is drawn to <i>b</i>.</p>
+    <p>It need not be symmetric.</p>
+    <canvas id="m-mat" style="width:300px;height:300px"></canvas>
+    <p class="small">click a cell: +1 → +½ → 0 → −½ → −1</p>
+  </div>
+  <div class="view">
+    <canvas id="c-mat" class="screen" style="width:560px;height:560px"></canvas>
+    <div class="ctl"><button id="mat-new">random</button><button id="mat-chase">chase</button><button id="mat-sym">symmetrise</button></div>
+  </div>
+</section>
+
+<!-- 4 -->
+<section class="slide" data-sim="law">
+  <div class="txt">
+    <div class="eyebrow">1 · Particle life</div>
+    <h2>Force against distance</h2>
+    <p>Closer than <i>β</i>, everything repels. Past <i>r</i><sub>max</sub>, nothing interacts.</p>
+    <p>In between, <span class="mono">M[a][b]</span> sets the sign and height.</p>
+  </div>
+  <div class="view">
+    <canvas id="c-law" style="width:640px;height:400px"></canvas>
+    <div class="ctl">M[a][b] <input id="law-a" type="range" min="-1" max="1" step="0.05" value="0.6"><span class="val" id="law-av">0.60</span>
+      β <input id="law-b" type="range" min="0.05" max="0.8" step="0.01" value="0.3"><span class="val" id="law-bv">0.30</span></div>
+  </div>
+</section>
+
+<!-- 5 -->
+<section class="slide" data-sim="cons">
+  <div class="txt">
+    <div class="eyebrow">2 · Mass conservation</div>
+    <h2>Most CA updates don't keep the total</h2>
+    <p>Each cell writes a new value. Nothing ties the sum of the new values to the old one.</p>
+    <p class="small">Both grids follow the same field <i>A</i> (three moving targets).</p>
+  </div>
+  <div class="view">
+    <div class="row">
+      <div class="view"><canvas id="c-cons-a" class="screen" width="96" height="96" style="width:340px;height:340px"></canvas>
+        <div class="cap">ρ ← clip(ρ + dt·g(A), 0, 1)</div>
+        <div class="readout">Σρ / Σρ₀ = <b id="cons-a">1.0000</b></div></div>
+      <div class="view"><canvas id="c-cons-b" class="screen" width="96" height="96" style="width:340px;height:340px"></canvas>
+        <div class="cap">MaCE</div>
+        <div class="readout">Σρ / Σρ₀ = <b id="cons-b">1.0000</b></div></div>
+    </div>
+    <div class="ctl"><button id="cons-reset">reset</button></div>
+  </div>
+</section>
+
+<!-- 6 -->
+<section class="slide" data-sim="mace">
+  <div class="txt">
+    <div class="eyebrow">2 · Mass conservation</div>
+    <h2>MaCE</h2>
+    <p>Every cell splits its mass among its 3×3 neighbours, weighted by <span class="mono">e<sup>βA</sup></span> at each.</p>
+    <div class="eq">share<sub>j</sub> = e<sup>βA<sub>j</sub></sup> / Σ<sub>k∈3×3</sub> e<sup>βA<sub>k</sub></sup></div>
+    <p>Shares sum to 1, so what leaves a cell arrives somewhere.</p>
+    <p class="small">Papadopoulos &amp; Guichard (2025), <a href="https://arxiv.org/abs/2507.12306" target="_blank" rel="noopener">arXiv:2507.12306</a></p>
+  </div>
+  <div class="view">
+    <canvas id="c-mace" style="width:560px;height:560px"></canvas>
+    <div class="ctl">β <input id="mace-b" type="range" min="0" max="4" step="0.05" value="1"><span class="val" id="mace-bv">1.00</span>
+      <button id="mace-new">new A</button><span>click a cell</span></div>
+  </div>
+</section>
+
+<!-- 7 -->
+<section class="slide" data-sim="any">
+  <div class="txt">
+    <div class="eyebrow">2 · Mass conservation</div>
+    <h2>Any A, same total</h2>
+    <p>MaCE only moves mass. Where <i>A</i> comes from is up to you.</p>
+    <p>Low <i>β</i> spreads. High <i>β</i> climbs <i>A</i>.</p>
+  </div>
+  <div class="view">
+    <canvas id="c-any" class="screen" width="128" height="128" style="width:520px;height:520px"></canvas>
+    <div class="ctl">A = <select id="any-src">
+        <option value="targets">moving targets</option>
+        <option value="clump">+blur(ρ)</option>
+        <option value="spread">−blur(ρ)</option>
+        <option value="noise">noise</option>
+      </select>
+      β <input id="any-b" type="range" min="0" max="4" step="0.05" value="1.5"><span class="val" id="any-bv">1.50</span>
+      <button id="any-reset">reset</button></div>
+    <div class="readout">Σρ / Σρ₀ = <b id="any-sum">1.000000</b></div>
+  </div>
+</section>
+
+<!-- 8 -->
+<section class="slide" data-sim="bins">
+  <div class="txt">
+    <div class="eyebrow">3 · Particles as channels</div>
+    <h2>One colour, one channel</h2>
+    <p>Count each colour's dots per cell. Keep the counts, drop the dots.</p>
+    <p>Five colours → five scalar fields on the same grid.</p>
+  </div>
+  <div class="view">
+    <canvas id="c-bins" class="screen" style="width:560px;height:560px"></canvas>
+    <div class="ctl">dots <input id="bins-t" type="range" min="0" max="1" step="0.01" value="0" style="width:220px"> fields
+      <button id="bins-play">animate</button></div>
+  </div>
+</section>
+
+<!-- 9 -->
+<section class="slide" data-sim="conv">
+  <div class="txt">
+    <div class="eyebrow">3 · Particles as channels</div>
+    <h2>Pairs become convolutions</h2>
+    <p>A sum over neighbouring dots becomes a kernel over neighbouring cells.</p>
+    <p>Dots get a force. Cells get a score <i>A</i>, and MaCE moves mass up it.</p>
+  </div>
+  <div class="view" style="gap:22px">
+    <div class="cap">particles</div>
+    <div class="eq">a<sub>i</sub> = F Σ<sub>j</sub> M[c<sub>i</sub>][c<sub>j</sub>] f(|x<sub>j</sub> − x<sub>i</sub>|) · û<sub>ij</sub></div>
+    <div class="cap">fields</div>
+    <div class="eq">A<sub>c</sub> = F Σ<sub>d</sub> M[c][d] (K ∗ ρ<sub>d</sub>) − λ Σ<sub>d</sub> (G ∗ ρ<sub>d</sub>)<br>ρ<sub>c</sub> ← MaCE(ρ<sub>c</sub>, βA<sub>c</sub>)</div>
+    <div class="row">
+      <div class="view"><canvas id="c-k1" style="width:330px;height:180px"></canvas><div class="cap">f(r), particle force</div></div>
+      <div class="view"><canvas id="c-k2" style="width:330px;height:180px"></canvas><div class="cap">K(r) = G<sub>wide</sub> − G<sub>narrow</sub></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 -->
+<section class="slide" data-sim="field">
+  <div class="txt">
+    <div class="eyebrow">3 · Particles as channels</div>
+    <h2>Field Life</h2>
+    <p>Five channels on a 160×160 torus, one MaCE step per frame.</p>
+    <canvas id="m-field" style="width:260px;height:260px"></canvas>
+    <div class="readout" id="field-sum"></div>
+  </div>
+  <div class="view">
+    <canvas id="c-field" class="screen" width="160" height="160" style="width:560px;height:560px"></canvas>
+    <div class="ctl"><button id="field-new">new matrix</button><button id="field-seed">reseed</button>
+      β <input id="field-b" type="range" min="0.5" max="8" step="0.1" value="3"><span class="val" id="field-bv">3.0</span></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide wide" data-sim="pair">
+  <div class="txt" style="gap:10px">
+    <div class="eyebrow">3 · Particles as channels</div>
+    <h2>Same matrix, both rules</h2>
+  </div>
+  <div class="view" style="margin-top:-24px">
+    <div class="row">
+      <div class="view"><canvas id="c-pair-a" class="screen" style="width:440px;height:440px"></canvas><div class="cap">particles</div></div>
+      <div class="view"><canvas id="c-pair-b" class="screen" width="160" height="160" style="width:440px;height:440px"></canvas><div class="cap">fields</div></div>
+      <div class="view" style="gap:16px"><canvas id="m-pair" style="width:180px;height:180px"></canvas>
+        <button id="pair-new">new matrix</button></div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 -->
+<section class="slide wide" data-sim="refs">
+  <div class="txt" style="gap:28px">
+    <h2>Built on</h2>
+    <ul class="refs">
+      <li>MaCE <span>· Papadopoulos &amp; Guichard (2025) · <a href="https://arxiv.org/abs/2507.12306" target="_blank" rel="noopener">arXiv:2507.12306</a></span></li>
+      <li>Particle Life <span>· Mohr, <a href="https://particle-life.com" target="_blank" rel="noopener">particle-life.com</a>, after Ventrella, <i>Clusters</i></span></li>
+      <li>Lenia <span>· Chan (2019) · <a href="https://arxiv.org/abs/1812.05433" target="_blank" rel="noopener">arXiv:1812.05433</a></span></li>
+      <li>Flow-Lenia <span>· Plantec et al. (2023) · <a href="https://arxiv.org/abs/2212.07906" target="_blank" rel="noopener">arXiv:2212.07906</a></span></li>
+      <li>Non-reciprocal Cahn–Hilliard <span>· Saha, Agudo-Canalejo &amp; Golestanian (2020) · <a href="https://arxiv.org/abs/2005.07101" target="_blank" rel="noopener">arXiv:2005.07101</a></span></li>
+    </ul>
+    <p class="small">Thanks to Alex Rowe (cip-life), Mundy Reimer and Sean Hardy.</p>
+    <p><a href="https://www.izhv.eu/field-life" target="_blank" rel="noopener">izhv.eu/field-life</a></p>
+  </div>
+</section>
+
+</div></div>
+
+<div id="nav"><button id="prev" aria-label="Previous slide">←</button><span id="count"></span><button id="next" aria-label="Next slide">→</button></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ shared */
+const PAL = [[255,107,90],[242,193,78],[92,201,138],[90,169,255],[190,135,255]];
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+const randMatrix = C => Array.from({length:C}, () => Array.from({length:C}, () => Math.random()*2 - 1));
+
+// Give a canvas a backing store matching its CSS size (in stage px) times dpr.
+function hidpi(cv){
+  const w = parseFloat(cv.style.width), h = parseFloat(cv.style.height);
+  const d = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(w*d); cv.height = Math.round(h*d);
+  const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
+  return {g, w, h};
+}
+// Mouse position in the canvas's CSS units, whatever the stage scale.
+function at(cv, e){
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left)/r.width*parseFloat(cv.style.width),
+          (e.clientY - r.top)/r.height*parseFloat(cv.style.height)];
+}
+
+/* ------------------------------------------------------- particle life
+   A port of particle_life.py: same force law, same constants. */
+class Particles{
+  constructor(C, N, M){ this.C = C; this.N = N; this.M = M;
+    this.R = 0.1; this.B = 0.3; this.F = 10; this.DT = 0.02; this.FH = 0.04; this.reset(); }
+  reset(){
+    const N = this.N;
+    this.x = new Float32Array(N); this.y = new Float32Array(N);
+    this.vx = new Float32Array(N); this.vy = new Float32Array(N);
+    this.c = new Uint8Array(N);
+    for(let i = 0; i < N; i++){ this.x[i] = Math.random(); this.y[i] = Math.random(); this.c[i] = i % this.C; }
+  }
+  step(){
+    const {N, x, y, vx, vy, c, M, R, B, F, DT} = this, R2 = R*R;
+    const fr = Math.pow(0.5, DT/this.FH);
+    for(let i = 0; i < N; i++){
+      let ax = 0, ay = 0; const xi = x[i], yi = y[i], row = M[c[i]];
+      for(let j = 0; j < N; j++){
+        let dx = x[j] - xi, dy = y[j] - yi;
+        dx -= Math.round(dx); dy -= Math.round(dy);
+        const d2 = dx*dx + dy*dy;
+        if(d2 >= R2 || d2 === 0) continue;
+        const d = Math.sqrt(d2), r = d/R;
+        const f = r < B ? r/B - 1 : row[c[j]]*(1 - Math.abs(2*r - 1 - B)/(1 - B));
+        ax += f*dx/d; ay += f*dy/d;
+      }
+      vx[i] = vx[i]*fr + ax*R*F*DT; vy[i] = vy[i]*fr + ay*R*F*DT;
+    }
+    for(let i = 0; i < N; i++){
+      x[i] = ((x[i] + vx[i]*DT) % 1 + 1) % 1; y[i] = ((y[i] + vy[i]*DT) % 1 + 1) % 1;
+    }
+  }
+  draw(g, w, h, alpha = 1, rad = 2.2){
+    g.globalAlpha = alpha;
+    for(let k = 0; k < this.C; k++){
+      g.fillStyle = `rgb(${PAL[k]})`; g.beginPath();
+      for(let i = 0; i < this.N; i++) if(this.c[i] === k){
+        const px = this.x[i]*w, py = this.y[i]*h;
+        g.moveTo(px + rad, py); g.arc(px, py, rad, 0, 6.2832);
+      }
+      g.fill();
+    }
+    g.globalAlpha = 1;
+  }
+}
+
+/* ------------------------------------------------------------- MaCE
+   One channel of n*n cells starting at `off`. E and S are scratch. */
+function wrapTable(n, r){ const t = new Int32Array(n + 2*r); for(let i = 0; i < t.length; i++) t[i] = ((i - r) % n + n) % n; return t; }
+const W1 = {};
+function mace(rho, A, off, n, beta, E, S, out){
+  const W = W1[n] || (W1[n] = wrapTable(n, 1)), nn = n*n;
+  for(let i = 0; i < nn; i++){ const a = beta*A[off + i]; E[i] = Math.exp(a > 20 ? 20 : a < -20 ? -20 : a); }
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+    let Z = 0;
+    for(let dy = 0; dy < 3; dy++){ const r = W[y + dy]*n; Z += E[r + W[x]] + E[r + W[x + 1]] + E[r + W[x + 2]]; }
+    S[y*n + x] = rho[off + y*n + x]/(Z > 1e-30 ? Z : 1e-30);
+  }
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+    let s = 0;
+    for(let dy = 0; dy < 3; dy++){ const r = W[y + dy]*n; s += S[r + W[x]] + S[r + W[x + 1]] + S[r + W[x + 2]]; }
+    out[off + y*n + x] = E[y*n + x]*s;
+  }
+}
+
+/* Separable Gaussian blur on the torus, normalised to sum 1. */
+function gauss(sig){ const r = Math.ceil(3*sig), w = new Float32Array(2*r + 1); let s = 0;
+  for(let k = -r; k <= r; k++){ w[k + r] = Math.exp(-0.5*k*k/(sig*sig)); s += w[k + r]; }
+  for(let k = 0; k < w.length; k++) w[k] /= s; return {r, w}; }
+function blur(src, soff, dst, doff, tmp, n, K){
+  const {r, w} = K, W = wrapTable(n, r), L = w.length;
+  for(let y = 0; y < n; y++){ const row = soff + y*n;
+    for(let x = 0; x < n; x++){ let s = 0; for(let k = 0; k < L; k++) s += w[k]*src[row + W[x + k]]; tmp[y*n + x] = s; } }
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+    let s = 0; for(let k = 0; k < L; k++) s += w[k]*tmp[W[y + k]*n + x]; dst[doff + y*n + x] = s; }
+}
+
+/* ------------------------------------------------------------ field life
+   The live page's default rule on the CPU: ring = wide blur - narrow blur,
+   A_c = F sum_d M[c][d] ring_d - repel * sum_d narrow_d, then MaCE per channel. */
+class Field{
+  constructor(n, C, M, R = 13){
+    this.n = n; this.C = C; this.M = M; this.force = 90; this.repel = 6; this.beta = 3; this.density = 0.12;
+    const nn = n*n;
+    this.rho = new Float32Array(C*nn); this.nxt = new Float32Array(C*nn);
+    this.far = new Float32Array(C*nn); this.near = new Float32Array(C*nn);
+    this.A = new Float32Array(C*nn); this.tmp = new Float32Array(nn);
+    this.E = new Float32Array(nn); this.S = new Float32Array(nn);
+    this.Kf = gauss(R*0.55); this.Kn = gauss(R*0.22);
+    this.img = null; this.seed();
+  }
+  seed(){
+    const {n, C} = this, nn = n*n;
+    const noise = f => { const g = Array.from({length:f*f}, Math.random);
+      return (u, v) => { const X = u*f, Y = v*f, i = Math.floor(X), j = Math.floor(Y);
+        let tx = X - i, ty = Y - j; tx = tx*tx*(3 - 2*tx); ty = ty*ty*(3 - 2*ty);
+        const G = (a, b) => g[((b % f + f) % f)*f + ((a % f + f) % f)];
+        return (G(i,j)*(1-tx) + G(i+1,j)*tx)*(1-ty) + (G(i,j+1)*(1-tx) + G(i+1,j+1)*tx)*ty; }; };
+    for(let c = 0; c < C; c++){
+      const a = noise(6), b = noise(14); let s = 0;
+      for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+        const u = (x + .5)/n, v = (y + .5)/n, d = Math.hypot(u - .5, v - .5);
+        let m = Math.min(1, Math.max(0, (0.25 - d)/0.02)); m = m*m*(3 - 2*m);
+        const val = m*(0.6 + 0.8*(0.6*a(u, v) + 0.4*b(u, v)));
+        this.rho[c*nn + y*n + x] = val; s += val;
+      }
+      const k = this.density*nn/s;
+      for(let i = 0; i < nn; i++) this.rho[c*nn + i] *= k;
+    }
+    this.sum0 = this.sums();
+  }
+  sums(){ const nn = this.n*this.n; return Array.from({length:this.C}, (_, c) => {
+    let s = 0; for(let i = 0; i < nn; i++) s += this.rho[c*nn + i]; return s; }); }
+  step(){
+    const {n, C, M, rho, far, near, A, tmp} = this, nn = n*n;
+    for(let d = 0; d < C; d++){
+      blur(rho, d*nn, far, d*nn, tmp, n, this.Kf);
+      blur(rho, d*nn, near, d*nn, tmp, n, this.Kn);
+    }
+    for(let i = 0; i < nn; i++){
+      let crowd = 0; for(let d = 0; d < C; d++) crowd += near[d*nn + i];
+      for(let c = 0; c < C; c++){
+        let a = 0; for(let d = 0; d < C; d++) a += M[c][d]*(far[d*nn + i] - near[d*nn + i]);
+        A[c*nn + i] = this.force*a - this.repel*crowd;
+      }
+    }
+    for(let c = 0; c < C; c++) mace(rho, A, c*nn, n, this.beta, this.E, this.S, this.nxt);
+    const t = this.rho; this.rho = this.nxt; this.nxt = t;
+  }
+  draw(cv){
+    const g = cv.getContext("2d"), {n, C, rho} = this, nn = n*n;
+    if(!this.img || this.img.width !== n) this.img = g.createImageData(n, n);
+    const d = this.img.data;
+    for(let i = 0; i < nn; i++){
+      let r = 0, gg = 0, b = 0;
+      for(let c = 0; c < C; c++){ const v = rho[c*nn + i]; r += v*PAL[c][0]; gg += v*PAL[c][1]; b += v*PAL[c][2]; }
+      d[4*i] = 255*(1 - Math.exp(-r/255*0.9)); d[4*i+1] = 255*(1 - Math.exp(-gg/255*0.9));
+      d[4*i+2] = 255*(1 - Math.exp(-b/255*0.9)); d[4*i+3] = 255;
+    }
+    g.putImageData(this.img, 0, 0);
+  }
+}
+
+/* One-channel grid drawn in grey with a tone curve. */
+function drawGrey(cv, rho, n, scale){
+  const g = cv.getContext("2d"); cv._img = cv._img || g.createImageData(n, n);
+  const d = cv._img.data;
+  for(let i = 0; i < n*n; i++){ const v = 255*(1 - Math.exp(-rho[i]*scale));
+    d[4*i] = v*0.92; d[4*i+1] = v*0.95; d[4*i+2] = v; d[4*i+3] = 255; }
+  g.putImageData(cv._img, 0, 0);
+}
+
+/* Matrix editor: click cycles a cell through +1, +1/2, 0, -1/2, -1. */
+function matrixWidget(cv, getM, onChange){
+  const {g, w} = hidpi(cv);
+  const draw = () => {
+    const M = getM(), C = M.length, s = w/(C + 1);
+    g.clearRect(0, 0, w, w);
+    const pos = css("--pos"), neg = css("--neg"), line = css("--line"), fg = css("--fg");
+    for(let k = 0; k < C; k++){
+      g.fillStyle = `rgb(${PAL[k]})`;
+      g.beginPath(); g.arc(s*(k + 1.5), s*0.5, s*0.18, 0, 6.3); g.fill();
+      g.beginPath(); g.arc(s*0.5, s*(k + 1.5), s*0.18, 0, 6.3); g.fill();
+    }
+    for(let a = 0; a < C; a++) for(let b = 0; b < C; b++){
+      const v = M[a][b], x = s*(b + 1), y = s*(a + 1);
+      g.globalAlpha = Math.min(1, Math.abs(v)); g.fillStyle = v > 0 ? pos : neg;
+      g.fillRect(x + 1, y + 1, s - 2, s - 2); g.globalAlpha = 1;
+      g.strokeStyle = line; g.strokeRect(x + .5, y + .5, s - 1, s - 1);
+      g.fillStyle = Math.abs(v) > 0.55 ? "#fff" : fg;
+      g.font = `400 ${Math.round(s*0.26)}px "IBM Plex Mono", monospace`;
+      g.textAlign = "center"; g.textBaseline = "middle";
+      g.fillText(v.toFixed(1).replace("-0.0", "0.0"), x + s/2, y + s/2);
+    }
+  };
+  cv.addEventListener("click", e => {
+    const M = getM(), C = M.length, s = w/(C + 1), [px, py] = at(cv, e);
+    const b = Math.floor(px/s) - 1, a = Math.floor(py/s) - 1;
+    if(a < 0 || b < 0 || a >= C || b >= C) return;
+    const steps = [1, 0.5, 0, -0.5, -1];
+    let i = steps.findIndex(v => Math.abs(v - M[a][b]) < 0.13);
+    M[a][b] = steps[(i + 1) % steps.length];
+    draw(); onChange && onChange();
+  });
+  return draw;
+}
+
+/* ------------------------------------------------------------------ slides */
+const SIMS = {};
+
+// 1 · title: a field world
+SIMS.title = (() => {
+  const cv = $("c-title"); let f = null;
+  return { enter(){ if(!f){ f = new Field(160, 5, randMatrix(5)); } },
+           frame(){ f.step(); f.draw(cv); } };
+})();
+
+// 2 · particle life
+SIMS.pl = (() => {
+  const cv = $("c-pl"); let P = null, gw;
+  $("pl-new").onclick = () => { P.M = randMatrix(5); P.reset(); };
+  $("pl-reset").onclick = () => P.reset();
+  return { enter(){ if(!P){ gw = hidpi(cv); P = new Particles(5, 800, randMatrix(5)); } },
+           frame(){ P.step(); gw.g.fillStyle = css("--screen"); gw.g.fillRect(0, 0, gw.w, gw.h); P.draw(gw.g, gw.w, gw.h); } };
+})();
+
+// 3 · the matrix
+SIMS.mat = (() => {
+  const cv = $("c-mat"); let P = null, gw, drawM;
+  const C = 5, M = randMatrix(C);
+  drawM = matrixWidget($("m-mat"), () => M);
+  $("mat-new").onclick = () => { const R = randMatrix(C); for(let a = 0; a < C; a++) M[a] = R[a]; P.M = M; drawM(); P.reset(); };
+  $("mat-chase").onclick = () => {   // each colour likes itself, chases the next, flees the one before
+    for(let a = 0; a < C; a++) for(let b = 0; b < C; b++)
+      M[a][b] = a === b ? 0.5 : b === (a + 1) % C ? 1 : b === (a + C - 1) % C ? -0.5 : 0;
+    drawM(); P.reset(); };
+  $("mat-sym").onclick = () => {
+    for(let a = 0; a < C; a++) for(let b = a + 1; b < C; b++){ const v = (M[a][b] + M[b][a])/2; M[a][b] = M[b][a] = v; }
+    drawM(); };
+  return { enter(){ if(!P){ gw = hidpi(cv); P = new Particles(C, 800, M); } drawM(); },
+           frame(){ P.step(); gw.g.fillStyle = css("--screen"); gw.g.fillRect(0, 0, gw.w, gw.h); P.draw(gw.g, gw.w, gw.h); } };
+})();
+
+// 4 · force law plot
+function plotLaw(g, w, h, a, B, opts = {}){
+  const L = 40, Rr = w - 16, T = 16, Bt = h - 34;
+  const X = r => L + r/1.15*(Rr - L), Y = v => T + (1 - (v + 1)/2)*(Bt - T);
+  const fg = css("--fg"), mut = css("--mut"), line = css("--line"), acc = css("--accent");
+  g.clearRect(0, 0, w, h);
+  g.strokeStyle = line; g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, Y(0)); g.lineTo(Rr, Y(0)); g.moveTo(L, T); g.lineTo(L, Bt); g.stroke();
+  g.setLineDash([3, 4]); g.beginPath(); g.moveTo(X(B), T); g.lineTo(X(B), Bt); g.moveTo(X(1), T); g.lineTo(X(1), Bt); g.stroke(); g.setLineDash([]);
+  g.fillStyle = mut; g.font = `400 ${opts.fs || 13}px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "top";
+  g.fillText("β", X(B), Bt + 8); g.fillText("rₘₐₓ", X(1), Bt + 8); g.fillText("0", X(0), Bt + 8);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  g.fillText("+1", L - 6, Y(1)); g.fillText("0", L - 6, Y(0)); g.fillText("−1", L - 6, Y(-1));
+  if(!opts.bare){ g.textAlign = "left"; g.fillText("attract", L + 6, Y(1) + 2); g.fillText("repel", L + 6, Y(-1) - 2); }
+  g.strokeStyle = acc; g.lineWidth = 2.5; g.beginPath();
+  for(let i = 0; i <= 300; i++){
+    const r = i/300*1.15, f = r >= 1 ? 0 : r < B ? r/B - 1 : a*(1 - Math.abs(2*r - 1 - B)/(1 - B));
+    const px = Math.min(X(r), Rr); i ? g.lineTo(px, Y(f)) : g.moveTo(px, Y(f));
+  }
+  g.stroke();
+}
+SIMS.law = (() => {
+  const cv = $("c-law"); let gw;
+  const draw = () => { const a = +$("law-a").value, B = +$("law-b").value;
+    $("law-av").textContent = a.toFixed(2); $("law-bv").textContent = B.toFixed(2);
+    plotLaw(gw.g, gw.w, gw.h, a, B); };
+  $("law-a").oninput = draw; $("law-b").oninput = draw;
+  return { enter(){ gw = gw || hidpi(cv); draw(); } };
+})();
+
+// Three Gaussian targets on Lissajous paths. Peak height `amp`.
+function targets(A, n, t, amp){
+  const cs = [[0.5 + 0.3*Math.sin(t*0.011), 0.5 + 0.3*Math.sin(t*0.017 + 1)],
+              [0.5 + 0.32*Math.sin(t*0.013 + 2), 0.5 + 0.28*Math.cos(t*0.009)],
+              [0.5 + 0.25*Math.cos(t*0.015 + 4), 0.5 + 0.3*Math.sin(t*0.012 + 3)]];
+  const sg = 0.07*n;
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+    let v = 0;
+    for(const [cx, cy] of cs){
+      let dx = x - cx*n, dy = y - cy*n; dx -= n*Math.round(dx/n); dy -= n*Math.round(dy/n);
+      v += Math.exp(-(dx*dx + dy*dy)/(2*sg*sg));
+    }
+    A[y*n + x] = amp*Math.min(1, v);
+  }
+}
+const total = a => { let s = 0; for(let i = 0; i < a.length; i++) s += a[i]; return s; };
+function noisyFlat(n, base){ const a = new Float64Array(n*n); for(let i = 0; i < a.length; i++) a[i] = base*(0.8 + 0.4*Math.random()); return a; }
+
+// 5 · a local update that does not conserve vs MaCE
+SIMS.cons = (() => {
+  const n = 96; let a, b, b2, A, E, S, t, s0a, s0b;
+  const reset = () => { a = noisyFlat(n, 0.3); b = Float64Array.from(a); b2 = new Float64Array(n*n);
+    A = new Float64Array(n*n); E = new Float64Array(n*n); S = new Float64Array(n*n); t = 0;
+    s0a = total(a); s0b = total(b); };
+  $("cons-reset").onclick = reset; reset();
+  return { frame(){
+    t++; targets(A, n, t, 6);
+    for(let i = 0; i < n*n; i++) a[i] = Math.min(1, Math.max(0, a[i] + 0.02*(A[i]/6*2 - 1)));
+    mace(b, A, 0, n, 1, E, S, b2); [b, b2] = [b2, b];
+    drawGrey($("c-cons-a"), a, n, 2.5); drawGrey($("c-cons-b"), b, n, 2.5);
+    $("cons-a").textContent = (total(a)/s0a).toFixed(4); $("cons-b").textContent = (total(b)/s0b).toFixed(4);
+  } };
+})();
+
+// 6 · one cell's split, close up
+SIMS.mace = (() => {
+  const cv = $("c-mace"), G = 7; let gw, A, sel = [3, 3];
+  const newA = () => { A = Array.from({length:G*G}, () => Math.round((Math.random()*4 - 1.5)*2)/2); };
+  newA();
+  const draw = () => {
+    const {g, w} = gw, s = w/G, beta = +$("mace-b").value;
+    $("mace-bv").textContent = beta.toFixed(2);
+    const fg = css("--fg"), mut = css("--mut"), line = css("--line"), acc = css("--accent");
+    g.clearRect(0, 0, w, w);
+    let lo = Math.min(...A), hi = Math.max(...A);
+    for(let y = 0; y < G; y++) for(let x = 0; x < G; x++){
+      const v = (A[y*G + x] - lo)/(hi - lo || 1);
+      g.fillStyle = fg; g.globalAlpha = 0.04 + 0.22*v; g.fillRect(x*s, y*s, s, s); g.globalAlpha = 1;
+      g.strokeStyle = line; g.strokeRect(x*s + .5, y*s + .5, s - 1, s - 1);
+      g.fillStyle = mut; g.font = `400 13px "IBM Plex Mono", monospace`; g.textAlign = "left"; g.textBaseline = "top";
+      g.fillText("A=" + A[y*G + x].toFixed(1), x*s + 6, y*s + 6);
+    }
+    const [sx, sy] = sel; let Z = 0; const e = [];
+    for(let dy = -1; dy <= 1; dy++) for(let dx = -1; dx <= 1; dx++){
+      const v = Math.exp(beta*A[(sy + dy)*G + sx + dx]); e.push([dx, dy, v]); Z += v; }
+    g.strokeStyle = acc; g.lineWidth = 2; g.strokeRect(sx*s - s + 1, sy*s - s + 1, 3*s - 2, 3*s - 2);
+    const cx = (sx + .5)*s, cy = (sy + .5)*s;
+    for(const [dx, dy, v] of e){
+      const p = v/Z, tx = (sx + dx + .5)*s, ty = (sy + dy + .5)*s;
+      g.fillStyle = acc; g.globalAlpha = 0.85;
+      g.beginPath(); g.arc(tx, ty - 2, Math.sqrt(p)*s*0.3, 0, 6.3); g.fill(); g.globalAlpha = 1;
+      if(dx || dy){ g.strokeStyle = acc; g.lineWidth = Math.max(0.5, p*14); g.globalAlpha = 0.5;
+        g.beginPath(); g.moveTo(cx + dx*s*0.18, cy + dy*s*0.18); g.lineTo(tx - dx*s*0.3, ty - dy*s*0.3); g.stroke(); g.globalAlpha = 1; }
+      g.fillStyle = fg; g.font = `500 15px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "bottom";
+      g.fillText((p*100).toFixed(p < 0.1 ? 1 : 0) + "%", tx, (sy + dy + 1)*s - 3);
+    }
+  };
+  $("mace-b").oninput = () => draw();
+  $("mace-new").onclick = () => { newA(); draw(); };
+  cv.addEventListener("click", e => { const [px, py] = at(cv, e), s = gw.w/G;
+    sel = [Math.min(G - 2, Math.max(1, Math.floor(px/s))), Math.min(G - 2, Math.max(1, Math.floor(py/s)))]; draw(); });
+  return { enter(){ gw = gw || hidpi(cv); draw(); } };
+})();
+
+// 7 · MaCE with A from anywhere
+SIMS.any = (() => {
+  const n = 128, nn = n*n; let r, r2, A, E, S, tmp, t, s0;
+  const K = gauss(3);
+  const reset = () => { r = noisyFlat(n, 0.4); r2 = new Float64Array(nn); A = new Float64Array(nn);
+    E = new Float64Array(nn); S = new Float64Array(nn); tmp = new Float64Array(nn); t = 0; s0 = total(r); };
+  $("any-reset").onclick = reset; $("any-src").onchange = reset; reset();
+  $("any-b").oninput = () => $("any-bv").textContent = (+$("any-b").value).toFixed(2);
+  return { frame(){
+    t++; const src = $("any-src").value, beta = +$("any-b").value;
+    if(src === "targets") targets(A, n, t, 6);
+    else if(src === "noise") for(let i = 0; i < nn; i++) A[i] = 3*Math.random();
+    else { blur(r, 0, A, 0, tmp, n, K); const k = src === "clump" ? 8 : -8; for(let i = 0; i < nn; i++) A[i] *= k; }
+    mace(r, A, 0, n, beta, E, S, r2); [r, r2] = [r2, r];
+    drawGrey($("c-any"), r, n, 1.6);
+    $("any-sum").textContent = (total(r)/s0).toFixed(6);
+  } };
+})();
+
+// 8 · dots to fields
+SIMS.bins = (() => {
+  const cv = $("c-bins"), C = 5, G = 64; let P, gw, play = false;
+  const off = document.createElement("canvas"); off.width = off.height = G;
+  const og = off.getContext("2d"), img = og.createImageData(G, G);
+  const cnt = new Float32Array(C*G*G), sm = new Float32Array(C*G*G), tmp = new Float32Array(G*G), K = gauss(0.8);
+  $("bins-play").onclick = () => { play = !play; $("bins-play").textContent = play ? "stop" : "animate"; };
+  return {
+    enter(){ if(!P){ gw = hidpi(cv); P = new Particles(C, 800, randMatrix(C)); } },
+    leave(){ play = false; $("bins-play").textContent = "animate"; },
+    frame(now){
+      P.step();
+      if(play){ const v = 0.5 - 0.5*Math.cos(now/1600); $("bins-t").value = v; }
+      const tt = +$("bins-t").value, {g, w, h} = gw;
+      g.fillStyle = css("--screen"); g.fillRect(0, 0, w, h);
+      if(tt > 0){
+        cnt.fill(0);
+        for(let i = 0; i < P.N; i++){
+          const x = Math.floor(P.x[i]*G) % G, y = Math.floor(P.y[i]*G) % G; cnt[P.c[i]*G*G + y*G + x] += 1; }
+        for(let c = 0; c < C; c++) blur(cnt, c*G*G, sm, c*G*G, tmp, G, K);
+        const d = img.data;
+        for(let i = 0; i < G*G; i++){
+          let r = 0, gg = 0, b = 0;
+          for(let c = 0; c < C; c++){ const v = sm[c*G*G + i]; r += v*PAL[c][0]; gg += v*PAL[c][1]; b += v*PAL[c][2]; }
+          d[4*i] = 255*(1 - Math.exp(-r/255*0.9)); d[4*i+1] = 255*(1 - Math.exp(-gg/255*0.9));
+          d[4*i+2] = 255*(1 - Math.exp(-b/255*0.9)); d[4*i+3] = 255;
+        }
+        og.putImageData(img, 0, 0);
+        g.globalAlpha = Math.min(1, tt*1.4); g.imageSmoothingEnabled = tt > 0.85;
+        g.drawImage(off, 0, 0, w, h); g.globalAlpha = 1; g.imageSmoothingEnabled = true;
+        const ga = Math.sin(Math.PI*Math.min(1, tt*1.2))*0.35;
+        if(ga > 0.01){ g.strokeStyle = `rgba(255,255,255,${ga})`; g.lineWidth = 0.5; g.beginPath();
+          for(let k = 0; k <= G; k++){ const p = k/G*w; g.moveTo(p, 0); g.lineTo(p, h); g.moveTo(0, p); g.lineTo(w, p); } g.stroke(); }
+      }
+      if(tt < 1) P.draw(g, w, h, 1 - tt);
+    } };
+})();
+
+// 9 · the two kernels
+SIMS.conv = (() => {
+  let k1, k2;
+  const ring = () => {
+    const {g, w, h} = k2, L = 40, Rr = w - 16, T = 16, Bt = h - 34, R = 11, sf = R*0.55, sn = R*0.22;
+    const fn = r => Math.exp(-r*r/(2*sf*sf))/(sf*sf) - Math.exp(-r*r/(2*sn*sn))/(sn*sn);
+    let lo = 0, hi = 0; for(let i = 0; i <= 200; i++){ const v = fn(i/200*2.2*R); lo = Math.min(lo, v); hi = Math.max(hi, v); }
+    const m = Math.max(-lo, hi), X = r => L + r/(2.2*R)*(Rr - L), Y = v => T + (1 - (v/m + 1)/2)*(Bt - T);
+    g.clearRect(0, 0, w, h); g.strokeStyle = css("--line"); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(L, Y(0)); g.lineTo(Rr, Y(0)); g.moveTo(L, T); g.lineTo(L, Bt); g.stroke();
+    g.fillStyle = css("--mut"); g.font = `400 12px "IBM Plex Mono", monospace`; g.textAlign = "center"; g.textBaseline = "top";
+    g.fillText("0", X(0), Bt + 8); g.fillText("r (cells)", (L + Rr)/2, Bt + 8); g.fillText(String(2*R), X(2*R), Bt + 8);
+    g.strokeStyle = css("--accent"); g.lineWidth = 2.5; g.beginPath();
+    for(let i = 0; i <= 200; i++){ const r = i/200*2.2*R; i ? g.lineTo(X(r), Y(fn(r))) : g.moveTo(X(r), Y(fn(r))); }
+    g.stroke();
+  };
+  return { enter(){ k1 = k1 || hidpi($("c-k1")); k2 = k2 || hidpi($("c-k2"));
+    plotLaw(k1.g, k1.w, k1.h, 0.6, 0.3, {bare:true, fs:12}); ring(); } };
+})();
+
+// 10 · field life, live
+SIMS.field = (() => {
+  const cv = $("c-field"), C = 5; let F = null; const M = randMatrix(C);
+  const drawM = matrixWidget($("m-field"), () => M);
+  $("field-new").onclick = () => { const R = randMatrix(C); for(let a = 0; a < C; a++) M[a] = R[a]; drawM(); F.seed(); };
+  $("field-seed").onclick = () => F.seed();
+  $("field-b").oninput = () => { F.beta = +$("field-b").value; $("field-bv").textContent = F.beta.toFixed(1); };
+  return { enter(){ if(!F) F = new Field(160, C, M); drawM(); },
+    frame(){ F.step(); F.draw(cv);
+      const s = F.sums();
+      $("field-sum").innerHTML = "Σρ<sub>c</sub> / Σρ<sub>c,0</sub><br>" +
+        s.map((v, c) => `<span style="color:rgb(${PAL[c]})">●</span> <b>${(v/F.sum0[c]).toFixed(5)}</b>`).join("<br>"); } };
+})();
+
+// 11 · same matrix, both rules
+SIMS.pair = (() => {
+  const C = 5, M = randMatrix(C); let P = null, F = null, gw;
+  const drawM = matrixWidget($("m-pair"), () => M, () => {});
+  $("pair-new").onclick = () => { const R = randMatrix(C); for(let a = 0; a < C; a++) M[a] = R[a]; drawM(); P.reset(); F.seed(); };
+  return { enter(){ if(!P){ gw = hidpi($("c-pair-a")); P = new Particles(C, 800, M); F = new Field(160, C, M); } drawM(); },
+    frame(){ P.step(); F.step();
+      gw.g.fillStyle = css("--screen"); gw.g.fillRect(0, 0, gw.w, gw.h); P.draw(gw.g, gw.w, gw.h);
+      F.draw($("c-pair-b")); } };
+})();
+
+/* --------------------------------------------------------------- deck */
+const slides = [...document.querySelectorAll(".slide")];
+let cur = -1;
+function go(i){
+  i = Math.max(0, Math.min(slides.length - 1, i));
+  if(i === cur) return;
+  if(cur >= 0){ slides[cur].classList.remove("on"); const s = SIMS[slides[cur].dataset.sim]; s && s.leave && s.leave(); }
+  cur = i; slides[cur].classList.add("on");
+  const s = SIMS[slides[cur].dataset.sim]; s && s.enter && s.enter();
+  $("count").textContent = `${cur + 1} / ${slides.length}`;
+  try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
+}
+function fit(){
+  const k = Math.min(innerWidth/1280, (innerHeight - 36)/720);
+  $("stage").style.transform = `scale(${k})`;
+}
+addEventListener("resize", fit); fit();
+addEventListener("keydown", e => {
+  if(e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+  if(["ArrowRight", "PageDown", " "].includes(e.key)){ e.preventDefault(); go(cur + 1); }
+  if(["ArrowLeft", "PageUp"].includes(e.key)){ e.preventDefault(); go(cur - 1); }
+  if(e.key === "Home") go(0); if(e.key === "End") go(slides.length - 1);
+});
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+let tx0 = null;
+addEventListener("touchstart", e => { tx0 = e.touches[0].clientX; }, {passive:true});
+addEventListener("touchend", e => { if(tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0;
+  if(Math.abs(dx) > 60) go(cur + (dx < 0 ? 1 : -1)); tx0 = null; });
+
+function loop(now){
+  const s = SIMS[slides[cur].dataset.sim];
+  if(s && s.frame && !document.hidden) s.frame(now);
+  requestAnimationFrame(loop);
+}
+go((parseInt(location.hash.slice(1), 10) || 1) - 1);
+addEventListener("hashchange", () => go((parseInt(location.hash.slice(1), 10) || 1) - 1));
+requestAnimationFrame(loop);
+</script>
