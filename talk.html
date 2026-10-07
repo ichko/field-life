@@ -321,10 +321,10 @@ body.dimmed .dim{opacity:1}
     <div data-at="3">run it, compare with the picture, backpropagate through every step</div>
     <div data-at="4">it learns the matrix, force, repel, β, the seed and every kernel</div>
     <div data-at="5">each kernel: 20 bells, each at its own distance, with angular lobes</div>
-    <div data-at="6">trained to hold for about 1000 steps; well past that it comes apart</div>
+    <div data-at="6">fitted on roughly the first 1000 steps; past that, nothing keeps it in shape</div>
   </div>
   <div class="flform" id="liz-form">
-    <div data-at="3">\( \displaystyle \text{loss} = \sum_{t \,\in\, \{128,\dots,1024\}} \big\| \rho(t) - \text{picture} \big\|^2 \)</div>
+    <div data-at="3">\( \displaystyle \text{loss} = \big\| \rho(t) - \text{picture} \big\|^2 \)</div>
     <div data-at="5">\( \displaystyle K(r,\theta) = \sum_{i=1}^{20} a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \cos(m_i\theta + \varphi_i) \)</div>
   </div>
 </section>
@@ -1320,7 +1320,7 @@ SIMS.liz = (() => {
     loading = Promise.all([ready, fetch("lizard-512.json").then(r => r.json()).catch(() => null)]).then(([, j]) => {
       if(!j || !FL) return; cfg = j.cfg;
       win.Math.random = mulberry32(SEED*31337);
-      FL.applyConfig(cfg); FL.reseed(); FL.S.running = false; FL.S.zoom = 1; FL.S.panU = FL.S.panV = 0.5;
+      FL.applyConfig(cfg); FL.reseed(); FL.S.running = false; FL.S.zoom = 1.6; FL.S.panU = FL.S.panV = 0.5;
       // every kernel as a picture: blue where it pulls, red where it pushes, each to its own peak
       kimgs = FL.kernels.map(kn => {
         const KR = Math.ceil(kn.R), n = 2*KR + 1, K = win.bakeKernel(kn, KR, kn.R), c = document.createElement("canvas"); c.width = c.height = n;
