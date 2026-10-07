@@ -163,7 +163,11 @@ body.dimmed .dim{opacity:1}
 /* a section title, alone in the middle */
 .sect.on{display:grid; place-items:center}
 .sect h2{margin:0; font-family:var(--display); font-weight:600; font-size:84px; letter-spacing:-.02em; color:#fff}
+.slide[data-sim="hg"]{z-index:4}   /* above the engine's frame, so the slider and the link can be reached */
 .hgtune{position:absolute; left:16px; bottom:40px; z-index:5}
+.hglink{position:absolute; left:50%; bottom:36px; transform:translateX(-50%); padding:8px 16px; border-radius:4px; background:rgba(0,0,0,.7);
+  font:500 22px/1 var(--mono); color:#fff; text-decoration:none; border:1px solid rgba(255,255,255,.25)}
+.hglink:hover{border-color:rgba(255,255,255,.6)}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -354,6 +358,7 @@ body.dimmed .dim{opacity:1}
   <div class="fltune on hgtune" id="hg-tune">
     <label>gravity <input id="hg-grav" type="range" min="0" max="12" step="0.1"><span id="hg-gv"></span></label>
   </div>
+  <a class="hglink" href="https://github.com/ichko/field-life" target="_blank" rel="noopener">github.com/ichko/field-life</a>
 </section>
 
 <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
