@@ -153,6 +153,10 @@ body.dimmed .dim{opacity:1}
 .lizemoji{position:absolute; left:310px; top:60px; width:500px; height:500px; object-fit:contain; opacity:0; transition:opacity .6s ease}
 .pl[data-sim="liz"].s1 .lizemoji{opacity:1}
 .pl[data-sim="liz"].s2 .lizemoji{opacity:0}
+/* 3D: the volume page in the frame, live to the mouse so it can be turned */
+.pl[data-sim="vol"] .plview{opacity:1; height:620px}
+.pl[data-sim="vol"] .plcap > div{opacity:1; transform:none}
+#vol-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; background:#000; box-shadow:0 0 0 2px rgba(255,255,255,.38)}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -307,6 +311,14 @@ body.dimmed .dim{opacity:1}
   <div class="plview"></div>
   <div class="plcap"></div>
   <div class="flform"></div>
+</section>
+
+<section class="slide pl" data-sim="vol">
+  <h2>Field Life in 3D</h2>
+  <div class="plview">
+    <iframe id="vol-eng" title="Field Life in a volume" tabindex="-1"></iframe>
+  </div>
+  <div class="plcap"><div class="cur">the same rule in a volume, cut open: drag to turn it</div></div>
 </section>
 
 <section class="slide pl" data-steps="7" data-sim="liz">
@@ -1371,6 +1383,46 @@ SIMS.liz = (() => {
       });
     },
     frame(){ draw(); }
+  };
+})();
+
+/* ------------------------------------------------------------ 3D
+   staging/volume.html in the frame: one of its own worlds on a finer grid,
+   drawn as a slab through the middle with more opacity and more march steps.
+   Its kernels already reach zero smoothly at their rim (a gaussian with the
+   rim value taken off), so nothing has a hard edge. Drag turns it; keys and
+   clicks still go to the deck. */
+SIMS.vol = (() => {
+  const fe = $("vol-eng"); let w = null, VS = null, loading = null;
+  function load(){
+    if(loading) return loading;
+    loading = new Promise(res => {
+      fe.addEventListener("load", () => {
+        let dd; try{ dd = fe.contentDocument; }catch(e){ dd = null; }
+        if(!dd) return res();
+        const st = dd.createElement("style"); st.textContent = ENGINE_CSS; dd.head.appendChild(st);
+        w = fe.contentWindow;
+        // keys belong to the deck: pass them up before the page's own handlers see them
+        w.addEventListener("keydown", e => { e.stopImmediatePropagation(); e.preventDefault(); dispatchEvent(new KeyboardEvent("keydown", { key: e.key })); }, true);
+        w.addEventListener("pointerup", () => setTimeout(() => window.focus(), 0));
+        let tries = 0;
+        const poll = () => { try{ VS = w.eval("S"); }catch(e){ VS = null; }
+          if(VS && w.applyPreset){
+            w.Math.random = mulberry32(SEED*4099);
+            VS.N = 192; w.applyPreset(2);                       // "swarm": the one of its worlds that never settles
+            Object.assign(VS, { quality: "manual", scale: 1, stepq: 3, cutAx: 2, cutA: 0.36, cutB: 0.64, dist: 1.9, running: false });
+            VS.sigma = Math.round(VS.sigma*1.8);                // more opaque
+            w.resetAccum(); res();
+          } else if(++tries > 200) res(); else setTimeout(poll, 50); };
+        poll();
+      });
+      fe.src = "staging/volume.html";
+    });
+    return loading;
+  }
+  return {
+    enter(){ load().then(() => { if(VS && slides[cur].dataset.sim === "vol"){ VS.running = true; } }); },
+    leave(){ if(VS) VS.running = false; }
   };
 })();
 $("pl-rmin").value = 0.3/1.3; $("pl-rmax").value = 1/1.3;
