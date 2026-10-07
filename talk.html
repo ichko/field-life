@@ -51,7 +51,7 @@ body.field .scrim{display:block}
 
 <div id="deck"><div id="stage">
 
-<section class="slide title" data-field="fine brisk colony" data-seed="noise">
+<section class="slide title" data-field="fine brisk filling">
   <div class="words">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
@@ -94,7 +94,7 @@ const engine = (() => {
   fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html")
     .then(src => f.src = src);
   return {
-    async show(cfg, fps = 30, seed){
+    async show(cfg, fps = 120, seed){
       want = cfg; f.style.display = "block"; document.body.classList.add("field");
       await ready;
       if(failed || !FL){ f.style.display = "none"; $("note").style.display = "block"; return; }
@@ -128,7 +128,7 @@ async function go(i){
   if(name === shown) return;             // same world on consecutive slides keeps running
   shown = name;
   const it = (await presets).find(s => s.name === name);
-  if(it && shown === name) engine.show(it.cfg, 30, slides[cur].dataset.seed);
+  if(it && shown === name) engine.show(it.cfg, 120, slides[cur].dataset.seed);   // 120: the site's own FPS cap
 }
 function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
 addEventListener("resize", fit); fit();
