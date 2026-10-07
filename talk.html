@@ -467,10 +467,9 @@ SIMS.pl = (() => {
         rmin = B*R*(1 + 0.45*u); rmax = R*(1 + 0.22*v);
         $("pl-rmin").value = rmin/(R*1.3); $("pl-rmax").value = rmax/(R*1.3);
       }
-      if(k === 7){ // hold each matrix 1.6 s, glide to the next over 1.6 s; once round all three and back, then stay
-        const t = Math.min((now - matT0)/1600, 6), i = Math.min(2, Math.floor(t/2)), ph = t >= 6 ? 2 : t % 2,
-              u = ph < 1 ? 0 : (ph - 1)*(ph - 1)*(3 - 2*(ph - 1));
-        const A = MATS[i], Bm = MATS[(i + 1) % 3];
+      if(k === 7){ // half a second on the matrix, then a 1 s glide to the second and a 1 s glide to the third, which stays
+        const t = (now - matT0)/1000, sm = x => x*x*(3 - 2*x);
+        const [A, Bm, u] = t < 1.5 ? [MATS[0], MATS[1], sm(Math.max(0, t - 0.5))] : [MATS[1], MATS[2], sm(Math.min(1, t - 1.5))];
         Mv = A.map((r, a) => r.map((v, b) => v + (Bm[a][b] - v)*u));
         paintMat(Mv, -1);
       }
