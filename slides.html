@@ -163,8 +163,8 @@ a{color:var(--accent)}
   <div class="body">
     <div class="col"><canvas id="c-pr0" class="screen" style="width:460px;height:460px"></canvas><div class="cap">dots → a push</div></div>
     <div class="col"><canvas id="c-pr1" class="screen" width="64" height="64" style="width:460px;height:460px"></canvas><div class="cap">cells → a score <i>A</i>, per channel</div></div>
-    <div class="col" style="gap:20px; width:300px">
-      <div class="eq">A<sub>c</sub> = Σ<sub>d</sub> M[c][d] · (K ∗ ρ<sub>d</sub>)</div>
+    <div class="col" style="gap:20px; width:330px">
+      <div class="eq" style="font-size:19px; white-space:nowrap">A<sub>c</sub> = Σ<sub>d</sub> M[c][d] · (K ∗ ρ<sub>d</sub>)</div>
       <p style="font-size:19px">Then MaCE moves each channel's mass toward its higher <i>A</i>.</p>
       <p class="small">move the mouse over either picture</p>
     </div>
@@ -395,7 +395,7 @@ const engine = (() => {
                              width: r.width/k + "px", height: r.height/k + "px", display: "block" });
   }
   return {
-    async show(host, cfg, fps = 30){
+    async show(host, cfg, fps = 30, zoom = 1){
       want = cfg; place(host);
       await ready;
       if(failed || !FL){ f.style.display = "none";
@@ -404,7 +404,7 @@ const engine = (() => {
       setTimeout(() => {               // let the page settle on its new size before seeding
         if(want !== cfg) return;
         FL.applyConfig(cfg); FL.S.seedMode = cfg.seedMode || "disc"; FL.reseed();
-        FL.S.fps = fps; FL.S.zoom = 1; FL.S.holdUntil = 0; FL.S.running = true;
+        FL.S.fps = fps; FL.S.zoom = zoom; FL.S.panU = 0.5; FL.S.panV = 0.5; FL.S.holdUntil = 0; FL.S.running = true;
       }, 250);
     },
     hide(){ want = null; f.style.display = "none"; if(FL) FL.S.running = false; },
@@ -431,10 +431,10 @@ function picker(boxId, items, onPick){
     b.onclick = () => { for(const o of box.children) o.setAttribute("aria-pressed", String(o === b)); onPick(it); };
     b.setAttribute("aria-pressed", String(i === 0)); box.appendChild(b); });
 }
-function pickerShow(name, boxId, list){
-  if(!$(boxId).children.length) picker(boxId, list, it => engine.show(hostOf(name), it.cfg, 30));
+function pickerShow(name, boxId, list, zoom = 1){
+  if(!$(boxId).children.length) picker(boxId, list, it => engine.show(hostOf(name), it.cfg, 30, zoom));
   const on = [...$(boxId).children].findIndex(b => b.getAttribute("aria-pressed") === "true");
-  if(list.length) engine.show(hostOf(name), list[Math.max(0, on)].cfg, 30);
+  if(list.length) engine.show(hostOf(name), list[Math.max(0, on)].cfg, 30, zoom);
 }
 
 SIMS.title = { async enter(){ await presetsReady; const w = PRESETS.worlds.find(s => s.name === "fine brisk colony");
@@ -443,7 +443,7 @@ SIMS.title = { async enter(){ await presetsReady; const w = PRESETS.worlds.find(
 SIMS.six = (() => {
   const cv = $("c-six"); let P = null, gw;
   cv.onclick = () => P.reset();
-  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(6, 600, randMatrix(6, rng(33))); } },
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(6, 600, randMatrix(6, rng(33))); for(let i = 0; i < 200; i++) P.step(); } },
     step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
 })();
 
@@ -475,7 +475,7 @@ SIMS.pair = (() => {
 SIMS.chase = (() => {
   const cv = $("c-chase"); let P = null, gw;
   cv.onclick = () => P.reset();
-  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); } },
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); for(let i = 0; i < 150; i++) P.step(); } },
     step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
 })();
 
@@ -608,7 +608,8 @@ SIMS.both = (() => {
 const WORLDS = ["fine brisk colony", "medium steady colony", "medium slow colony", "large brisk colony", "large brisk filling"];
 SIMS.world = { async enter(){ await presetsReady;
   pickerShow("world", "world-pick", WORLDS.map(n => PRESETS.worlds.find(s => s.name === n)).filter(Boolean)); } };
-SIMS.creature = { async enter(){ await presetsReady; pickerShow("creature", "creature-pick", PRESETS.gliders); } };
+SIMS.creature = { async enter(){ await presetsReady; const order = ["large gliding flock", "broad gliding cruiser", "medium gliding cruiser", "broad drifting crawler", "small drifting crawler", "mite racing darter", "mite quick darter"];
+  pickerShow("creature", "creature-pick", order.map(n => PRESETS.gliders.find(s => s.name === n)).filter(Boolean), 1.6); } };
 
 function drawMatrices(){ for(const cv of document.querySelectorAll("canvas.mat")) drawMatrix(cv, CHASE, PAL2); }
 drawMatrices();
