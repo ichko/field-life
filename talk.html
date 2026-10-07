@@ -277,9 +277,10 @@ SIMS.pl = (() => {
   const cv = $("pl-cv"), W = 1120, H = 700, AR = W/H, XO = (AR - 1)/2, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
   const COL = ["rgb(255,70,70)", "rgb(70,230,110)", "rgb(80,150,255)"], GREY = "rgb(220,226,230)";
-  // M[a][b]: how a feels about b. Picked by a search over random 3x3 matrices for one whose
-  // particles move together in clumps once there are a few hundred of them.
-  const M = [[0.6, -0.7, 0.2], [-0.2, -0.3, 1], [0.8, 0.2, -0.5]];
+  // M[a][b]: how a feels about b. Picked by searching random 3x3 matrices in this exact physics,
+  // 610 particles, for many separate clumps that keep moving: no single giant, nothing frozen.
+  // With it the world settles into red rings and green-and-blue cells drifting about.
+  const M = [[0.8, -0.9, 0.2], [-0.8, 0.3, 0.6], [-0.7, 0.1, 0.6]];
   // the three the matrix step glides between
   const MATS = [M, [[-0.5, 0.3, 0.9], [0.8, -0.4, -0.6], [0.2, 0.9, -0.8]], [[0.9, -0.8, 0.2], [0.3, 0.7, -0.9], [-0.6, 0.4, 0.6]]];
   const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600;   // ADD: how many More particles brings in
