@@ -106,11 +106,12 @@ body.dimmed .dim{opacity:1}
 /* field life: the canvas for the close-ups, and the engine itself in the same frame for the runs */
 #fl-cv{height:620px !important}
 .pl[data-sim="fl"] .plview{height:620px}
+.pl[data-sim="fl"] #fl-cv{background:transparent; box-shadow:none}
 #fl-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; transition:opacity .6s ease; pointer-events:none; background:#000}
 #fl-eng.on{opacity:1}
 .flmat{grid-template-columns:repeat(4, 66px)}
 .pl.s7 #fl-mat{opacity:1}
-.pl.s10 #fl-mat{opacity:0}
+.pl.s11 #fl-mat{opacity:0}
 .flform{position:relative; width:1120px; height:0; transition:height .4s ease}
 .flform.on{height:78px}
 .flform > div{position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:24px; opacity:0; transition:opacity .4s ease}
@@ -216,7 +217,7 @@ body.dimmed .dim{opacity:1}
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
 
-<section class="slide pl" data-steps="13" data-sim="fl">
+<section class="slide pl" data-steps="14" data-sim="fl">
   <h2>Field Life</h2>
   <div class="plview">
     <canvas id="fl-cv"></canvas>
@@ -232,15 +233,17 @@ body.dimmed .dim{opacity:1}
     <div data-at="6">each channel has a kernel</div>
     <div data-at="7">and there is an interaction matrix</div>
     <div data-at="8">each channel is convolved with its own kernel</div>
-    <div data-at="9">the matrix turns those into a response for the target channel</div>
-    <div data-at="10">and MaCE moves the mass</div>
-    <div data-at="11">running, slowly</div>
-    <div data-at="12" class="big">full speed, more mass</div>
+    <div data-at="9">weighted by the target channel's row of the matrix</div>
+    <div data-at="10">and summed: the response of the target channel</div>
+    <div data-at="11">MaCE moves the mass</div>
+    <div data-at="12">running, slowly</div>
+    <div data-at="13" class="big">full speed, more mass</div>
   </div>
   <div class="flform" id="fl-form">
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
-    <div data-at="9">\( \displaystyle A_c \;=\; \sum_d M_{cd}\, U_d \)</div>
-    <div data-at="10">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \)</div>
+    <div data-at="9">\( \displaystyle M_{cd}\, U_d \)</div>
+    <div data-at="10">\( \displaystyle A_c \;=\; \sum_d M_{cd}\, U_d \)</div>
+    <div data-at="11">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \)</div>
   </div>
 </section>
 
@@ -774,38 +777,35 @@ SIMS.mace = (() => {
 })();
 
 /* ------------------------------------------------------------ Field Life
-   The close-ups are drawn here, on a window of the engine's own lattice, with
-   the engine's own kernels, matrix and colours (one of the site's worlds, at
-   a coarser grid so a kernel's cells can be seen). From step 11 the engine
-   itself runs in the same frame, starting from exactly the field drawn here.
-   Steps: 1 grid, 2 channels, 3 paint, 4 additive, 5 dominant, 6 kernel,
-   7 matrix, 8 convolution, 9 response, 10 MaCE, 11 run slowly, 12 zoom out. */
+   One picture throughout: three slabs, one per channel, that either stand
+   apart in an isometric stack or lie exactly on top of each other. Lying on
+   top, added together, they ARE the blend; nothing is crossfaded. The world
+   is the title's own (fine brisk filling), using three of its six colours,
+   on a coarse 40x22 window so every cell reads. From step 12 the engine
+   itself runs it, on a grid three times finer with the kernel three times
+   wider, which is the same world sampled finer; at 13 it moves to the size
+   the title slide runs it at, and the rest of the world's mass fades in.
+   Steps: 1 grid, 2 channels, 3 mass, 4 additive, 5 dominant, 6 kernel,
+   7 matrix, 8 convolve, 9 weight by the matrix row, 10 sum into A,
+   11 MaCE, 12 run slowly, 13 zoom out and fill. */
 SIMS.fl = (() => {
   const cv = $("fl-cv"), W = 1120, H = 620, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d");
-  const WX = 96, WY = 56, NN = WX*WY, C = 3;        // the window we draw, in cells, centred on the world
-  const WORLD = "small furious colony", NRES = 216, EXPO = 2.2;
-  const POS = "rgb(90,150,255)", NEG = "rgb(255,95,95)";
-  // the engine's Spectrum palette for four colours; only the first three get any mass
-  let PAL = [[1, 0, 0], [0.5, 1, 0], [0, 1, 1]];
-  let cfg = null, FL = null, win = null, kern = null, KR = 16, KRR = 16, M = [[0.9, -0.8, -0.1], [-0.4, 0.3, 0.1], [0.8, -0.5, 0.8]];
-  const rho = [0, 1, 2].map(() => new Float32Array(NN)), target = [0, 1, 2].map(() => new Float32Array(NN));
-  const mask = [0, 1, 2].map(() => new Float32Array(NN)), U = [0, 1, 2].map(() => new Float32Array(NN)), A0 = new Float32Array(NN);
-  // three overlapping circles, one per channel, a little uneven so nothing is perfectly symmetric
-  function venn(out, ow, oh, cx, cy, r0, rnd, amp){
-    const off = r0*0.58;
-    for(let c = 0; c < C; c++){
-      const a = -Math.PI/2 + c*2*Math.PI/3, ox = cx + off*Math.cos(a), oy = cy + off*Math.sin(a);
-      for(let y = Math.floor(oy - r0); y <= oy + r0; y++) for(let x = Math.floor(ox - r0); x <= ox + r0; x++){
-        const q = Math.hypot(x + .5 - ox, y + .5 - oy)/r0; if(q >= 1) continue;
-        const xx = ((x % ow) + ow) % ow, yy = ((y % oh) + oh) % oh;
-        out[c][yy*ow + xx] += amp*Math.min(1, (1 - q)*4)*(0.85 + 0.3*rnd());
-      }
-    }
-  }
-  { const r = mulberry32(SEED*53); venn(target, WX, WY, WX/2, WY/2, 13, r, 0.4); }
+  const WX = 40, WY = 22, NN = WX*WY, C = 3, CH = [0, 2, 4];   // the window, in cells; the three colours used
+  const WORLD = "fine brisk filling", UP = 3, KR = 7, EXPO = 2.2, CS = 28;
+  const POS = [90, 150, 255], NEG = [255, 90, 90];
+  let PAL = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FL = null, win = null, cfg = null, kern = null, prof = null;
+  let M = [[-0.35, -0.57, -0.69], [0.66, 0.51, 0.93], [0.21, 0.23, -0.1]];
+  const target = [0, 1, 2].map(() => new Float32Array(NN)), rho = [0, 1, 2].map(() => new Float32Array(NN));
+  const U = [0, 1, 2].map(() => new Float32Array(NN)), A0 = new Float32Array(NN);
+  // three solid circles with a soft rim: a Venn diagram, one circle per channel
+  const R0 = 5.6, OFF = R0*0.6, AMP = 0.4;
+  const centre = c => { const a = -Math.PI/2 + c*2*Math.PI/3; return [WX/2 + OFF*Math.cos(a), WY/2 + OFF*Math.sin(a)]; };
+  for(let c = 0; c < C; c++){ const [ox, oy] = centre(c);
+    for(let y = 0; y < WY; y++) for(let x = 0; x < WX; x++){
+      const q = Math.hypot(x + .5 - ox, y + .5 - oy); target[c][y*WX + x] = AMP*Math.max(0, Math.min(1, (R0 - q)/1.5)); } }
 
-  // the engine, in the frame, loaded once and kept
+  // the engine, in the same frame, loaded once
   const fe = $("fl-eng");
   const ready = new Promise(res => {
     fe.addEventListener("load", () => {
@@ -826,19 +826,22 @@ SIMS.fl = (() => {
     loading = Promise.all([ready, fetch("worlds.json").then(r => r.json()).catch(() => null)]).then(([, j]) => {
       const it = j && j.setups.find(s => s.name === WORLD); if(!it || !FL) return;
       cfg = JSON.parse(JSON.stringify(it.cfg));
-      const k = NRES/cfg.N; cfg.N = NRES; cfg.radMin *= k; cfg.radMax *= k; for(const kn of cfg.kernels) kn.R *= k;
+      // the engine's grid: fine enough that its kernel reaches UP*KR cells, i.e. KR of ours
+      const N = Math.round(cfg.N*UP*KR/cfg.radMax), k = N/cfg.N;
+      cfg.N = N; cfg.radMin *= k; cfg.radMax *= k; for(const kn of cfg.kernels) kn.R *= k;
+      win.Math.random = mulberry32(SEED*7919);
       FL.applyConfig(cfg); FL.S.running = false;
-      M = [0, 1, 2].map(c => [0, 1, 2].map(dd => cfg.mat[c*cfg.C + dd]));
-      KRR = FL.kernels[0].R; KR = Math.ceil(KRR);
-      kern = [0, 1, 2].map(c => win.bakeKernel(FL.kernels[c], KR, FL.kernels[c].R));
-      if(win.makePalette) PAL = win.makePalette(cfg.C, cfg.palette || "Spectrum").slice(0, 3);
+      M = CH.map(c => CH.map(dd => cfg.mat[c*cfg.C + dd]));
+      kern = CH.map(c => win.bakeKernel({ ...FL.kernels[c], R: KR }, KR, KR));
+      // the same kernel baked finely, for its profile: the middle row, read as a curve
+      { const KH = 70, hi = win.bakeKernel({ ...FL.kernels[CH[0]], R: KH }, KH, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
+      if(win.makePalette){ const p = win.makePalette(cfg.C, cfg.palette || "Spectrum"); PAL = CH.map(c => p[c]); }
       buildMat();
     });
     return loading;
   }
   const css = (c, m = 1) => `rgb(${c.map(v => Math.round(v*255*m)).join(",")})`;
 
-  // the matrix panel, as on the particle life slide
   const mat = $("fl-mat");
   function buildMat(){
     mat.innerHTML = ""; mat.style.gridTemplateColumns = "repeat(4, 66px)"; mat.style.gridAutoRows = "66px";
@@ -853,176 +856,190 @@ SIMS.fl = (() => {
   }
   buildMat();
 
-  // U_d = K_d * rho_d over the window (everything outside it is empty), and A for the first channel
+  // U_d = K_d * rho_d on the window (nothing outside it), and A for the first channel
+  let sU = 1, sA = 1;
   function convolve(){
     if(!kern) return;
     const n = 2*KR + 1;
-    for(let c = 0; c < C; c++){ const K = kern[c], r = rho[c], u = U[c]; u.fill(0);
+    for(let c = 0; c < C; c++){ const K = kern[c], r = target[c], u = U[c];
       for(let y = 0; y < WY; y++) for(let x = 0; x < WX; x++){ let v = 0;
-        for(let j = -KR; j <= KR; j++){ const yy = y + j; if(yy < 0 || yy >= WY) continue; const row = yy*WX, kr = (j + KR)*n + KR;
-          for(let i = -KR; i <= KR; i++){ const xx = x + i; if(xx < 0 || xx >= WX) continue; const m = r[row + xx]; if(m) v += K[kr + i]*m; } }
+        for(let j = -KR; j <= KR; j++){ const yy = y + j; if(yy < 0 || yy >= WY) continue;
+          for(let i = -KR; i <= KR; i++){ const xx = x + i; if(xx < 0 || xx >= WX) continue; v += K[(j + KR)*n + i + KR]*r[yy*WX + xx]; } }
         u[y*WX + x] = v; } }
-    for(let i = 0; i < NN; i++){ let a = 0; for(let dd = 0; dd < C; dd++) a += M[0][dd]*U[dd][i]; A0[i] = a; }
+    let mu = 0, ma = 0;
+    for(let i = 0; i < NN; i++){ let a = 0; for(let dd = 0; dd < C; dd++){ a += M[0][dd]*U[dd][i]; mu = Math.max(mu, Math.abs(U[dd][i])); } A0[i] = a; ma = Math.max(ma, Math.abs(a)); }
+    sU = 0.9/Math.max(mu, 1e-9); sA = 0.9/Math.max(ma, 1e-9);
   }
 
-  // one offscreen pixel per cell; what goes in it depends on the view
-  const off = document.createElement("canvas"); off.width = WX; off.height = WY;
-  const og = off.getContext("2d"), img = og.createImageData(WX, WY), px = img.data;
-  function fill(fn){ for(let i = 0; i < NN; i++){ const [r, gg, b] = fn(i); px[4*i] = r; px[4*i + 1] = gg; px[4*i + 2] = b; px[4*i + 3] = 255; } og.putImageData(img, 0, 0); return off; }
-  const layerPx = c => i => { const t = 1 - Math.exp(-rho[c][i]*EXPO*1.6); return PAL[c].map(v => 255*v*t + 6); };
-  // the engine's own two blends: dominant takes hue from m^2-weighted colours, additive sums and saturates
-  const blendPx = mode => i => {
-    let hr = 0, hg = 0, hb = 0, ws = 0, tot = 0, ar = 0, ag = 0, ab = 0;
-    for(let c = 0; c < C; c++){ const m = Math.max(0, rho[c][i]), w = m*m, p = PAL[c];
-      tot += m; ws += w; hr += w*p[0]; hg += w*p[1]; hb += w*p[2]; ar += m*p[0]; ag += m*p[1]; ab += m*p[2]; }
-    let o;
-    if(mode === "add") o = [1 - Math.exp(-ar*EXPO), 1 - Math.exp(-ag*EXPO), 1 - Math.exp(-ab*EXPO)];
-    else { const a = 1 - Math.exp(-tot*EXPO), s = Math.max(ws, 1e-12); o = [hr/s*a, hg/s*a, hb/s*a]; }
-    return [255*(o[0] + 0.016), 255*(o[1] + 0.024), 255*(o[2] + 0.040)];
-  };
-  const signedPx = (f, sc) => i => { const v = f[i]*sc, t = Math.min(1, Math.abs(v));
-    return v >= 0 ? [8 + 82*t, 10 + 140*t, 14 + 241*t] : [8 + 247*t, 10 + 85*t, 14 + 81*t]; };
+  // what each slab shows, as rgb 0..1 per cell; on top of each other the three are ADDED
+  const signed = v => { const t = Math.min(1, Math.abs(v)), s = v >= 0 ? POS : NEG; return [s[0]/255*t, s[1]/255*t, s[2]/255*t]; };
+  function content(k, l, i){
+    const m = rho[l][i];
+    if(k <= 2) return [0, 0, 0];
+    if(k === 8) return signed(U[l][i]*sU);
+    if(k === 9) return signed(M[0][l]*U[l][i]*sU);
+    if(k === 10) return l === 0 ? signed(A0[i]*sA) : [0, 0, 0];
+    if(k === 5 || k === 6 || k === 7 || k >= 11){
+      // the engine's dominant blend, split between the slabs so that their sum is it
+      let ws = 0, tot = 0; for(let c = 0; c < C; c++){ const v = Math.max(0, rho[c][i]); ws += v*v; tot += v; }
+      if(ws < 1e-12) return [0, 0, 0];
+      const a = (1 - Math.exp(-tot*EXPO))*m*m/ws/ws, out = [0, 0, 0];
+      for(let c = 0; c < C; c++){ const v = Math.max(0, rho[c][i]); for(let j = 0; j < 3; j++) out[j] += v*v*PAL[c][j]*a; }
+      return out;
+    }
+    // additive: each colour saturates on its own, so the three just add
+    const t = 1 - Math.exp(-m*EXPO); return PAL[l].map(v => v*t);
+  }
 
-  // a view is an affine map from window cells to the canvas: flat (cells of size cs) or isometric (a stack of slabs)
-  const ISO_S = 5.6, GAP = 112;
-  function flatM(cs){ return [cs, 0, 0, cs, W/2 - cs*WX/2, H/2 - cs*WY/2]; }
-  function isoM(l){ const s = ISO_S, a = 0.866*s, b = 0.3*s, c_ = -0.866*s, dd = 0.3*s;
-    return [a, b, c_, dd, W/2 - (a*WX/2 + c_*WY/2), H/2 + 16 + (l - 1)*GAP - (b*WX/2 + dd*WY/2)]; }
+  const off = [0, 1, 2].map(() => { const c = document.createElement("canvas"); c.width = WX; c.height = WY; return c; });
+  const oc = off.map(c => c.getContext("2d")), imgs = oc.map(o => o.createImageData(WX, WY));
+  function bake(kFrom, kTo, mix){
+    for(let l = 0; l < C; l++){ const px = imgs[l].data;
+      for(let i = 0; i < NN; i++){ const a = content(kFrom, l, i), b = mix < 1 ? content(kTo, l, i) : a;
+        const p = mix >= 1 ? content(kTo, l, i) : a.map((v, j) => v + (b[j] - v)*mix);
+        px[4*i] = 255*p[0]; px[4*i + 1] = 255*p[1]; px[4*i + 2] = 255*p[2]; px[4*i + 3] = 255; }
+      oc[l].putImageData(imgs[l], 0, 0); }
+  }
+
+  // the view: each slab an affine map from cells to the canvas; flat, all three share one
+  const ISO = 13.5, GAP = 112;
+  const flatM = cs => [cs, 0, 0, cs, W/2 - cs*WX/2, H/2 - cs*WY/2];
+  function isoM(l){ const s = ISO, a = 0.866*s, b = 0.3*s, c_ = -0.866*s, e = 0.3*s;
+    return [a, b, c_, e, W/2 - (a*WX/2 + c_*WY/2), H/2 + 10 + (l - 1)*GAP - (b*WX/2 + e*WY/2)]; }
   const lerpM = (p, q, t) => p.map((v, i) => v + (q[i] - v)*t);
   const setM = m => g.setTransform(d*m[0], d*m[1], d*m[2], d*m[3], d*m[4], d*m[5]);
-  function slab(m, image, alpha, gridCol, gridA, outline, scale){
-    setM(m); g.globalAlpha = alpha; g.imageSmoothingEnabled = false; g.drawImage(image, 0, 0);
-    if(gridA > 0.01){ g.strokeStyle = gridCol; g.globalAlpha = alpha*gridA; g.lineWidth = 1/scale; g.beginPath();
-      for(let x = 0; x <= WX; x++){ g.moveTo(x, 0); g.lineTo(x, WY); } for(let y = 0; y <= WY; y++){ g.moveTo(0, y); g.lineTo(WX, y); } g.stroke(); }
-    if(outline){ g.globalAlpha = alpha; g.strokeStyle = outline; g.lineWidth = 2.5/scale; g.strokeRect(0, 0, WX, WY); }
-    g.globalAlpha = 1;
-  }
+  const at = (m, x, y) => [m[0]*x + m[2]*y + m[4], m[1]*x + m[3]*y + m[5]];
+  const ease = t => t < 0.5 ? 2*t*t : 1 - 2*(1 - t)*(1 - t);
 
-  let k = 0, iso = 0, isoWant = 0, cs = 14, csWant = 14, blend = 0, paintT0 = 0, painting = false, kA = 0, last = 0;
-  const views = { cs: [14, 14, 14, 14, 14, 14, 20, 20, 20, 20, 20, 20, 20] };
-  // the brush: each channel in turn, a soft dab spiralling out from the middle of its circle
-  function paint(now){
-    const T = 1300, el = Math.max(0, now - paintT0), c = Math.min(C - 1, Math.floor(el/T)), p = Math.min(1, (el - c*T)/T);
-    for(let cc = 0; cc < c; cc++) mask[cc].fill(1);
-    const a = -Math.PI/2 + c*2*Math.PI/3, ox = WX/2 + 13*0.58*Math.cos(a), oy = WY/2 + 13*0.58*Math.sin(a);
-    const bx = ox + 12*Math.sqrt(p)*Math.cos(p*Math.PI*9), by = oy + 12*Math.sqrt(p)*Math.sin(p*Math.PI*9), sg = 3.2;
-    for(let y = Math.floor(by - 9); y <= by + 9; y++) for(let x = Math.floor(bx - 9); x <= bx + 9; x++){
-      if(x < 0 || y < 0 || x >= WX || y >= WY) continue; const q = ((x + .5 - bx)**2 + (y + .5 - by)**2)/(2*sg*sg);
-      mask[c][y*WX + x] = Math.min(1, mask[c][y*WX + x] + 0.5*Math.exp(-q)); }
-    if(el >= C*T){ for(const m of mask) m.fill(1); painting = false; }
-    for(let cc = 0; cc < C; cc++) for(let i = 0; i < NN; i++) rho[cc][i] = target[cc][i]*Math.min(1, mask[cc][i]*1.6);
-    return painting ? [c, bx, by] : null;
-  }
-  function setField(full){ for(let c = 0; c < C; c++){ if(full) rho[c].set(target[c]); else rho[c].fill(0); mask[c].fill(full ? 1 : 0); } }
-
+  let k = 0, kPrev = 0, mixT = 1, mixT0 = 0, isoT = 0, isoFrom = 0, isoTo = 0, isoT0 = 0, fadeT0 = 0, kA = 0;
+  const ISO_STEPS = [2, 3, 8, 9];
   function draw(now){
-    g.setTransform(d, 0, 0, d, 0, 0); g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
-    const brush = painting ? paint(now) : null;
-    const flat = flatM(cs), sc = t => cs*(1 - t) + ISO_S*t;
-    const showU = k === 8 || (k === 9 && iso > 0.02), sU = 0.9/Math.max(1e-6, maxAbs(U));
-    // the slabs, while the view is (partly) isometric; added together, they become the additive blend as they meet
-    if(iso > 0.002){
-      g.globalCompositeOperation = "lighter";
-      for(let l = C - 1; l >= 0; l--){
-        const m = lerpM(flat, isoM(l), iso), image = fill(showU ? signedPx(U[l], sU) : layerPx(l));
-        slab(m, image, Math.min(1, iso*3), css(PAL[l]), 0.35, css(PAL[l], 0.9), sc(iso));
-      }
-      g.globalCompositeOperation = "source-over";
-      if(brush){ const [c, bx, by] = brush; setM(lerpM(flat, isoM(c), iso)); g.strokeStyle = "#fff"; g.lineWidth = 2/ISO_S;
-        g.beginPath(); g.arc(bx, by, 3.2, 0, 6.2832); g.stroke(); }
+    g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, W, H);   // no frame of its own: the slabs are the picture
+    // 3: the circles fade in, one channel a beat after the other
+    for(let c = 0; c < C; c++){ const f = k < 3 ? 0 : k > 3 ? 1 : Math.max(0, Math.min(1, (now - fadeT0 - c*450)/900));
+      const e = f*f*(3 - 2*f), t = target[c], r = rho[c]; for(let i = 0; i < NN; i++) r[i] = t[i]*e; }
+    const mix = ease(Math.min(1, (now - mixT0)/700));
+    bake(kPrev, k, mix);
+    const it = Math.min(1, (now - isoT0)/1100); isoT = isoFrom + (isoTo - isoFrom)*ease(it);
+    const flat = flatM(CS), sc = CS + (ISO - CS)*isoT;
+    g.globalCompositeOperation = "lighter"; g.imageSmoothingEnabled = false;
+    for(let l = C - 1; l >= 0; l--){
+      const m = lerpM(flat, isoM(l), isoT); setM(m);
+      g.drawImage(off[l], 0, 0);
+      // each slab's grid in its own colour; stacked, the three add up to a white grid
+      g.strokeStyle = css(PAL[l], 0.32); g.lineWidth = 1.2/sc; g.beginPath();
+      for(let x = 0; x <= WX; x++){ g.moveTo(x, 0); g.lineTo(x, WY); } for(let y = 0; y <= WY; y++){ g.moveTo(0, y); g.lineTo(WX, y); } g.stroke();
+      g.strokeStyle = css(PAL[l], 0.5 + 0.4*isoT); g.lineWidth = 2.5/sc; g.strokeRect(0, 0, WX, WY);   // stacked, the three rims add up to a white frame
     }
-    // the flat picture: grid alone, a blend, or a signed field
-    if(iso < 0.998){
-      let image;
-      if(k === 1) image = fill(() => [8, 10, 14]);
-      else if(k === 9) image = fill(signedPx(A0, 0.9/Math.max(1e-6, maxAbs(A0))));
-      else if(blend < 0.01) image = fill(blendPx("add"));
-      else if(blend > 0.99) image = fill(blendPx("dom"));
-      else { const pa = blendPx("add"), pd = blendPx("dom"); image = fill(i => { const x = pa(i), y = pd(i); return x.map((v, j) => v + (y[j] - v)*blend); }); }
-      slab(flat, image, 1 - iso, "#fff", 0.2*(cs > 8 ? 1 : 0), null, cs);
-    }
-    // 6, 7: the kernel of the first colour, on the grid where it sits: negative core, positive ring
-    kA += ((k === 6 || k === 7 ? 1 : 0) - kA)*0.08;
+    g.globalCompositeOperation = "source-over"; g.setTransform(d, 0, 0, d, 0, 0);
+    // 9: the weight each slab is multiplied by, beside it
+    if(k === 9 || (kPrev === 9 && mix < 1)){
+      const al = k === 9 ? mix : 1 - mix;
+      g.font = "600 28px 'IBM Plex Mono', monospace"; g.textAlign = "right"; g.textBaseline = "middle";
+      for(let l = 0; l < C; l++){ const [x, y] = at(lerpM(flat, isoM(l), isoT), 0, WY); const v = M[0][l];   // by each slab's left corner
+        g.globalAlpha = al; g.fillStyle = css(PAL[l].map(q => 0.35 + 0.65*q)); g.fillText("× " + (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2), x - 22, y); }
+      g.globalAlpha = 1; }
+    // 6, 7: the kernel, square, every cell of it, over the middle of the picture
+    kA += ((k === 6 || k === 7 ? 1 : 0) - kA)*0.1;
     if(kA > 0.01 && kern){
-      setM(flat); const n = 2*KR + 1, K = kern[0];
-      // positive and negative each scaled to their own peak: the core is much deeper than the ring is high
-      const peaks = K2 => { let p = 1e-12, q = 1e-12; for(const v of K2){ if(v > p) p = v; if(-v > q) q = -v; } return [p, q]; };
-      const shade = (v, pk) => Math.min(1, 0.15 + 0.85*Math.abs(v)/(v > 0 ? pk[0] : pk[1])), pk = peaks(K), mx = Math.max(pk[0], pk[1]);
-      g.globalAlpha = 0.6*kA; g.fillStyle = "#000"; g.fillRect(0, 0, WX, WY);
-      for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){ const v = K[j*n + i]; if(Math.abs(v) < (v > 0 ? pk[0] : pk[1])*0.04) continue;
-        g.globalAlpha = kA*shade(v, pk); g.fillStyle = v > 0 ? POS : NEG;
-        g.fillRect(WX/2 - KR + i + 0.06, WY/2 - KR + j + 0.06, 0.88, 0.88); }
-      g.globalAlpha = kA; g.strokeStyle = css(PAL[0]); g.lineWidth = 3/cs; g.beginPath(); g.arc(WX/2 + .5, WY/2 + .5, KRR, 0, 6.2832); g.stroke();
-      g.globalAlpha = 1; g.setTransform(d, 0, 0, d, 0, 0);
-      // the other two, small, at the side
+      // on the grid, centred on a cell, high enough to leave room for the profile under it
+      const n = 2*KR + 1, K = kern[0], fm = flatM(CS), x0 = fm[4] + (WX/2 - KR)*CS, y0 = fm[5] + (8 - KR)*CS;
+      let pp = 1e-12, pn = 1e-12; for(const v of K){ pp = Math.max(pp, v); pn = Math.max(pn, -v); }
+      setM(flatM(CS)); g.globalAlpha = 0.55*kA; g.fillStyle = "#000"; g.fillRect(0, 0, WX, WY); g.setTransform(d, 0, 0, d, 0, 0);
+      g.globalAlpha = kA; g.fillStyle = "#000"; g.fillRect(x0 - 4, y0 - 4, n*CS + 8, n*CS + 8);
+      for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){
+        const v = K[j*n + i], t = Math.sqrt(Math.abs(v)/Math.max(pp, pn)), s = v >= 0 ? POS : NEG, b = 0.12 + 0.88*Math.min(1, t);   // one scale for both signs, square-rooted so the low wide ring still shows
+        g.fillStyle = Math.abs(v) < 1e-9 ? "rgb(22,24,28)" : `rgb(${Math.round(18 + (s[0] - 18)*b)},${Math.round(20 + (s[1] - 20)*b)},${Math.round(24 + (s[2] - 24)*b)})`;
+        g.fillRect(x0 + i*CS + 1.5, y0 + j*CS + 1.5, CS - 3, CS - 3); }
+      g.strokeStyle = css(PAL[0]); g.lineWidth = 3; g.strokeRect(x0 - 4, y0 - 4, n*CS + 8, n*CS + 8);
+      // its profile through the middle, column for column: two bells, the narrow one taken away, so it dips below zero
+      if(prof){
+        const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v));
+        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.4;
+        g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(x0 - 4, py0 - 6, n*CS + 8, ph + 8);
+        g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1; g.beginPath();
+        for(let i = 1; i < n; i++){ g.moveTo(x0 + i*CS, py0); g.lineTo(x0 + i*CS, py0 + ph - 4); } g.stroke();
+        g.strokeStyle = "rgba(255,255,255,.45)"; g.beginPath(); g.moveTo(x0, zy); g.lineTo(x0 + n*CS, zy); g.stroke();
+        g.lineWidth = 3.5; g.lineCap = "round";
+        for(let i = 0; i < L - 1; i++){ const v = (prof[i] + prof[i + 1])/2;
+          g.strokeStyle = `rgb(${(v >= 0 ? POS : NEG).join(",")})`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
+      }
+      // one per channel, at the side
+      const s = 9;
       for(let c = 0; c < C; c++){
-        const s = 4, x0 = 20, y0 = 20 + c*(n*s + 22), K2 = kern[c], p2 = peaks(K2);
-        g.globalAlpha = kA; g.fillStyle = "rgba(0,0,0,.8)"; g.fillRect(x0 - 6, y0 - 6, n*s + 12, n*s + 12);
-        for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){ const v = K2[j*n + i]; if(Math.abs(v) < (v > 0 ? p2[0] : p2[1])*0.04) continue;
-          g.globalAlpha = kA*shade(v, p2); g.fillStyle = v > 0 ? POS : NEG; g.fillRect(x0 + i*s, y0 + j*s, s, s); }
-        g.globalAlpha = kA; g.strokeStyle = css(PAL[c]); g.lineWidth = 2; g.strokeRect(x0 - 6, y0 - 6, n*s + 12, n*s + 12);
+        const K2 = kern[c], xx = 24, yy = 40 + c*(n*s + 34); let q1 = 1e-12, q2 = 1e-12; for(const v of K2){ q1 = Math.max(q1, v); q2 = Math.max(q2, -v); }
+        g.fillStyle = "#000"; g.fillRect(xx - 6, yy - 6, n*s + 12, n*s + 12);
+        for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){ const v = K2[j*n + i], t = Math.sqrt(Math.abs(v)/Math.max(q1, q2)), sg = v >= 0 ? POS : NEG, b = 0.12 + 0.88*Math.min(1, t);
+          g.fillStyle = Math.abs(v) < 1e-9 ? "rgb(22,24,28)" : `rgb(${Math.round(18 + (sg[0] - 18)*b)},${Math.round(20 + (sg[1] - 20)*b)},${Math.round(24 + (sg[2] - 24)*b)})`;
+          g.fillRect(xx + i*s + 0.5, yy + j*s + 0.5, s - 1, s - 1); }
+        g.strokeStyle = css(PAL[c]); g.lineWidth = 2.5; g.strokeRect(xx - 6, yy - 6, n*s + 12, n*s + 12);
       }
       g.globalAlpha = 1;
     }
-    // 10: one cell's 3x3, where MaCE hands its mass out
-    if(k === 10){ setM(flat); g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 4/cs; g.strokeRect(WX/2 - 1, WY/2 - 1, 3, 3); }
-    g.setTransform(d, 0, 0, d, 0, 0);
+    // 11: one cell's 3x3, where MaCE hands its mass out
+    if(k === 11){ setM(flat); g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 4/CS; g.strokeRect(Math.floor(WX/2) - 1, Math.floor(WY/2) - 1, 3, 3); g.setTransform(d, 0, 0, d, 0, 0); }
   }
-  function maxAbs(arrs){ let m = 0; for(const a of (arrs.length === C ? arrs : [arrs])) for(let i = 0; i < a.length; i++) m = Math.max(m, Math.abs(a[i])); return m; }
 
-  // 11, 12: the engine takes over, from the field on screen
-  let runT0 = 0, painted = 0, ppick = null;
-  // the engine fits the shorter axis, so the cells across at zoom 1 are NX or NY*aspect, whichever is fewer
-  const spanX = () => Math.min(FL.S.NX, FL.S.NY*W/H), csOf = z => z*W/spanX(), zOf = c => c*spanX()/W;
-  function hand(){
-    if(!FL) return;
-    const S = FL.S, NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C), x0 = Math.round(NX/2 - WX/2), y0 = Math.round(NY/2 - WY/2);
-    // texture rows run bottom-up on screen, so the window goes in upside down
-    for(let c = 0; c < C; c++) for(let y = 0; y < WY; y++) for(let x = 0; x < WX; x++)
-      out[c*NX*NY + (NY - 1 - (y0 + y))*NX + x0 + x] = target[c][y*WX + x];
-    FL.writeRho(out); S.blend = 0; S.smooth = false; S.panU = S.panV = 0.5; S.zoom = zOf(cs); S.holdUntil = 0;
+  // 12, 13: the engine takes over from the picture, each of our cells UP x UP of its
+  let runT0 = 0, fills = 0, lastFill = 0, big = false;
+  // 13: the same world, at the size the title runs it, carrying over the field on screen
+  async function goBig(){
+    const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 13) return;
+    const S = FL.S, NX1 = S.NX, NY1 = S.NY, C1 = S.C, src = FL.readRho(), z1 = S.zoom, sp1 = spanX();
+    FL.applyConfig(it.cfg); big = true;
+    const NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
+    for(let c = 0; c < C1; c++) for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){
+      const fx = (x + .5)*NX1/NX - .5, fy = (y + .5)*NY1/NY - .5, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const q = (xx, yy) => src[c*NX1*NY1 + ((yy + NY1) % NY1)*NX1 + ((xx + NX1) % NX1)];
+      out[c*NX*NY + y*NX + x] = (q(ix, iy)*(1 - tx) + q(ix + 1, iy)*tx)*(1 - ty) + (q(ix, iy + 1)*(1 - tx) + q(ix + 1, iy + 1)*tx)*ty; }
+    FL.writeRho(out); S.zoom = z1*spanX()/sp1; S.panU = S.panV = 0.5; S.fps = 120; fills = 0;
   }
-  function addVenn(){
-    const S = FL.S, NX = S.NX, NY = S.NY, cur_ = FL.readRho(), r = ppick;
-    const planes = [0, 1, 2].map(c => cur_.subarray(c*NX*NY, (c + 1)*NX*NY));
-    venn(planes, NX, NY, r()*NX, r()*NY, 9 + r()*6, r, 0.4);
-    FL.writeRho(cur_);
+  // and the rest of its mass, sprayed evenly over the whole world in a few passes
+  function fill(){
+    const S = FL.S, w = fe.contentWindow;
+    if(!w.paintAt) return;
+    const tool = S.tool, brush = S.brush, flow = S.flow;
+    S.tool = "noise"; S.brush = 3*Math.max(S.NX, S.NY); S.flow = cfg.density/20/0.75/24; S.paintMask = new Uint8Array(S.C).fill(1);
+    w.paintAt(0.5, 0.5, 0.05);
+    S.tool = tool; S.brush = brush; S.flow = flow;
+  }
+  const spanX = () => Math.min(FL.S.NX, FL.S.NY*W/H), zOf = cs => cs*spanX()/W, csOf = z => z*W/spanX();
+  function hand(){
+    const S = FL.S, NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
+    const x0 = Math.round(NX/2 - WX*UP/2), y0 = Math.round(NY/2 - WY*UP/2);
+    for(let c = 0; c < C; c++) for(let y = 0; y < WY*UP; y++) for(let x = 0; x < WX*UP; x++)   // rows run bottom-up in the texture
+      out[CH[c]*NX*NY + (NY - 1 - (y0 + y))*NX + x0 + x] = target[c][Math.floor(y/UP)*WX + Math.floor(x/UP)];
+    FL.writeRho(out); S.blend = 0; S.smooth = false; S.panU = S.panV = 0.5; S.zoom = zOf(CS/UP); S.holdUntil = 0;
   }
   return {
-    enter(){ load(); k = 0; iso = isoWant = 0; cs = csWant = 14; blend = 0; painting = false; setField(false); fe.classList.remove("on"); },
+    enter(){ load(); k = kPrev = 0; mixT0 = 0; isoT = isoFrom = isoTo = 0; fe.classList.remove("on"); },
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
     step(n){
       for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
-      const form = $("fl-form"); form.classList.toggle("on", n >= 8 && n <= 10);
+      const form = $("fl-form"); form.classList.toggle("on", n >= 8 && n <= 11);
       for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
-      for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", n === 9 && e.dataset.r === "0");
-      const was = k; k = n;
-      isoWant = (n === 2 || n === 3 || n === 8) ? 1 : 0;
-      csWant = views.cs[n] || 14;
-      if(n === 3 && was === 2){ setField(false); painting = true; paintT0 = performance.now(); }
-      else if(n <= 2){ painting = false; setField(false); }
-      else if(n >= 4 || !painting){ painting = false; setField(true); }
-      if(n === 1 || n === 2 || n === 3) iso = n === 1 ? iso : iso;
-      blend = n >= 5 ? (was >= 5 ? blend : 0) : 0;
-      if(n === 8 || n === 9) convolve();
-      if(n >= 11){ load().then(() => {
-        if(k < 11 || !FL) return;
-        if(was < 11){ hand(); runT0 = performance.now(); painted = 0; ppick = mulberry32(SEED*409); }
-        FL.S.fps = n === 11 ? 12 : 120; FL.S.running = true; fe.classList.add("on"); }); }
+      for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", (n === 9 || n === 10) && e.dataset.r === "0");
+      const now = performance.now(), was = k;
+      kPrev = k; k = n; mixT0 = now;
+      const want = ISO_STEPS.includes(n) ? 1 : 0;
+      if(want !== isoTo){ isoFrom = isoT; isoTo = want; isoT0 = now; }
+      if(n === 3 && was < 3) fadeT0 = now;
+      if(n >= 8) convolve();
+      if(n >= 12){ load().then(() => {
+        if(k < 12 || !FL) return;
+        if(was < 12 || (n === 12 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
+        if(n === 13 && !big) goBig();
+        FL.S.fps = n === 12 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); }
     },
     frame(now){
-      const e = 0.07;
-      iso += (isoWant - iso)*e; if(Math.abs(isoWant - iso) < 0.002) iso = isoWant;
-      cs += (csWant - cs)*e;
-      if(k >= 5) blend += (1 - blend)*0.06;
-      if(k >= 11 && FL && fe.classList.contains("on")){
-        const S = FL.S, t = (now - runT0)/1000;
-        // 11: settle back a little, cells still visible; 12: all the way out, more mass painted in on the way
-        const zWant = k === 11 ? zOf(11) : 1;
-        S.zoom += (zWant - S.zoom)*(k === 11 ? 0.02 : 0.012);
-        S.smooth = csOf(S.zoom) < 6;
-        if(k === 12 && painted < 14 && csOf(S.zoom) < 9 && now - last > 380){ last = now; addVenn(); painted++; }
+      if(k >= 12 && FL && fe.classList.contains("on")){
+        const S = FL.S;
+        // 12: back off a little, cells still distinct; 13: all the way out, the rest of the world fading in
+        const zWant = k === 12 ? zOf(5) : 1;
+        S.zoom += (zWant - S.zoom)*(k === 12 ? 0.02 : 0.015);
+        S.smooth = csOf(S.zoom) < 4;
+        if(k === 13 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
         return;
       }
       draw(now);
