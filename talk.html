@@ -157,6 +157,10 @@ body.dimmed .dim{opacity:1}
 .pl[data-sim="vol"] .plview{opacity:1; height:620px}
 .pl[data-sim="vol"] .plcap > div{opacity:1; transform:none}
 #vol-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; background:#000; box-shadow:0 0 0 2px rgba(255,255,255,.38)}
+/* the last slide: an hourglass, full screen, its glass drawn over the engine */
+#hg-eng{position:absolute; border:0; opacity:0; pointer-events:none; background:#000; transition:opacity .8s ease}
+#hg-cv{position:absolute; pointer-events:none; opacity:0; transition:opacity .8s ease}
+#hg-eng.on, #hg-cv.on{opacity:1}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -318,10 +322,10 @@ body.dimmed .dim{opacity:1}
   <div class="plview">
     <iframe id="vol-eng" title="Field Life in a volume" tabindex="-1"></iframe>
   </div>
-  <div class="plcap"><div class="cur">the same rule in a volume, cut open: drag to turn it</div></div>
+  <div class="plcap"><div class="cur">the same rule in a volume, cut in half: drag to turn it</div></div>
 </section>
 
-<section class="slide pl" data-steps="7" data-sim="liz">
+<section class="slide pl" data-steps="8" data-sim="liz">
   <h2>Training a lizard</h2>
   <div class="plview">
     <iframe id="liz-eng" title="Trained lizard" tabindex="-1"></iframe>
@@ -335,6 +339,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="4">it learns the matrix, force, repel, β, the seed and every kernel</div>
     <div data-at="5">each kernel: 20 bells, each at its own distance, with angular lobes</div>
     <div data-at="6">fitted on roughly the first 1000 steps; past that, nothing keeps it in shape</div>
+    <div data-at="7">all 12 colours: the lizard is three of them, the rest is the scaffold that grows it</div>
   </div>
   <div class="flform" id="liz-form">
     <div data-at="3">\( \displaystyle \text{loss} = \big\| \rho(t) - \text{picture} \big\|^2 \)</div>
@@ -342,7 +347,11 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
+<section class="slide" data-sim="hg"></section>
+
 <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
+<iframe id="hg-eng" title="Field Life in an hourglass" tabindex="-1"></iframe>
+<canvas id="hg-cv"></canvas>
 </div></div>
 
 <div id="note">The live field needs this folder served over http, e.g. python3 -m http.server</div>
@@ -1378,7 +1387,9 @@ SIMS.liz = (() => {
       const was = k; k = n;
       load().then(() => {
         if(!FL) return; const S = FL.S;
-        if(n <= 2 || (n === 3 && was < 3)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
+        if(n <= 2 || (n === 3 && was < 3) || (n === 7 && was !== 7)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
+        // 7: the page's usual blend, every colour shown, instead of the first three read as red, green and blue
+        S.blend = n === 7 ? 0 : cfg.blend; S.expo = n === 7 ? 2.2 : cfg.expo;
         S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 3 ? 20 : 120; S.holdUntil = 0;   // 3: slow enough to watch it grow
       });
     },
@@ -1388,7 +1399,7 @@ SIMS.liz = (() => {
 
 /* ------------------------------------------------------------ 3D
    staging/volume.html in the frame: one of its own worlds on a finer grid,
-   drawn as a slab through the middle with more opacity and more march steps.
+   seeded with one ball of mass, cut in half, at full opacity and more march steps.
    Its kernels already reach zero smoothly at their rim (a gaussian with the
    rim value taken off), so nothing has a hard edge. Drag turns it; keys and
    clicks still go to the deck. */
@@ -1410,8 +1421,10 @@ SIMS.vol = (() => {
           if(VS && w.applyPreset){
             w.Math.random = mulberry32(SEED*4099);
             VS.N = 192; w.applyPreset(2);                       // "swarm": the one of its worlds that never settles
-            Object.assign(VS, { quality: "manual", scale: 1, stepq: 3, cutAx: 2, cutA: 0.36, cutB: 0.64, dist: 1.9, running: false });
-            VS.sigma = Math.round(VS.sigma*1.8);                // more opaque
+            // one ball of mass in the middle, the volume cut in half so its inside shows, as opaque as the page allows
+            Object.assign(VS, { quality: "manual", scale: 1, stepq: 3, cutAx: 2, cutA: 0, cutB: 0.5, dist: 1.9, running: false, seedMode: 1, seedSize: 0.32 });
+            w.Math.random = mulberry32(SEED*4099); w.reseed(1234);
+            VS.sigma = 160;
             w.resetAccum(); res();
           } else if(++tries > 200) res(); else setTimeout(poll, 50); };
         poll();
@@ -1423,6 +1436,96 @@ SIMS.vol = (() => {
   return {
     enter(){ load().then(() => { if(VS && slides[cur].dataset.sim === "vol"){ VS.running = true; } }); },
     leave(){ if(VS) VS.running = false; }
+  };
+})();
+
+/* ------------------------------------------------------------ the hourglass
+   The end. The engine, full screen, with two things it has for this alone: a
+   wall mask (a wall cell takes no mass, so nothing can move into it) and a
+   pull downward built into MaCE's hand-out (each move a row down weighed e^g,
+   up e^-g, in the normaliser too, so every cell still gives away exactly what
+   it has). Mass is poured in at the top, and taken away where it falls out of
+   the bottom. Every twelve seconds the rule glides to another world's. */
+SIMS.hg = (() => {
+  const fe = $("hg-eng"), cv = $("hg-cv"), g = cv.getContext("2d");
+  let FL = null, win = null, loading = null, IL = 0, IT = 0, IW = 1440, IH = 900, wallsFor = "", cyc = null, morphId = 0, curCfg = null;
+  function full(){ const sc = Math.min(innerWidth/1440, innerHeight/900); IW = innerWidth/sc; IH = innerHeight/sc; IL = (1440 - IW)/2; IT = (900 - IH)/2;
+    for(const el of [fe, cv]) Object.assign(el.style, { left: IL + "px", top: IT + "px", width: IW + "px", height: IH + "px" });
+    const d = Math.min(2, devicePixelRatio || 1); cv.width = IW*d; cv.height = IH*d; wallsFor = ""; }
+  full(); addEventListener("resize", full);
+  // half-width of the glass, in rows, at height t in -1..1 (0 is the neck)
+  const halfW = (t, NY) => NY*(0.028 + 0.30*Math.pow(Math.sin(Math.PI/2*Math.min(1, Math.abs(t))), 1.6));
+  const GH = 0.46;   // the glass is 2*GH of the height
+  function walls(){
+    const S = FL.S, NX = S.NX, NY = S.NY, m = new Float32Array(NX*NY);
+    for(let y = 0; y < NY; y++){
+      const t = (y - NY/2)/(GH*NY);
+      // below the glass: a chute as wide as its mouth, down to the bottom, where mass is taken away
+      const hw = t < -1 ? halfW(-1, NY) : t > 1 ? -1 : halfW(t, NY);
+      for(let x = 0; x < NX; x++) m[y*NX + x] = (y < 2 || y > NY - 3 || Math.abs(x + 0.5 - NX/2) > hw) ? 1 : 0;
+    }
+    FL.setWalls(m); wallsFor = NX + "x" + NY;
+    // the glass, drawn
+    const d = cv.width/IW; g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, IW, IH);
+    const X = x => x/NX*IW, Y = y => (1 - y/NY)*IH;
+    g.strokeStyle = "rgba(220,235,255,.55)"; g.lineWidth = 2.5; g.lineJoin = "round";
+    for(const side of [-1, 1]){ g.beginPath();
+      for(let i = 0; i <= 200; i++){ const t = -1 + 2*i/200, y = NY/2 + t*GH*NY, x = NX/2 + side*halfW(t, NY); i ? g.lineTo(X(x), Y(y)) : g.moveTo(X(x), Y(y)); }
+      g.stroke(); }
+    g.beginPath(); g.moveTo(X(NX/2 - halfW(1, NY)), Y(NY/2 + GH*NY)); g.lineTo(X(NX/2 + halfW(1, NY)), Y(NY/2 + GH*NY)); g.stroke();
+  }
+  function paint(tool, u, v, rad, flow){
+    const S = FL.S, keep = [S.tool, S.brush, S.flow];
+    S.tool = tool; S.brush = rad; S.flow = flow; S.paintMask = new Uint8Array(S.C).fill(1);
+    win.paintAt(u, v, 0.05); [S.tool, S.brush, S.flow] = keep;
+  }
+  function load(){
+    if(loading) return loading;
+    loading = new Promise(res => {
+      fe.addEventListener("load", () => {
+        let dd; try{ dd = fe.contentDocument; }catch(e){ dd = null; }
+        if(!dd) return res();
+        const st = dd.createElement("style"); st.textContent = ENGINE_CSS; dd.head.appendChild(st);
+        let tries = 0;
+        const poll = () => { const w = fe.contentWindow;
+          if(w.FL && w.FL.setWalls){ FL = w.FL; win = w; FL.S.running = false; res(); } else if(++tries > 200) res(); else setTimeout(poll, 50); };
+        poll();
+      });
+      fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html").then(src => fe.src = src);
+    }).then(async () => {
+      if(!FL) return;
+      const it = (await presets).find(s_ => s_.name === "fine brisk filling"); if(!it) return;
+      curCfg = it.cfg; FL.applyConfig(curCfg);
+      FL.writeRho(new Float32Array(FL.S.NX*FL.S.NY*FL.S.C));   // an empty glass
+      Object.assign(FL.S, { zoom: 1, panU: 0.5, panV: 0.5, smooth: true, fps: 120, holdUntil: 0, grav: 0.35 });
+    });
+    return loading;
+  }
+  const pick = mulberry32(SEED*911);
+  async function nextRule(){
+    if(!FL || !curCfg) return;
+    const list = await presets, from = curCfg;
+    const pool = list.filter(s_ => !(s_.cfg.seedMode === "masses" || s_.cfg.seedMode === "pattern") && s_.cfg.C === from.C && s_.cfg.N === from.N && !s_.cfg.square && s_.cfg !== from);
+    if(!pool.length) return;
+    const to = pool[Math.floor(pick()*pool.length)].cfg, id = ++morphId, t0 = performance.now();
+    const tick = n_ => { if(id !== morphId) return; const u = Math.min(1, (n_ - t0)/2000), e = u*u*(3 - 2*u);
+      FL.applyConfig(lerpCfg(from, to, e)); if(u < 1) requestAnimationFrame(tick); else curCfg = to; };
+    requestAnimationFrame(tick);
+  }
+  return {
+    enter(){ load().then(() => { if(!FL || slides[cur].dataset.sim !== "hg") return;
+      FL.S.running = true; fe.classList.add("on"); cv.classList.add("on");
+      clearInterval(cyc); cyc = setInterval(nextRule, 12000); }); },
+    leave(){ clearInterval(cyc); morphId++; if(FL) FL.S.running = false; fe.classList.remove("on"); cv.classList.remove("on"); },
+    frame(){
+      if(!FL || !FL.S.running) return;
+      const S = FL.S;
+      if(wallsFor !== S.NX + "x" + S.NY) walls();
+      // pour in at the top of the glass, every colour; take away whatever reaches the bottom
+      paint("paint", 0.5 + 0.06*Math.sin(performance.now()/700), 0.5 + 0.38, 0.05*S.NY, 0.02);
+      const mw = halfW(-1, S.NY)/S.NX;
+      for(let i = -2; i <= 2; i++) paint("erase", 0.5 + i*mw/2.2, 0, 0.05*S.NY, 1);
+    }
   };
 })();
 $("pl-rmin").value = 0.3/1.3; $("pl-rmax").value = 1/1.3;
