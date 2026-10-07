@@ -1104,7 +1104,7 @@ SIMS.fl = (() => {
       if(k >= 13 && FL && fe.classList.contains("on")){
         const S = FL.S;
         // 12: back off a little, cells still distinct; 13: all the way out, the rest of the world fading in
-        const zWant = k === 13 ? zOf(5) : 1;
+        const zWant = k === 13 ? zOf(5) : 2.2;   // 14: out, but not the whole world: the frame is smaller than the title's screen
         S.zoom += (zWant - S.zoom)*(k === 13 ? 0.02 : 0.015);
         S.smooth = csOf(S.zoom) < 4;
         if(k === 14 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
