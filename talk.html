@@ -46,6 +46,14 @@ body.dimmed .dim{opacity:1}
 .text h2{margin:0 0 48px; font-family:var(--display); font-weight:600; font-size:72px; letter-spacing:-.02em; color:#fff}
 .text ul{margin:0; padding:0; list-style:none; display:grid; gap:26px; width:100%}
 .text li{position:relative; padding-left:40px; font-size:36px; line-height:1.35; color:rgba(238,243,245,.92)}
+.text[data-steps] li{opacity:0; transform:translateY(10px); transition:opacity .45s ease, transform .45s ease}
+.text.s1 li:nth-child(1),
+.text.s2 li:nth-child(2),
+.text.s3 li:nth-child(3),
+.text.s4 li:nth-child(4),
+.text.s5 li:nth-child(5),
+.text.s6 li:nth-child(6),
+.text.s7 li:nth-child(7){opacity:1; transform:none}
 .text li::before{content:""; position:absolute; left:0; top:.55em; width:14px; height:14px; border-radius:50%; background:var(--accent)}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
@@ -73,7 +81,7 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
-<section class="slide text" data-field="fine brisk filling" data-cycle="10000" data-dim>
+<section class="slide text" data-field="fine brisk filling" data-cycle="10000" data-dim data-steps="6">
   <h2>What is it?</h2>
   <ul>
     <li>A cellular automaton on a grid</li>
