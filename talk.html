@@ -50,8 +50,8 @@ body.field .scrim{display:block}
 .plmat{position:absolute; top:20px; right:20px; display:grid; grid-template-columns:repeat(4, 66px); grid-auto-rows:66px; gap:3px;
   padding:14px; background:rgba(0,0,0,.78); border:1px solid rgba(255,255,255,.18); border-radius:4px;
   opacity:0; transition:opacity .5s ease; pointer-events:none}
-.pl.s6 .plmat{opacity:1}
-.pl.s8 .plmat{opacity:0}
+.pl.s7 .plmat{opacity:1}
+.pl.s9 .plmat{opacity:0}
 .plmat > div{display:grid; place-items:center; font:500 21px/1 var(--mono); color:#fff; border-radius:2px}
 .plmat .dot{width:24px; height:24px; border-radius:50%}
 .plmat .row{outline:2px solid rgba(255,255,255,.55); outline-offset:-2px}
@@ -154,9 +154,9 @@ body.dimmed .dim{opacity:1}
     <div data-at="3">of several colours</div>
     <div data-at="4">a min and max radius of influence</div>
     <div data-at="5">an attraction or repulsion towards every colour</div>
-    <div data-at="6">one number for every pair of colours: the matrix</div>
-    <div data-at="7">the matrix reparametrises the simulation</div>
-    <div data-at="8">within the min radius, every particle repels</div>
+    <div data-at="6">within the min radius, every particle repels</div>
+    <div data-at="7">one number for every pair of colours: the matrix</div>
+    <div data-at="8">the matrix reparametrises the simulation</div>
     <div data-at="9">each has a position and a velocity</div>
     <div data-at="10">forces push the velocity on every update</div>
     <div data-at="11" class="big">More particles</div>
@@ -371,9 +371,13 @@ SIMS.pl = (() => {
       const ids = SHOWN[7];
       for(const i of ids) for(const j of ids){ if(i === j) continue;
         const p = P[i], q = P[j], [px, py] = toS(p.x, p.y), [qx, qy] = toS(q.x, q.y), m = Mv[p.c][q.c];
-        const dx = qx - px, dy = qy - py, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L, nx = -uy*6, ny = ux*6;
-        const len = (0.12 + 0.3*Math.abs(m))*L*Math.sign(m), sx = px + ux*14 + nx, sy = py + uy*14 + ny;
-        arrow(sx, sy, sx + ux*len, sy + uy*len, COL[p.c], 1.5 + 5*Math.abs(m));
+        const dx = qx - px, dy = qy - py, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L, rr = 5 + 2.5*Math.sqrt(cam.z);
+        // On the line between the two centres, starting at this one's centre: attraction points
+        // at the other particle, repulsion points back at this one and stops at its edge.
+        // The two directions of a pair never meet: each is under half the distance.
+        const len = (0.12 + 0.3*Math.abs(m))*L, ex = px + ux*len, ey = py + uy*len, w = 1.5 + 5*Math.abs(m);
+        if(m >= 0) arrow(px, py, ex, ey, COL[p.c], w);
+        else arrow(ex, ey, px + ux*(rr + 3), py + uy*(rr + 3), COL[p.c], w);
       }
     }
     // 8: inside the min radius everyone repels, whatever the matrix says
@@ -415,6 +419,8 @@ SIMS.pl = (() => {
     leave(){ running = false; },
     step(n){
       for(const c of $("pl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
+      // The slide shows repulsion right after attraction; inside, the steps keep their own numbers.
+      n = ({ 6: 8, 7: 6, 8: 7 })[n] ?? n;
       const was = k; k = n; want = views[Math.min(n, views.length - 1)];
       if(n <= 9){ running = false; if(was >= 10 || was === 0 && n > 0) reset(); P.length = LAYOUT.length; }
       // each particle eases to its home, or to where this step wants it
