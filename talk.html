@@ -26,14 +26,16 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 .title{display:none; place-items:center; text-align:center}
 .title.on{display:grid}
 .title .words{position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
-  display:flex; flex-direction:column; align-items:center; gap:22px; animation:rise 2.4s ease-out both;
-  transition:left .9s cubic-bezier(.6,0,.2,1), top .9s cubic-bezier(.6,0,.2,1), transform .9s cubic-bezier(.6,0,.2,1)}
-/* step 2: the title moves to the top-right corner and the abstract rises from below */
-.title.s1 .words{left:calc(100% - 64px); top:56px; transform:translate(-100%, 0) scale(.42); transform-origin:top right; align-items:flex-end; text-align:right}
-.abstract{position:absolute; left:0; right:0; bottom:0; padding:64px 120px 80px; background:rgba(0,0,0,.85);
-  transform:translateY(100%); transition:transform .9s cubic-bezier(.6,0,.2,1) .15s}
-.title.s1 .abstract{transform:none}
-.abstract p{max-width:34em; margin:0 auto; font-size:30px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
+  display:flex; flex-direction:column; align-items:center; gap:22px;
+  transition:top .9s cubic-bezier(.6,0,.2,1), transform .9s cubic-bezier(.6,0,.2,1)}
+.title .words > *{animation:fadein 2.4s ease-out both}
+/* step 2: the title shrinks and moves up, the abstract rises into the middle */
+.title.s1 .words{top:70px; transform:translate(-50%, 0) scale(.55); transform-origin:top center}
+.abstract{position:absolute; left:50%; top:150%; transform:translate(-50%, -50%); width:1040px;
+  padding:52px 64px; background:rgba(0,0,0,.85); border-radius:4px; opacity:0;
+  transition:top .9s cubic-bezier(.6,0,.2,1) .1s, opacity .6s ease .1s}
+.title.s1 .abstract{top:58%; opacity:1}
+.abstract p{margin:0; font-size:30px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
 .title h1{margin:0; font-family:var(--display); font-weight:600; font-size:150px; line-height:.95; letter-spacing:-.025em;
   color:rgba(238,243,245,.86); text-shadow:0 0 60px rgba(4,8,11,.9), 0 0 18px rgba(4,8,11,.7)}
 .title p{margin:0; font-size:30px; letter-spacing:.01em; color:rgba(238,243,245,.7); text-shadow:0 0 24px rgba(4,8,11,.95)}
@@ -41,8 +43,8 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 .scrim{position:fixed; inset:0; pointer-events:none; display:none;
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
 body.field .scrim{display:block}
-@keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
-@media (prefers-reduced-motion: reduce){ .title .words, .abstract{animation:none; transition:none} }
+@keyframes fadein{from{opacity:0} to{opacity:1}}
+@media (prefers-reduced-motion: reduce){ .title .words, .title .words > *, .abstract{animation:none; transition:none} }
 
 #nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; gap:8px; align-items:center;
   font:400 12px/1 var(--mono); color:var(--mut); z-index:2; opacity:0; transition:opacity .2s}
