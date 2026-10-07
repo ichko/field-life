@@ -68,7 +68,7 @@ body.field .scrim{display:block}
 
 <div id="deck"><div id="stage">
 
-<section class="slide title" data-field="fine brisk filling" data-steps="2">
+<section class="slide title" data-field="fine brisk filling" data-steps="2" data-cycle="5000">
   <div class="words">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
@@ -101,7 +101,7 @@ body>*:not(.page),.page>*:not(.app){display:none!important}
   border:0!important;border-radius:0!important;box-shadow:none!important;margin:0!important}
 .app>*:not(#cv){display:none!important}`;
 const engine = (() => {
-  const f = $("engine"); let FL = null, failed = false, want = null;
+  const f = $("engine"); let FL = null, failed = false, want = null, cur = null, morphing = 0;
   const ready = new Promise(res => {
     f.addEventListener("load", () => {
       let d; try{ d = f.contentDocument; }catch(e){ d = null; }
@@ -123,13 +123,43 @@ const engine = (() => {
       if(failed || !FL){ f.style.display = "none"; $("note").style.display = "block"; return; }
       setTimeout(() => {                 // let the page settle on its size before seeding
         if(want !== cfg) return;
-        FL.applyConfig(cfg); FL.S.seedMode = seed || cfg.seedMode || "disc"; FL.reseed();
+        FL.applyConfig(cfg); FL.S.seedMode = seed || cfg.seedMode || "disc"; FL.reseed(); cur = cfg;
         FL.S.fps = fps; FL.S.zoom = 1; FL.S.panU = FL.S.panV = 0.5; FL.S.holdUntil = 0; FL.S.running = true;
       }, 250);
     },
-    hide(){ want = null; f.style.display = "none"; document.body.classList.remove("field"); if(FL) FL.S.running = false; }
+    get cfg(){ return cur; },
+    // Glide the running world's rule to another one over `ms`, leaving the
+    // field alone: same channel count and grid, so nothing is reallocated and
+    // the mass on screen stays where it is.
+    morph(to, ms = 500){
+      if(!FL || !cur || to.C !== cur.C || to.N !== cur.N) return;
+      const from = cur, t0 = performance.now(), id = ++morphing;
+      const tick = now => {
+        if(id !== morphing) return;
+        const t = Math.min(1, (now - t0)/ms), e = t*t*(3 - 2*t);
+        FL.applyConfig(lerpCfg(from, to, e));
+        if(t < 1) requestAnimationFrame(tick); else cur = to;
+      };
+      requestAnimationFrame(tick);
+    },
+    hide(){ want = null; morphing++; f.style.display = "none"; document.body.classList.remove("field"); if(FL) FL.S.running = false; }
   };
 })();
+// Blend two rules: the matrix, the scalars and every kernel's reach and lobes.
+// A kernel whose shape differs (a different lobe count) switches at halfway.
+function lerpCfg(a, b, t){
+  const L = (x, y) => x + (y - x)*t, c = { ...(t < 0.5 ? a : b) };
+  c.mat = a.mat.map((v, i) => L(v, b.mat[i]));
+  for(const k of ["force", "repel", "beta", "noise", "expo", "radMin", "radMax"])
+    if(typeof a[k] === "number" && typeof b[k] === "number") c[k] = L(a[k], b[k]);
+  c.kernels = a.kernels.map((ka, i) => {
+    const kb = b.kernels[i], ta = ka.terms || [], tb = kb.terms || [];
+    if(ka.type !== kb.type || ta.length !== tb.length) return JSON.parse(JSON.stringify(t < 0.5 ? ka : kb));
+    return { ...(t < 0.5 ? ka : kb), R: L(ka.R, kb.R), feather: L(ka.feather, kb.feather),
+             terms: ta.map((x, j) => ({ a: L(x.a, tb[j].a), r: L(x.r, tb[j].r), w: L(x.w, tb[j].w) })) };
+  });
+  return c;
+}
 const presets = Promise.all(["worlds", "gliders"].map(k =>
   fetch(k + ".json").then(r => r.json()).then(j => j.setups).catch(() => [])))
   .then(([w, g]) => [...w, ...g]);
@@ -150,12 +180,26 @@ async function go(i){
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
   // A slide names a preset in data-field to put it behind everything, and may
   // ask for data-seed="noise" to fill the whole screen instead of a central disc.
+  startCycle(+(slides[cur].dataset.cycle || 0));
   const name = slides[cur].dataset.field;
   if(!name){ shown = null; engine.hide(); return; }
   if(name === shown) return;             // same world on consecutive slides keeps running
   shown = name;
   const it = (await presets).find(s => s.name === name);
   if(it && shown === name) engine.show(it.cfg, 120, slides[cur].dataset.seed);   // 120: the site's own FPS cap
+}
+// A slide with data-cycle="ms" moves the field to a random world of the same
+// shape every ms milliseconds, over half a second.
+let cycleTimer = null;
+function startCycle(ms){
+  clearInterval(cycleTimer);
+  if(!ms) return;
+  cycleTimer = setInterval(async () => {
+    const now = engine.cfg; if(!now) return;
+    const pool = (await presets).filter(s => !(s.cfg.seedMode === "masses" || s.cfg.seedMode === "pattern")
+      && s.cfg.C === now.C && s.cfg.N === now.N && !s.cfg.square && s.cfg !== now);
+    if(pool.length) engine.morph(pool[Math.floor(Math.random()*pool.length)].cfg, 500);
+  }, ms);
 }
 function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
 addEventListener("resize", fit); fit();
