@@ -71,7 +71,7 @@ seed has to arrive already holding what the picture costs.
 | `index.html` | the whole simulation and its interface, in one file. WebGL2, no build step, no dependencies |
 | `worlds.json`, `worlds/` | the worlds shelf: 120 worlds with a thumbnail and an animation each, plus the lizard |
 | `gliders.json`, `gliders/` | the creatures shelf: seven of them, same shape |
-| `slides.html` | a short talk, 16:10: particle life, MaCE, and particles as channels, with small simulations running live on the CPU. Arrow keys to move, f for fullscreen |
+| `slides.html` | a short talk, 16:10: particle life, MaCE, and particles as channels. The field slides run this page's own engine in a frame, so serve the folder to see them. Arrow keys to move, f for fullscreen |
 | `worlds.html` | a gallery of the 120 worlds, sortable, with the preset for each |
 | `presets.json` | eighteen setups made by hand rather than found |
 | `*-presets.json` | the same worlds and creatures as importable preset files |
