@@ -107,8 +107,15 @@ body.dimmed .dim{opacity:1}
 #fl-cv{height:620px !important}
 .pl[data-sim="fl"] .plview{height:620px}
 .pl[data-sim="fl"] #fl-cv{background:transparent; box-shadow:none}
-#fl-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; transition:opacity .6s ease; pointer-events:none; background:#000}
+#fl-eng{position:absolute; left:160px; top:140px; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; pointer-events:none; background:#000;
+  transition:opacity .6s ease, left 2s ease-in-out, top 2s ease-in-out, width 2s ease-in-out, height 2s ease-in-out, border-radius 2s ease}
 #fl-eng.on{opacity:1}
+/* slide 7: the frame grows to the whole screen while the title goes */
+.fl7.on{gap:14px}
+#fl7-hud{position:absolute; right:24px; top:24px; width:480px; height:220px; z-index:3; opacity:0; animation:fadein 1s ease 2s forwards}
+.fl7 h2{position:relative; z-index:2; animation:fadeout 1.2s ease forwards}
+@keyframes fadeout{to{opacity:0}}
+
 .flmat{grid-template-columns:repeat(4, 66px)}
 .pl.s8 #fl-mat{opacity:1}
 .pl.s13 #fl-mat{opacity:0}
@@ -240,7 +247,6 @@ body.dimmed .dim{opacity:1}
   <h2>Field Life</h2>
   <div class="plview">
     <canvas id="fl-cv"></canvas>
-    <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
     <div class="plmat flmat" id="fl-mat"></div>
     <div class="fltune" id="fl-tune">
       <label>force <input data-k="force" type="range" min="0" max="200" step="1"><span></span></label>
@@ -284,6 +290,15 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
+<section class="slide pl fl7" data-sim="fl7">
+  <h2>Field Life</h2>
+  <canvas id="fl7-hud" width="960" height="440"></canvas>
+  <div class="plview"></div>
+  <div class="plcap"></div>
+  <div class="flform"></div>
+</section>
+
+<iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
 </div></div>
 
 <div id="note">The live field needs this folder served over http, e.g. python3 -m http.server</div>
@@ -1126,6 +1141,82 @@ SIMS.fl = (() => {
   for(const el of tune.querySelectorAll("input")) el.addEventListener("input", () => { if(!FL) return; FL.S[el.dataset.k] = +el.value; el.nextElementSibling.textContent = (+el.value).toFixed(el.step < 1 ? 1 : 0); });
   $("fl-newmat").onclick = () => { if(!FL) return; FL.resampleMatrix((Math.random()*1e6) | 0); };
   addEventListener("keydown", e => { if(e.key === "t" && k >= 13){ tune.classList.toggle("on"); syncTune(); } });
+  // the engine's frame sits over this slide's picture; slide 7 grows it to the whole window
+  const pv = cv.parentElement;
+  function fit(el = pv){ Object.assign(fe.style, { left: el.offsetLeft + "px", top: el.offsetTop + "px", width: "1120px", height: "620px", borderRadius: "4px" }); }
+  function full(){ const sc = Math.min(innerWidth/1440, innerHeight/900), w = innerWidth/sc, h = innerHeight/sc;
+    Object.assign(fe.style, { left: (1440 - w)/2 + "px", top: (900 - h)/2 + "px", width: w + "px", height: h + "px", borderRadius: "0" }); }
+
+  /* Slide 7: the same run, full screen. For two seconds a big soft brush on a Lissajous curve lays down
+     every colour at once; then every ten seconds the rule glides, over two, to a random world's. */
+  let t7 = 0, cyc = null, morphId = 0, live = null, hudDirty = true;
+  // top right on slide 7: the rule as it stands, matrix without numbers and every kernel's profile, redrawn as it glides
+  const hud = $("fl7-hud"), hg = hud.getContext("2d");
+  function drawHud(){
+    if(!live || !hudDirty) return; hudDirty = false;
+    const C_ = live.C, pal = win && win.makePalette ? win.makePalette(C_, live.palette || "Spectrum") : null, col = c => pal ? css(pal[c]) : "#fff";
+    hg.setTransform(2, 0, 0, 2, 0, 0); hg.clearRect(0, 0, 480, 220);
+    hg.fillStyle = "rgba(0,0,0,.72)"; hg.fillRect(0, 0, 480, 220);
+    // the matrix: a coloured dot per row and column, each cell blue for +, red for -, brighter for stronger
+    const cs = 26, mx = 14 + cs, my = 14 + cs;
+    for(let c = 0; c < C_; c++){ hg.fillStyle = col(c);
+      hg.beginPath(); hg.arc(mx + c*cs + cs/2, 14 + cs/2, 6, 0, 6.2832); hg.fill();
+      hg.beginPath(); hg.arc(14 + cs/2, my + c*cs + cs/2, 6, 0, 6.2832); hg.fill(); }
+    for(let r = 0; r < C_; r++) for(let c = 0; c < C_; c++){ const v = live.mat[r*C_ + c], a = Math.min(1, Math.abs(v))*0.9;
+      hg.fillStyle = v >= 0 ? `rgba(70,130,255,${a})` : `rgba(255,70,70,${a})`; hg.fillRect(mx + c*cs + 1, my + r*cs + 1, cs - 2, cs - 2); }
+    // the kernels: one profile each, in its colour, against distance in cells
+    const px0 = mx + C_*cs + 24, pw = 480 - px0 - 14, py0 = 14, ph = 220 - 28, KH = 24;
+    let Rm = 1; for(const k_ of live.kernels) Rm = Math.max(Rm, k_.R);
+    const profs = live.kernels.map(k_ => { const h = bakeExact(k_, KH); return Array.from(h.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); });
+    let pm = 1e-12; for(const pr of profs) for(const v of pr) pm = Math.max(pm, Math.abs(v));
+    const zy = py0 + ph*0.38;
+    hg.strokeStyle = "rgba(255,255,255,.25)"; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(px0, zy); hg.lineTo(px0 + pw, zy); hg.stroke();
+    hg.lineWidth = 1.8;
+    profs.forEach((pr, c) => { const sc_ = live.kernels[c].R/Rm; hg.strokeStyle = col(c); hg.globalAlpha = 0.9; hg.beginPath();
+      pr.forEach((v, i) => { const x = px0 + pw/2 + (i - KH)/KH*sc_*pw/2, y = zy - v/pm*ph*0.6; i ? hg.lineTo(x, y) : hg.moveTo(x, y); }); hg.stroke(); });
+    hg.globalAlpha = 1;
+  }
+  SIMS.fl7 = {
+    enter(){
+      k = 15; t7 = performance.now();
+      load().then(async () => {
+        if(!FL || slides[cur].dataset.sim !== "fl7") return;
+        if(!big){ hand(); goBig(); }
+        FL.S.fps = 120; FL.S.running = true; FL.S.smooth = true;
+        { const it = (await presets).find(s_ => s_.name === WORLD); live = SIMS.fl7.cur || it.cfg; hudDirty = true; }
+        fe.classList.add("on"); fit(slides[cur].querySelector(".plview")); fe.offsetWidth; full(); t7 = performance.now();
+        clearInterval(cyc); cyc = setInterval(nextRule, 12000);
+      });
+    },
+    leave(){ clearInterval(cyc); morphId++; if(FL) FL.S.running = false; fe.classList.remove("on"); k = 0; },
+    frame(now){
+      if(!FL || !big) return;
+      drawHud();
+      const S = FL.S, t = (now - t7)/2000;
+      if(t < 1){
+        S.zoom += (1 - S.zoom)*0.06;
+        // the brush: a fifth of the screen across, every colour, following a Lissajous figure
+        const w = fe.contentWindow, tool = S.tool, brush = S.brush, flow = S.flow;
+        S.tool = "paint"; S.brush = 0.1*Math.min(S.NX, S.NY*innerWidth/innerHeight)/S.zoom; S.flow = 0.03; S.paintMask = new Uint8Array(S.C).fill(1);
+        const a = t*2*Math.PI;
+        if(w.paintAt) w.paintAt(0.5 + 0.25*Math.sin(3*a + 0.4), 0.5 + 0.25*Math.sin(2*a), 1/60);   // the figure spans half the screen
+        S.tool = tool; S.brush = brush; S.flow = flow;
+      } else S.zoom += (1 - S.zoom)*0.06;
+    }
+  };
+  const pick = mulberry32(SEED*577);
+  async function nextRule(){
+    if(!FL || !big) return;
+    const now_ = FL.currentConfig ? FL.currentConfig() : null, list = await presets;
+    const from = (await presets).find(s_ => s_.name === WORLD), cur_ = SIMS.fl7.cur || from.cfg;
+    const pool = list.filter(s_ => !(s_.cfg.seedMode === "masses" || s_.cfg.seedMode === "pattern") && s_.cfg.C === cur_.C && s_.cfg.N === cur_.N && !s_.cfg.square && s_.cfg !== cur_);
+    if(!pool.length) return;
+    const to = pool[Math.floor(pick()*pool.length)].cfg, id = ++morphId, t0 = performance.now();
+    const tick = n_ => { if(id !== morphId) return; const u = Math.min(1, (n_ - t0)/2000), e = u*u*(3 - 2*u);
+      live = lerpCfg(cur_, to, e); hudDirty = true; FL.applyConfig(live); if(u < 1) requestAnimationFrame(tick); else SIMS.fl7.cur = to; };
+    requestAnimationFrame(tick);
+  }
+
   return {
     enter(){ load(); k = kPrev = 0; mixT0 = 0; isoT = isoFrom = isoTo = 0; fe.classList.remove("on"); },
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
@@ -1149,7 +1240,7 @@ SIMS.fl = (() => {
         if(k < 13 || !FL) return;
         if(was < 13){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
         if(!big) goBig();   // 13 and 14 both run the title's own world, at its own grid and settings
-        FL.S.fps = 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
+        FL.S.fps = 120; FL.S.running = true; fit(); fe.classList.add("on"); syncTune(); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); tune.classList.remove("on"); }
     },
     frame(now){
