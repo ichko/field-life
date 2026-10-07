@@ -1045,7 +1045,7 @@ SIMS.fl = (() => {
   let runT0 = 0, fills = 0, lastFill = 0, big = false;
   // 13: the same world, at the size the title runs it, carrying over the field on screen
   async function goBig(){
-    const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 14) return;
+    const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 13) return;
     const S = FL.S, NX1 = S.NX, NY1 = S.NY, C1 = S.C, src = FL.readRho(), z1 = S.zoom;   // zoom counts whole worlds, so it carries over
     FL.applyConfig(it.cfg); big = true;
     const NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
@@ -1095,8 +1095,8 @@ SIMS.fl = (() => {
       if(n >= 8) convolve();
       if(n >= 13){ load().then(() => {
         if(k < 13 || !FL) return;
-        if(was < 13 || (n === 13 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
-        if(n === 14 && !big) goBig();
+        if(was < 13){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
+        if(!big) goBig();   // 13 and 14 both run the title's own world, at its own grid and settings
         FL.S.fps = n === 13 ? 30 : 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); tune.classList.remove("on"); }
     },
