@@ -199,7 +199,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="7">and each cell gets a contribution from the cells around it</div>
     <div data-at="8">every cell does this, all at once</div>
     <div data-at="9">mass only moves, so the total never changes</div>
-    <div data-at="10" class="big">A can be anything: here, a Lenia rule</div>
+    <div data-at="10" class="big">A can be anything: here, mass is drawn to nearby mass</div>
   </div>
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
@@ -615,40 +615,6 @@ SIMS.mace = (() => {
     g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - ux*h - uy*h*0.55, y1 - uy*h + ux*h*0.55);
     g.lineTo(x1 - ux*h + uy*h*0.55, y1 - uy*h - ux*h*0.55); g.closePath(); g.fill();
   }
-  // 9: a Lenia rule on a finer grid. A = growth(ring kernel * mass), a bell around mu, so
-  // mass flows toward where the neighbourhood has just the right amount: Flow-Lenia, moved by MaCE.
-  const L = (() => {
-    const LX = 160, LY = 100, LN = LX*LY, KR = 7, mu = 0.12, sg = 0.03, b = 6;
-    const lid = (x, y) => ((y % LY + LY) % LY)*LX + ((x % LX + LX) % LX);
-    const K = []; let ks = 0;
-    for(let dy = -KR; dy <= KR; dy++) for(let dx = -KR; dx <= KR; dx++){ const rr = Math.hypot(dx, dy)/KR; if(rr > 1) continue;
-      const w = Math.exp(-(((rr - 0.5)/0.15)**2)/2); K.push([dx, dy, w]); ks += w; }
-    for(const kk of K) kk[2] /= ks;
-    let r_ = new Float64Array(LN); const LA = new Float64Array(LN), LE = new Float64Array(LN), LS = new Float64Array(LN);
-    const img = g.createImageData(LX, LY), off = document.createElement("canvas"); off.width = LX; off.height = LY;
-    return {
-      seed(){ const r = mulberry32(SEED*5); r_ = new Float64Array(LN);
-        for(let q = 0; q < 10; q++){ const cx = r()*LX, cy = r()*LY, s = 4 + r()*5;
-          for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let dx = x - cx, dy = y - cy; dx -= LX*Math.round(dx/LX); dy -= LY*Math.round(dy/LY);
-            if(Math.hypot(dx, dy) < s) r_[lid(x, y)] += r()*0.9; } } },
-      step(){
-        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let u = 0; for(const [dx, dy, w] of K) u += w*r_[lid(x + dx, y + dy)];
-          LA[lid(x, y)] = 2*Math.exp(-(((u - mu)/sg)**2)/2) - 1; }
-        for(let i = 0; i < LN; i++) LE[i] = Math.exp(b*LA[i]);
-        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let Z = 0; for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++) Z += LE[lid(x + ox, y + oy)]; LS[lid(x, y)] = r_[lid(x, y)]/Z; }
-        const o = new Float64Array(LN);
-        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let t = 0; for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++) t += LS[lid(x + ox, y + oy)]; o[lid(x, y)] = LE[lid(x, y)]*t; }
-        r_ = o; },
-      total(){ let t = 0; for(let i = 0; i < LN; i++) t += r_[i]; return t; },
-      draw(alpha){
-        const d_ = img.data;
-        for(let i = 0; i < LN; i++){ const v = Math.round(255*(1 - Math.exp(-r_[i]*2.5))); d_[4*i] = d_[4*i + 1] = d_[4*i + 2] = v; d_[4*i + 3] = 255; }
-        off.getContext("2d").putImageData(img, 0, 0);
-        g.globalAlpha = alpha; g.imageSmoothingEnabled = true; g.drawImage(off, 0, (H - W*LY/LX)/2, W, W*LY/LX); g.globalAlpha = 1; }
-    };
-  })();
-  let lenT0 = 0;
-  function drawLenia(){ L.draw(Math.min(1, (performance.now() - lenT0)/700)); }
   // a number in a cell: big, centred, white, lifted off the cells by a shadow rather than a plate
   function bigLabel(t, x, y){
     g.save(); g.font = `700 ${Math.round(cam.cs*0.25)}px 'IBM Plex Mono', monospace`; g.textAlign = "center"; g.textBaseline = "middle";
@@ -732,10 +698,9 @@ SIMS.mace = (() => {
       }
       bigLabel("new value " + sum.toFixed(2), tx, ty - cs*1.75);
     }
-    if(k === 10) drawLenia();
-    if(k >= 9) $("mc-sum").textContent = "total mass " + (k === 10 ? L.total() : total()).toFixed(3);
+    if(k >= 9) $("mc-sum").textContent = "total mass " + total().toFixed(3);
   }
-  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 } ];
+  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: NX/2, y: NY/2, cs: W/NX } ];
   return {
     enter(){ seedMass(); fixedA(); k = 0; beta = 2; cam = { ...views[0] }; want = { ...views[0] }; },
     step(n){
@@ -745,7 +710,6 @@ SIMS.mace = (() => {
       if(n <= 6){ rho = Float64Array.from(rho0); fixedA(); }
       if(n === 7){ rho = Float64Array.from(rho0); fixedA(); }
       if(n === 8 && was !== 9) { rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 10 && was < 10){ L.seed(); lenT0 = performance.now(); }
       if(n < 10 && was === 10){ rho = Float64Array.from(rho0); fixedA(); }
       if(n === 6) bT0 = performance.now();
       if(n !== 6) beta = 2;
@@ -753,13 +717,13 @@ SIMS.mace = (() => {
     },
     frame(now){
       gridA += ((k >= 3 ? 0.3 : 1) - gridA)*0.06;   // from 5.3 the grid fades back so the colours carry it
-      const e = 0.07; cam.x += (want.x - cam.x)*e; cam.y += (want.y - cam.y)*e; cam.cs += (want.cs - cam.cs)*e;
+      const e = k === 10 ? 0.025 : 0.07; cam.x += (want.x - cam.x)*e; cam.y += (want.y - cam.y)*e; cam.cs += (want.cs - cam.cs)*e;
       if(k === 6) beta = 2 + 2*Math.sin((now - bT0)/1000*1.3 - Math.PI/2) + 0;   // 0 .. 4 and back
       if(k === 6) beta = Math.max(0, beta);
       // 6, 7: the fixed score, a few steps a second so the moves can be followed; 8: A from the mass, quick
-      const rate = k === 10 ? 20 : (k === 8 || k === 9) ? 4 : 0;
+      const rate = k === 10 ? 30 : (k === 8 || k === 9) ? 4 : 0;
       if(rate && now - last > 1000/rate - 2){ last = now;
-        if(k === 10) L.step(); else mace(1.5); }
+        if(k === 10){ blurA(); mace(1); } else mace(1.5); }
       draw();
     }
   };
