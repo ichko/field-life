@@ -282,7 +282,7 @@ SIMS.pl = (() => {
   const M = [[0.6, -0.7, 0.2], [-0.2, -0.3, 1], [0.8, 0.2, -0.5]];
   // the three the matrix step glides between
   const MATS = [M, [[-0.5, 0.3, 0.9], [0.8, -0.4, -0.6], [0.2, 0.9, -0.8]], [[0.9, -0.8, 0.2], [0.3, 0.7, -0.9], [-0.6, 0.4, 0.6]]];
-  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600;   // ADD: how many More particles brings in
+  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600, VMAX = 0.25;   // VMAX: world heights per second   // ADD: how many More particles brings in
   // Ten particles laid out by hand around a red one, so the close-ups have
   // a green and a blue inside its reach and everyone else outside it.
   const LAYOUT = [[0.5, 0.5, 0], [0.585, 0.49, 1], [0.505, 0.585, 2],
@@ -313,6 +313,8 @@ SIMS.pl = (() => {
           const k_ = f(r/R, M[p.c][q.c], B); ax += k_*dx/r; ay += k_*dy/r; } }
       const fr = Math.pow(0.5, DT*s/FH);
       p.vx = p.vx*fr + ax*R*F*DT*s; p.vy = p.vy*fr + ay*R*F*DT*s;
+      // A speed limit, so a crowd landing on top of itself does not fling particles across the world.
+      const sp = Math.hypot(p.vx, p.vy); if(sp > VMAX){ p.vx *= VMAX/sp; p.vy *= VMAX/sp; }
     }
     for(const p of P){ p.x = ((p.x + p.vx*DT*s) % AR + AR) % AR; p.y = ((p.y + p.vy*DT*s) % 1 + 1) % 1; }
   }
