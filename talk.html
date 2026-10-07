@@ -3,7 +3,7 @@
 <title>Field Life</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
 <style>
 /* A talk built one slide at a time. The stage is 1440x900 (16:10), scaled to
    the window; a slide can also put the live field behind everything. */
@@ -11,6 +11,7 @@
   --bg:#04080B; --fg:#EEF3F5; --mut:#8FA0A6; --accent:#A78BFA;
   --display:"Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
   --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --serif:"Newsreader", Georgia, "Times New Roman", serif;
   --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   color-scheme:dark;
 }
@@ -35,10 +36,13 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
   padding:52px 64px; background:rgba(0,0,0,.85); border-radius:4px; opacity:0;
   transition:top .9s cubic-bezier(.6,0,.2,1) .1s, opacity .6s ease .1s}
 .title.s1 .abstract{top:58%; opacity:1}
-.abstract p{margin:0; font-size:30px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
+.abstract h2{margin:0 0 18px; font-family:var(--serif); font-weight:500; font-size:40px; color:#fff}
+.abstract p{margin:0; font-family:var(--serif); font-size:31px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
 .title h1{margin:0; font-family:var(--display); font-weight:600; font-size:150px; line-height:.95; letter-spacing:-.025em;
-  color:rgba(238,243,245,.86); text-shadow:0 0 60px rgba(4,8,11,.9), 0 0 18px rgba(4,8,11,.7)}
-.title p{margin:0; font-size:30px; letter-spacing:.01em; color:rgba(238,243,245,.7); text-shadow:0 0 24px rgba(4,8,11,.95)}
+  color:rgba(238,243,245,.9);
+  text-shadow:0 2px 4px rgba(0,0,0,.9), 0 0 18px rgba(0,0,0,.9), 0 0 48px rgba(0,0,0,.85), 0 0 110px rgba(0,0,0,.8)}
+.title p{margin:0; font-size:30px; letter-spacing:.01em; color:rgba(238,243,245,.82);
+  text-shadow:0 1px 3px rgba(0,0,0,1), 0 0 12px rgba(0,0,0,.95), 0 0 32px rgba(0,0,0,.9)}
 /* a soft dark pool behind the words, so they read on any part of the field */
 .scrim{position:fixed; inset:0; pointer-events:none; display:none;
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
@@ -67,6 +71,7 @@ body.field .scrim{display:block}
     <p>Particle life as a grid of concentrations</p>
   </div>
   <div class="abstract">
+    <h2>Abstract</h2>
     <p>Particle life is a swarm of coloured dots that attract or repel each other, depending on their colours.
       Field Life keeps the rules and drops the dots: each colour becomes an amount per cell on a grid.
       The amounts move between neighbouring cells without ever being created or destroyed, so every colour keeps its total.</p>
