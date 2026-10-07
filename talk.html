@@ -25,7 +25,15 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 /* title: the field behind, the words fading up out of it */
 .title{display:none; place-items:center; text-align:center}
 .title.on{display:grid}
-.title .words{display:flex; flex-direction:column; align-items:center; gap:22px; animation:rise 2.4s ease-out both}
+.title .words{position:absolute; left:50%; top:50%; transform:translate(-50%, -50%);
+  display:flex; flex-direction:column; align-items:center; gap:22px; animation:rise 2.4s ease-out both;
+  transition:left .9s cubic-bezier(.6,0,.2,1), top .9s cubic-bezier(.6,0,.2,1), transform .9s cubic-bezier(.6,0,.2,1)}
+/* step 2: the title moves to the top-right corner and the abstract rises from below */
+.title.s1 .words{left:calc(100% - 64px); top:56px; transform:translate(-100%, 0) scale(.42); transform-origin:top right; align-items:flex-end; text-align:right}
+.abstract{position:absolute; left:0; right:0; bottom:0; padding:64px 120px 80px; background:rgba(0,0,0,.85);
+  transform:translateY(100%); transition:transform .9s cubic-bezier(.6,0,.2,1) .15s}
+.title.s1 .abstract{transform:none}
+.abstract p{max-width:34em; margin:0 auto; font-size:30px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
 .title h1{margin:0; font-family:var(--display); font-weight:600; font-size:150px; line-height:.95; letter-spacing:-.025em;
   color:rgba(238,243,245,.86); text-shadow:0 0 60px rgba(4,8,11,.9), 0 0 18px rgba(4,8,11,.7)}
 .title p{margin:0; font-size:30px; letter-spacing:.01em; color:rgba(238,243,245,.7); text-shadow:0 0 24px rgba(4,8,11,.95)}
@@ -34,7 +42,7 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
 body.field .scrim{display:block}
 @keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
-@media (prefers-reduced-motion: reduce){ .title .words{animation:none} }
+@media (prefers-reduced-motion: reduce){ .title .words, .abstract{animation:none; transition:none} }
 
 #nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; gap:8px; align-items:center;
   font:400 12px/1 var(--mono); color:var(--mut); z-index:2; opacity:0; transition:opacity .2s}
@@ -51,10 +59,15 @@ body.field .scrim{display:block}
 
 <div id="deck"><div id="stage">
 
-<section class="slide title" data-field="fine brisk filling">
+<section class="slide title" data-field="fine brisk filling" data-steps="2">
   <div class="words">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
+  </div>
+  <div class="abstract">
+    <p>Particle life is a swarm of coloured dots that attract or repel each other, depending on their colours.
+      Field Life keeps the rules and drops the dots: each colour becomes an amount per cell on a grid.
+      The amounts move between neighbouring cells without ever being created or destroyed, so every colour keeps its total.</p>
   </div>
 </section>
 
@@ -113,12 +126,16 @@ const presets = Promise.all(["worlds", "gliders"].map(k =>
 
 /* ------------------------------------------------------------------ deck */
 const slides = [...document.querySelectorAll(".slide")];
-let cur = -1, shown = null;
+let cur = -1, shown = null, step = 0;
+// A slide with data-steps="n" builds in n stages: each press adds class s1, s2, ...
+function setStep(k){ const sl = slides[cur]; for(let j = 1; j < 8; j++) sl.classList.toggle("s" + j, j <= k); step = k; }
+function next(){ const n = +(slides[cur].dataset.steps || 1); if(step < n - 1) setStep(step + 1); else go(cur + 1); }
+function prev(){ if(step > 0) setStep(step - 1); else go(cur - 1); }
 async function go(i){
   i = Math.max(0, Math.min(slides.length - 1, i));
   if(i === cur) return;
   if(cur >= 0) slides[cur].classList.remove("on");
-  cur = i; slides[cur].classList.add("on");
+  cur = i; slides[cur].classList.add("on"); setStep(0);
   $("count").textContent = `${cur + 1} / ${slides.length}`;
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
   // A slide names a preset in data-field to put it behind everything, and may
@@ -133,16 +150,17 @@ async function go(i){
 function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
 addEventListener("resize", fit); fit();
 addEventListener("keydown", e => {
-  if(["ArrowRight", "PageDown", " "].includes(e.key)){ e.preventDefault(); go(cur + 1); }
-  if(["ArrowLeft", "PageUp"].includes(e.key)){ e.preventDefault(); go(cur - 1); }
+  if(["ArrowRight", "PageDown", " "].includes(e.key)){ e.preventDefault(); next(); }
+  if(["ArrowLeft", "PageUp"].includes(e.key)){ e.preventDefault(); prev(); }
   if(e.key === "Home") go(0); if(e.key === "End") go(slides.length - 1);
   if(e.key === "f" && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
 });
-$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+$("prev").onclick = prev; $("next").onclick = next;
+$("deck").addEventListener("click", e => { if(!e.target.closest("a, button")) next(); });
 let tx0 = null;
 addEventListener("touchstart", e => { tx0 = e.touches[0].clientX; }, {passive:true});
 addEventListener("touchend", e => { if(tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0;
-  if(Math.abs(dx) > 80) go(cur + (dx < 0 ? 1 : -1)); tx0 = null; });
+  if(Math.abs(dx) > 80) (dx < 0 ? next : prev)(); tx0 = null; });
 addEventListener("hashchange", () => go((parseInt(location.hash.slice(1), 10) || 1) - 1));
 go((parseInt(location.hash.slice(1), 10) || 1) - 1);
 </script>
