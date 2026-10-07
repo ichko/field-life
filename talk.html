@@ -154,9 +154,8 @@ body.dimmed .dim{opacity:1}
 .pl[data-sim="liz"].s1 .lizemoji{opacity:1}
 .pl[data-sim="liz"].s2 .lizemoji{opacity:0}
 /* 3D: the volume page in the frame, live to the mouse so it can be turned */
-.pl[data-sim="vol"] .plview{opacity:1; height:620px}
-.pl[data-sim="vol"] .plcap > div{opacity:1; transform:none}
-#vol-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; background:#000; box-shadow:0 0 0 2px rgba(255,255,255,.38)}
+#vol-eng{position:absolute; border:0; background:#000}   /* sized to the whole window in code */
+.slide[data-sim="vol"]{background:#000}
 /* the last slide: an hourglass, full screen, its glass drawn over the engine */
 #hg-eng{position:absolute; border:0; opacity:0; pointer-events:none; background:#000; transition:opacity .8s ease}
 #hg-cv{position:absolute; pointer-events:none; opacity:0; transition:opacity .8s ease}
@@ -317,12 +316,8 @@ body.dimmed .dim{opacity:1}
   <div class="flform"></div>
 </section>
 
-<section class="slide pl" data-sim="vol">
-  <h2>Field Life in 3D</h2>
-  <div class="plview">
-    <iframe id="vol-eng" title="Field Life in a volume" tabindex="-1"></iframe>
-  </div>
-  <div class="plcap"><div class="cur">the same rule in a volume, cut in half: drag to turn it</div></div>
+<section class="slide" data-sim="vol">
+  <iframe id="vol-eng" title="Field Life in a volume" tabindex="-1"></iframe>
 </section>
 
 <section class="slide pl" data-steps="8" data-sim="liz">
@@ -1429,10 +1424,14 @@ SIMS.vol = (() => {
           } else if(++tries > 200) res(); else setTimeout(poll, 50); };
         poll();
       });
-      fe.src = "staging/volume.html";
+      fe.src = "staging/volume.html?black";
     });
     return loading;
   }
+  // the whole window, in stage coordinates
+  function full(){ const sc = Math.min(innerWidth/1440, innerHeight/900), w_ = innerWidth/sc, h_ = innerHeight/sc;
+    Object.assign(fe.style, { left: (1440 - w_)/2 + "px", top: (900 - h_)/2 + "px", width: w_ + "px", height: h_ + "px" }); }
+  full(); addEventListener("resize", full);
   return {
     enter(){ load().then(() => { if(VS && slides[cur].dataset.sim === "vol"){ VS.running = true; } }); },
     leave(){ if(VS) VS.running = false; }
