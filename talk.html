@@ -224,7 +224,7 @@ body.dimmed .dim{opacity:1}
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
 
-<section class="slide pl" data-steps="15" data-sim="fl">
+<section class="slide pl" data-steps="14" data-sim="fl">
   <h2>Field Life</h2>
   <div class="plview">
     <canvas id="fl-cv"></canvas>
@@ -251,8 +251,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="10">summed: where red wants to go</div>
     <div data-at="11">force scales that; repel pushes mass out of crowded cells, whatever their colour</div>
     <div data-at="12">MaCE moves the mass along A; β sets how sharply</div>
-    <div data-at="13">running, slowly</div>
-    <div data-at="14" class="big">full speed, more mass</div>
+    <div data-at="13" class="big">running: the same world as the title</div>
   </div>
   <div class="flform" id="fl-form">
     <div data-at="6">\( \displaystyle K(r) = \sum_i a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \qquad a = (1,\,-6.25) \quad \mu = (0,\,0) \quad \sigma = (0.354,\,0.141) \)</div>
@@ -1097,17 +1096,17 @@ SIMS.fl = (() => {
         if(k < 13 || !FL) return;
         if(was < 13){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
         if(!big) goBig();   // 13 and 14 both run the title's own world, at its own grid and settings
-        FL.S.fps = n === 13 ? 30 : 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
+        FL.S.fps = 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); tune.classList.remove("on"); }
     },
     frame(now){
       if(k >= 13 && FL && fe.classList.contains("on")){
         const S = FL.S;
         // 12: back off a little, cells still distinct; 13: all the way out, the rest of the world fading in
-        const zWant = k === 13 ? zOf(5) : 2.2;   // 14: out, but not the whole world: the frame is smaller than the title's screen
-        S.zoom += (zWant - S.zoom)*(k === 13 ? 0.02 : 0.015);
+        const zWant = 2.2;   // 14: out, but not the whole world: the frame is smaller than the title's screen
+        S.zoom += (zWant - S.zoom)*0.015;
         S.smooth = csOf(S.zoom) < 4;
-        if(k === 14 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
+        if(k === 13 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
         return;
       }
       draw(now);
