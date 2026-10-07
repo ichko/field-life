@@ -107,8 +107,8 @@ body.dimmed .dim{opacity:1}
 #fl-cv{height:620px !important}
 .pl[data-sim="fl"] .plview{height:620px}
 .pl[data-sim="fl"] #fl-cv{background:transparent; box-shadow:none}
-#fl-eng{position:absolute; left:160px; top:140px; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; pointer-events:none; background:#000;
-  transition:opacity .6s ease, left 2s ease-in-out, top 2s ease-in-out, width 2s ease-in-out, height 2s ease-in-out, border-radius 2s ease}
+#fl-eng{position:absolute; left:160px; top:140px; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; pointer-events:none; background:#000; transition:opacity .6s ease}
+#fl-eng.grow{transition:opacity .6s ease, left 2s ease-in-out, top 2s ease-in-out, width 2s ease-in-out, height 2s ease-in-out, border-radius 2s ease}
 #fl-eng.on{opacity:1}
 /* slide 7: the frame grows to the whole screen while the title goes */
 .fl7.on{gap:14px}
@@ -1184,11 +1184,11 @@ SIMS.fl = (() => {
         if(!big){ hand(); goBig(); }
         FL.S.fps = 120; FL.S.running = true; FL.S.smooth = true;
         { const it = (await presets).find(s_ => s_.name === WORLD); live = SIMS.fl7.cur || it.cfg; hudDirty = true; }
-        fe.classList.add("on"); fit(slides[cur].querySelector(".plview")); fe.offsetWidth; full(); t7 = performance.now();
+        fe.classList.add("on"); fit(slides[cur].querySelector(".plview")); fe.offsetWidth; fe.classList.add("grow"); full(); t7 = performance.now();
         clearInterval(cyc); cyc = setInterval(nextRule, 12000);
       });
     },
-    leave(){ clearInterval(cyc); morphId++; if(FL) FL.S.running = false; fe.classList.remove("on"); k = 0; },
+    leave(){ clearInterval(cyc); morphId++; if(FL) FL.S.running = false; fe.classList.remove("on", "grow"); k = 0; },
     frame(now){
       if(!FL || !big) return;
       drawHud();
