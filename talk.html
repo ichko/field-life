@@ -116,6 +116,13 @@ body.dimmed .dim{opacity:1}
 .flform.on{height:78px}
 .flform > div{position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:24px; opacity:0; transition:opacity .4s ease}
 .flform > div.cur{opacity:1}
+/* press t on 6.13 / 6.14: live knobs for the running world */
+.fltune{position:absolute; left:16px; bottom:16px; display:none; gap:8px; padding:12px 14px; background:rgba(0,0,0,.82);
+  border:1px solid rgba(255,255,255,.2); border-radius:4px; font:400 15px/1 var(--mono); color:#dfe6ea; z-index:3}
+.fltune.on{display:grid}
+.fltune label{display:grid; grid-template-columns:64px 180px 52px; align-items:center; gap:10px}
+.fltune input{accent-color:var(--accent); width:180px}
+.fltune button{font:500 14px/1 var(--mono); color:#fff; background:transparent; border:1px solid rgba(255,255,255,.3); padding:6px 8px; border-radius:2px; cursor:pointer}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -223,6 +230,13 @@ body.dimmed .dim{opacity:1}
     <canvas id="fl-cv"></canvas>
     <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
     <div class="plmat flmat" id="fl-mat"></div>
+    <div class="fltune" id="fl-tune">
+      <label>force <input data-k="force" type="range" min="0" max="200" step="1"><span></span></label>
+      <label>repel <input data-k="repel" type="range" min="0" max="15" step="0.1"><span></span></label>
+      <label>beta <input data-k="beta" type="range" min="0" max="8" step="0.1"><span></span></label>
+      <label>speed <input data-k="fps" type="range" min="1" max="120" step="1"><span></span></label>
+      <button id="fl-newmat">new matrix</button>
+    </div>
   </div>
   <div class="plcap" id="fl-cap">
     <div data-at="1">A grid</div>
@@ -245,7 +259,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
     <div data-at="9">\( \displaystyle M_{\text{red},d}\; U_d \)</div>
     <div data-at="10">\( \displaystyle \sum_d M_{cd}\, U_d \)</div>
-    <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \qquad F = 70 \quad \text{repel} = 6 \)</div>
+    <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \)</div>
     <div data-at="12">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \qquad \beta = 3 \)</div>
   </div>
 </section>
@@ -832,7 +846,7 @@ SIMS.fl = (() => {
       // the engine's grid: fine enough that its kernel reaches UP*KR cells, i.e. KR of ours
       const N = Math.round(cfg.N*UP*KR/cfg.radMax), k = N/cfg.N;
       cfg.N = N; cfg.radMin *= k; cfg.radMax *= k; for(const kn of cfg.kernels) kn.R *= k;
-      cfg.force = 70;   // a little gentler than the title's 90: on this coarser grid 90 makes the mass flip back and forth each step
+      cfg.force = 70; cfg.repel = 1.5;   // gentler than the title's 90 and 6: on this coarser grid those make the mass flip back and forth each step
       win.Math.random = mulberry32(SEED*7919);
       FL.applyConfig(cfg); FL.S.running = false;
       M = CH.map(c => CH.map(dd => cfg.mat[c*cfg.C + dd]));
@@ -1058,6 +1072,13 @@ SIMS.fl = (() => {
       out[CH[c]*NX*NY + (NY - 1 - (y0 + y))*NX + x0 + x] = target[c][Math.floor(y/UP)*WX + Math.floor(x/UP)];
     FL.writeRho(out); S.blend = 0; S.smooth = false; S.panU = S.panV = 0.5; S.zoom = zOf(CS/UP); S.holdUntil = 0;
   }
+  // t toggles a few live knobs while the engine runs; values show beside each
+  const tune = $("fl-tune");
+  for(const ev of ["click", "pointerdown", "touchstart"]) tune.addEventListener(ev, e => e.stopPropagation());
+  function syncTune(){ if(!FL) return; for(const el of tune.querySelectorAll("input")){ el.value = FL.S[el.dataset.k]; el.nextElementSibling.textContent = (+FL.S[el.dataset.k]).toFixed(el.step < 1 ? 1 : 0); } }
+  for(const el of tune.querySelectorAll("input")) el.addEventListener("input", () => { if(!FL) return; FL.S[el.dataset.k] = +el.value; el.nextElementSibling.textContent = (+el.value).toFixed(el.step < 1 ? 1 : 0); });
+  $("fl-newmat").onclick = () => { if(!FL) return; FL.resampleMatrix((Math.random()*1e6) | 0); };
+  addEventListener("keydown", e => { if(e.key === "t" && k >= 13){ tune.classList.toggle("on"); syncTune(); } });
   return {
     enter(){ load(); k = kPrev = 0; mixT0 = 0; isoT = isoFrom = isoTo = 0; fe.classList.remove("on"); },
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
@@ -1076,8 +1097,8 @@ SIMS.fl = (() => {
         if(k < 13 || !FL) return;
         if(was < 13 || (n === 13 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
         if(n === 14 && !big) goBig();
-        FL.S.fps = n === 13 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); }); }
-      else { if(FL) FL.S.running = false; fe.classList.remove("on"); }
+        FL.S.fps = n === 13 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
+      else { if(FL) FL.S.running = false; fe.classList.remove("on"); tune.classList.remove("on"); }
     },
     frame(now){
       if(k >= 13 && FL && fe.classList.contains("on")){
