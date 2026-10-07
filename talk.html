@@ -41,11 +41,12 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 body.field .scrim{display:block}
 /* a text slide over the field: a dark band behind the slide, the field still
    showing above and below it */
-.dim{position:fixed; left:0; right:0; top:8vh; bottom:8vh; pointer-events:none; background:rgba(4,8,11,.82); opacity:0; transition:opacity .6s ease;
-  -webkit-mask-image:linear-gradient(transparent, #000 3vh, #000 calc(100% - 3vh), transparent);
-          mask-image:linear-gradient(transparent, #000 3vh, #000 calc(100% - 3vh), transparent)}
+.dim{position:absolute; left:0; right:0; top:60px; bottom:60px; pointer-events:none; background:rgba(4,8,11,.82); opacity:0; transition:opacity .6s ease;
+  -webkit-mask-image:linear-gradient(transparent, #000 28px, #000 calc(100% - 28px), transparent);
+          mask-image:linear-gradient(transparent, #000 28px, #000 calc(100% - 28px), transparent)}
 body.dimmed .dim{opacity:1}
-.text{padding:90px 100px}
+.text.on{display:flex; flex-direction:column; justify-content:center}
+.text{padding:100px 110px}
 .text h2{margin:0 0 48px; font-family:var(--display); font-weight:600; font-size:72px; letter-spacing:-.02em; color:#fff}
 .text ul{margin:0; padding:0; list-style:none; display:grid; gap:26px; width:100%}
 .text li{position:relative; padding-left:40px; font-size:36px; line-height:1.35; color:rgba(238,243,245,.92)}
@@ -73,9 +74,9 @@ body.dimmed .dim{opacity:1}
 
 <iframe id="engine" title="Field Life simulation" tabindex="-1"></iframe>
 <div class="scrim"></div>
-<div class="dim"></div>
 
 <div id="deck"><div id="stage">
+<div class="dim"></div>
 
 <section class="slide title" data-field="fine brisk filling" data-cycle="10000">
   <div class="words">
