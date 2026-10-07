@@ -111,7 +111,7 @@ body.dimmed .dim{opacity:1}
 #fl-eng.on{opacity:1}
 .flmat{grid-template-columns:repeat(4, 66px)}
 .pl.s7 #fl-mat{opacity:1}
-.pl.s11 #fl-mat{opacity:0}
+.pl.s12 #fl-mat{opacity:0}
 .flform{position:relative; width:1120px; height:0; transition:height .4s ease}
 .flform.on{height:78px}
 .flform > div{position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:24px; opacity:0; transition:opacity .4s ease}
@@ -217,7 +217,7 @@ body.dimmed .dim{opacity:1}
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
 
-<section class="slide pl" data-steps="14" data-sim="fl">
+<section class="slide pl" data-steps="15" data-sim="fl">
   <h2>Field Life</h2>
   <div class="plview">
     <canvas id="fl-cv"></canvas>
@@ -232,19 +232,21 @@ body.dimmed .dim{opacity:1}
     <div data-at="5">blended by dominance</div>
     <div data-at="6">each channel has a kernel: bells over distance, normalised to sum to 0</div>
     <div data-at="7">and there is an interaction matrix</div>
-    <div data-at="8">each channel is convolved with its own kernel</div>
-    <div data-at="9">weighted by the target channel's row of the matrix</div>
-    <div data-at="10">and summed: the response of the target channel</div>
-    <div data-at="11">MaCE moves the mass</div>
-    <div data-at="12">running, slowly</div>
-    <div data-at="13" class="big">full speed, more mass</div>
+    <div data-at="8">convolving: how much of each colour is around, counted by its kernel</div>
+    <div data-at="9">red's row of the matrix: pulled towards (+) or pushed from (−) each colour</div>
+    <div data-at="10">summed: where red wants to go</div>
+    <div data-at="11">force scales that; repel pushes mass out of crowded cells, whatever their colour</div>
+    <div data-at="12">MaCE moves the mass along A; β sets how sharply</div>
+    <div data-at="13">running, slowly</div>
+    <div data-at="14" class="big">full speed, more mass</div>
   </div>
   <div class="flform" id="fl-form">
     <div data-at="6">\( \displaystyle K(r) = \sum_i a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \qquad a = (1,\,-6.25) \quad \mu = (0,\,0) \quad \sigma = (0.354,\,0.141) \)</div>
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
-    <div data-at="9">\( \displaystyle M_{cd}\, U_d \)</div>
-    <div data-at="10">\( \displaystyle A_c \;=\; \sum_d M_{cd}\, U_d \)</div>
-    <div data-at="11">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \)</div>
+    <div data-at="9">\( \displaystyle M_{\text{red},d}\; U_d \)</div>
+    <div data-at="10">\( \displaystyle \sum_d M_{cd}\, U_d \)</div>
+    <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \qquad F = 90 \quad \text{repel} = 6 \)</div>
+    <div data-at="12">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \qquad \beta = 3 \)</div>
   </div>
 </section>
 
@@ -798,7 +800,7 @@ SIMS.fl = (() => {
   let PAL = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FL = null, win = null, cfg = null, kern = null, prof = null;
   let M = [[-0.35, -0.57, -0.69], [0.66, 0.51, 0.93], [0.21, 0.23, -0.1]];
   const target = [0, 1, 2].map(() => new Float32Array(NN)), rho = [0, 1, 2].map(() => new Float32Array(NN));
-  const U = [0, 1, 2].map(() => new Float32Array(NN)), A0 = new Float32Array(NN);
+  const U = [0, 1, 2].map(() => new Float32Array(NN)), A0 = new Float32Array(NN), AF = new Float32Array(NN), NB = new Float32Array(NN);
   // three solid circles with a soft rim: a Venn diagram, one circle per channel
   const R0 = 5.6, OFF = R0*0.6, AMP = 0.4;
   const centre = c => { const a = -Math.PI/2 + c*2*Math.PI/3; return [WX/2 + OFF*Math.cos(a), WY/2 + OFF*Math.sin(a)]; };
@@ -877,7 +879,7 @@ SIMS.fl = (() => {
   buildMat();
 
   // U_d = K_d * rho_d on the window (nothing outside it), and A for the first channel
-  let sU = 1, sA = 1;
+  let sU = 1, sA = 1, sAF = 1;
   function convolve(){
     if(!kern) return;
     const n = 2*KR + 1;
@@ -889,6 +891,15 @@ SIMS.fl = (() => {
     let mu = 0, ma = 0;
     for(let i = 0; i < NN; i++){ let a = 0; for(let dd = 0; dd < C; dd++){ a += M[0][dd]*U[dd][i]; mu = Math.max(mu, Math.abs(U[dd][i])); } A0[i] = a; ma = Math.max(ma, Math.abs(a)); }
     sU = 0.9/Math.max(mu, 1e-9); sA = 0.9/Math.max(ma, 1e-9);
+    // the full affinity: force times that, minus repel times a tight blur of all the mass (sigma 0.22 of the reach, as the engine)
+    const sg = 0.22*KR, G = []; let gt = 0; for(let i = -4; i <= 4; i++){ G.push(Math.exp(-0.5*i*i/(sg*sg))); gt += G[G.length - 1]; }
+    for(let y = 0; y < WY; y++) for(let x = 0; x < WX; x++){ let v = 0;
+      for(let j = -4; j <= 4; j++) for(let i = -4; i <= 4; i++){ const xx = x + i, yy = y + j; if(xx < 0 || yy < 0 || xx >= WX || yy >= WY) continue;
+        let m = 0; for(let c = 0; c < C; c++) m += target[c][yy*WX + xx]; v += G[i + 4]*G[j + 4]*m; }
+      NB[y*WX + x] = v/(gt*gt); }
+    const F = cfg ? cfg.force : 90, RP = cfg ? cfg.repel : 6; let mf = 0;
+    for(let i = 0; i < NN; i++){ AF[i] = F*A0[i] - RP*NB[i]; mf = Math.max(mf, Math.abs(AF[i])); }
+    sAF = 0.9/Math.max(mf, 1e-9);
   }
 
   // what each slab shows, as rgb 0..1 per cell; on top of each other the three are ADDED
@@ -899,7 +910,8 @@ SIMS.fl = (() => {
     if(k === 8) return signed(U[l][i]*sU);
     if(k === 9) return signed(M[0][l]*U[l][i]*sU);
     if(k === 10) return l === 0 ? signed(A0[i]*sA) : [0, 0, 0];
-    if(k === 5 || k === 6 || k === 7 || k >= 11){
+    if(k === 11) return l === 0 ? signed(AF[i]*sAF) : [0, 0, 0];
+    if(k === 5 || k === 6 || k === 7 || k >= 12){
       // the engine's dominant blend, split between the slabs so that their sum is it
       let ws = 0, tot = 0; for(let c = 0; c < C; c++){ const v = Math.max(0, rho[c][i]); ws += v*v; tot += v; }
       if(ws < 1e-12) return [0, 0, 0];
@@ -1010,15 +1022,15 @@ SIMS.fl = (() => {
       }
       g.globalAlpha = 1;
     }
-    // 11: one cell's 3x3, where MaCE hands its mass out
-    if(k === 11){ setM(flat); g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 4/CS; g.strokeRect(Math.floor(WX/2) - 1, Math.floor(WY/2) - 1, 3, 3); g.setTransform(d, 0, 0, d, 0, 0); }
+    // 12: one cell's 3x3, where MaCE hands its mass out
+    if(k === 12){ setM(flat); g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 4/CS; g.strokeRect(Math.floor(WX/2) - 1, Math.floor(WY/2) - 1, 3, 3); g.setTransform(d, 0, 0, d, 0, 0); }
   }
 
   // 12, 13: the engine takes over from the picture, each of our cells UP x UP of its
   let runT0 = 0, fills = 0, lastFill = 0, big = false;
   // 13: the same world, at the size the title runs it, carrying over the field on screen
   async function goBig(){
-    const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 13) return;
+    const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 14) return;
     const S = FL.S, NX1 = S.NX, NY1 = S.NY, C1 = S.C, src = FL.readRho(), z1 = S.zoom;   // zoom counts whole worlds, so it carries over
     FL.applyConfig(it.cfg); big = true;
     const NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
@@ -1050,30 +1062,30 @@ SIMS.fl = (() => {
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
     step(n){
       for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
-      const form = $("fl-form"); form.classList.toggle("on", n === 6 || (n >= 8 && n <= 11));
+      const form = $("fl-form"); form.classList.toggle("on", n === 6 || (n >= 8 && n <= 12));
       for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
-      for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", (n === 9 || n === 10) && e.dataset.r === "0");
+      for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", n >= 9 && n <= 11 && e.dataset.r === "0");
       const now = performance.now(), was = k;
       kPrev = k; k = n; mixT0 = now;
       const want = ISO_STEPS.includes(n) ? 1 : 0;
       if(want !== isoTo){ isoFrom = isoT; isoTo = want; isoT0 = now; }
       if(n === 3 && was < 3) fadeT0 = now;
       if(n >= 8) convolve();
-      if(n >= 12){ load().then(() => {
-        if(k < 12 || !FL) return;
-        if(was < 12 || (n === 12 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
-        if(n === 13 && !big) goBig();
-        FL.S.fps = n === 12 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); }); }
+      if(n >= 13){ load().then(() => {
+        if(k < 13 || !FL) return;
+        if(was < 13 || (n === 13 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
+        if(n === 14 && !big) goBig();
+        FL.S.fps = n === 13 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); }
     },
     frame(now){
-      if(k >= 12 && FL && fe.classList.contains("on")){
+      if(k >= 13 && FL && fe.classList.contains("on")){
         const S = FL.S;
         // 12: back off a little, cells still distinct; 13: all the way out, the rest of the world fading in
-        const zWant = k === 12 ? zOf(5) : 1;
-        S.zoom += (zWant - S.zoom)*(k === 12 ? 0.02 : 0.015);
+        const zWant = k === 13 ? zOf(5) : 1;
+        S.zoom += (zWant - S.zoom)*(k === 13 ? 0.02 : 0.015);
         S.smooth = csOf(S.zoom) < 4;
-        if(k === 13 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
+        if(k === 14 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
         return;
       }
       draw(now);
