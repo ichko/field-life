@@ -338,14 +338,14 @@ body.dimmed .dim{opacity:1}
     <div data-at="1">the target: a picture</div>
     <div data-at="2">the start: a disc holding a fixed amount of each of 12 colours</div>
     <div data-at="3">run it, compare with the picture, backpropagate through every step</div>
-    <div data-at="4">it learns the matrix, force, repel, β, the seed and every kernel</div>
-    <div data-at="5">each kernel: 20 bells, each at its own distance, with angular lobes</div>
-    <div data-at="6">fitted on roughly the first 1000 steps; past that, nothing keeps it in shape</div>
-    <div data-at="7">all 12 colours: the lizard is three of them, the rest is the scaffold that grows it</div>
+    <div data-at="5">it learns the matrix, force, repel, β, the seed and every kernel</div>
+    <div data-at="6">each kernel: 20 bells, each at its own distance, with angular lobes</div>
+    <div data-at="7">fitted on roughly the first 1000 steps; past that, nothing keeps it in shape</div>
+    <div data-at="4">all 12 colours: the lizard is three of them, the rest is the scaffold that grows it</div>
   </div>
   <div class="flform" id="liz-form">
     <div data-at="3">\( \displaystyle \text{loss} = \big\| \rho(t) - \text{picture} \big\|^2 \)</div>
-    <div data-at="5">\( \displaystyle K(r,\theta) = \sum_{i=1}^{20} a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \cos(m_i\theta + \varphi_i) \)</div>
+    <div data-at="6">\( \displaystyle K(r,\theta) = \sum_{i=1}^{20} a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \cos(m_i\theta + \varphi_i) \)</div>
   </div>
 </section>
 
@@ -1382,10 +1382,12 @@ SIMS.liz = (() => {
   return {
     enter(){ load(); k = 0; },
     leave(){ if(FL) FL.S.running = false; },
-    step(n){
-      for(const c of $("liz-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
-      const form = $("liz-form"); form.classList.toggle("on", n === 3 || n === 5);
-      for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
+    step(n0){
+      for(const c of $("liz-cap").children) c.classList.toggle("cur", +c.dataset.at === n0);
+      const form = $("liz-form"); form.classList.toggle("on", n0 === 3 || n0 === 6);
+      for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n0);
+      // the order on screen: target, seed, run, all colours, matrix, kernels, fast forward
+      const n = [0, 1, 2, 3, 7, 4, 5, 6][n0];
       const was = k; k = n;
       load().then(() => {
         if(!FL) return; const S = FL.S;
