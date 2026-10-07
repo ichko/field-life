@@ -120,8 +120,18 @@ body.dimmed .dim{opacity:1}
 .fltune{position:absolute; left:16px; bottom:16px; display:none; gap:8px; padding:12px 14px; background:rgba(0,0,0,.82);
   border:1px solid rgba(255,255,255,.2); border-radius:4px; font:400 15px/1 var(--mono); color:#dfe6ea; z-index:3}
 .fltune.on{display:grid}
-.fltune.kt{left:auto; right:16px; bottom:auto; top:50%; transform:translateY(-50%); font-size:20px}
-.fltune.kt label{grid-template-columns:40px 180px 70px}
+.pl[data-sim="fl"].on{gap:14px}
+/* 6.7: the kernel's four numbers, moved one at a time by the slide itself */
+.flkt{display:none; gap:28px; justify-content:center; font:500 20px/1 var(--mono); color:rgba(238,243,245,.45); pointer-events:none}
+.flkt.on{display:flex}
+.flkt label{display:flex; align-items:center; gap:10px; transition:color .3s}
+.flkt label.cur{color:#fff}
+.flkt input{accent-color:var(--accent); width:150px}
+.flkt span{min-width:58px; font-variant-numeric:tabular-nums}
+/* the matrix only from 6.8; outrank the particle-life rules that share its class */
+.pl[data-sim="fl"] #fl-mat{opacity:0}
+.pl[data-sim="fl"].s8 #fl-mat{opacity:1}
+.pl[data-sim="fl"].s13 #fl-mat{opacity:0}
 .fltune label{display:grid; grid-template-columns:64px 180px 52px; align-items:center; gap:10px}
 .fltune input{accent-color:var(--accent); width:180px}
 .fltune button{font:500 14px/1 var(--mono); color:#fff; background:transparent; border:1px solid rgba(255,255,255,.3); padding:6px 8px; border-radius:2px; cursor:pointer}
@@ -232,12 +242,6 @@ body.dimmed .dim{opacity:1}
     <canvas id="fl-cv"></canvas>
     <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
     <div class="plmat flmat" id="fl-mat"></div>
-    <div class="fltune kt" id="fl-ktune">
-      <label>a₁ <input data-t="0" data-p="a" type="range" min="0" max="2" step="0.01"><span></span></label>
-      <label>σ₁ <input data-t="0" data-p="w" type="range" min="0.05" max="0.6" step="0.005"><span></span></label>
-      <label>a₂ <input data-t="1" data-p="a" type="range" min="-12" max="0" step="0.05"><span></span></label>
-      <label>σ₂ <input data-t="1" data-p="w" type="range" min="0.03" max="0.4" step="0.005"><span></span></label>
-    </div>
     <div class="fltune" id="fl-tune">
       <label>force <input data-k="force" type="range" min="0" max="200" step="1"><span></span></label>
       <label>repel <input data-k="repel" type="range" min="0" max="15" step="0.1"><span></span></label>
@@ -269,6 +273,12 @@ body.dimmed .dim{opacity:1}
     <div data-at="10">\( \displaystyle \sum_d M_{cd}\, U_d \)</div>
     <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \)</div>
     <div data-at="12">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \qquad \beta = 3 \)</div>
+  </div>
+  <div class="flkt" id="fl-ktune">
+    <label>a₁ <input data-t="0" data-p="a" type="range" min="0" max="2" step="0.01" tabindex="-1"><span></span></label>
+    <label>σ₁ <input data-t="0" data-p="w" type="range" min="0.05" max="0.6" step="0.005" tabindex="-1"><span></span></label>
+    <label>a₂ <input data-t="1" data-p="a" type="range" min="-12" max="0" step="0.05" tabindex="-1"><span></span></label>
+    <label>σ₂ <input data-t="1" data-p="w" type="range" min="0.03" max="0.4" step="0.005" tabindex="-1"><span></span></label>
   </div>
 </section>
 
@@ -903,14 +913,25 @@ SIMS.fl = (() => {
   // the world's kernel, from its own numbers, so it shows even before (or without) the engine; the engine's copy replaces it once loaded
   const KDEF = { feather: 0.1, terms: [{ a: 1, r: 0, w: 0.354 }, { a: -6.25, r: 0, w: 0.141 }] };
   let KCUR = JSON.parse(JSON.stringify(KDEF));
-  function setKernel(K_){ const KH = 70; kern = CH.map(() => bakeExact(K_, KR)); const hi = bakeExact(K_, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
+  function setKernel(K_){ const KH = 40; kern = CH.map(() => bakeExact(K_, KR)); const hi = bakeExact(K_, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
   setKernel(KDEF);
   // 6.7: the two bells' heights and widths on sliders; the square and the profile follow
   const ktune = $("fl-ktune");
-  for(const ev of ["click", "pointerdown", "touchstart"]) ktune.addEventListener(ev, e => e.stopPropagation());
   const kshow = el => el.nextElementSibling.textContent = (+el.value).toFixed(el.dataset.p === "a" ? 2 : 3);
   function syncK(){ for(const el of ktune.querySelectorAll("input")){ el.value = KCUR.terms[+el.dataset.t][el.dataset.p]; kshow(el); } }
-  for(const el of ktune.querySelectorAll("input")) el.addEventListener("input", () => { KCUR.terms[+el.dataset.t][el.dataset.p] = +el.value; kshow(el); setKernel(KCUR); });
+  // each number in turn swings down, up and back over a few seconds, then the next
+  const SWING = [[0.3, 1.8], [0.18, 0.55], [-2, -11], [0.07, 0.3]], KT = 3600;
+  let ktT0 = 0;
+  function animK(now){
+    const els = [...ktune.querySelectorAll("label")], t = Math.max(0, now - ktT0)/KT, j = Math.floor(t) % 4, f = t - Math.floor(t);
+    KCUR = JSON.parse(JSON.stringify(KDEF));
+    const inp = els[j].querySelector("input"), ti = +inp.dataset.t, pr = inp.dataset.p, v0 = KDEF.terms[ti][pr], [lo, hi] = SWING[j];
+    // default -> low -> high -> default, eased
+    const e = x => x*x*(3 - 2*x), q = f*3, v = q < 1 ? v0 + (lo - v0)*e(q) : q < 2 ? lo + (hi - lo)*e(q - 1) : hi + (v0 - hi)*e(q - 2);
+    KCUR.terms[ti][pr] = v;
+    els.forEach((l, i) => l.classList.toggle("cur", i === j));
+    syncK(); setKernel(KCUR);
+  }
 
   // U_d = K_d * rho_d on the window (nothing outside it), and A for the first channel
   let sU = 1, sA = 1, sAF = 1;
@@ -1100,7 +1121,7 @@ SIMS.fl = (() => {
       // 7 is the kernel again, with its knobs; every later step is the one before it in what follows
       const n = n0 <= 6 ? n0 : n0 === 7 ? 6 : n0 - 1;
       ktune.classList.toggle("on", n0 === 7);
-      if(n0 === 7) syncK(); else { KCUR = JSON.parse(JSON.stringify(KDEF)); setKernel(KDEF); }
+      if(n0 === 7){ ktT0 = performance.now(); syncK(); } else { KCUR = JSON.parse(JSON.stringify(KDEF)); setKernel(KDEF); }
       for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n0);
       const form = $("fl-form"); form.classList.toggle("on", n === 6 || (n >= 8 && n <= 12));
       for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
@@ -1128,6 +1149,7 @@ SIMS.fl = (() => {
         if(k === 13 && big && fills < 24 && now - lastFill > 150){ lastFill = now; fill(); fills++; }
         return;
       }
+      if(ktune.classList.contains("on")) animK(now);
       draw(now);
     }
   };
