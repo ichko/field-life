@@ -51,7 +51,7 @@ body.field .scrim{display:block}
 
 <div id="deck"><div id="stage">
 
-<section class="slide title" data-field="large brisk filling">
+<section class="slide title" data-field="fine brisk colony" data-seed="noise">
   <div class="words">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
@@ -94,13 +94,13 @@ const engine = (() => {
   fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html")
     .then(src => f.src = src);
   return {
-    async show(cfg, fps = 30){
+    async show(cfg, fps = 30, seed){
       want = cfg; f.style.display = "block"; document.body.classList.add("field");
       await ready;
       if(failed || !FL){ f.style.display = "none"; $("note").style.display = "block"; return; }
       setTimeout(() => {                 // let the page settle on its size before seeding
         if(want !== cfg) return;
-        FL.applyConfig(cfg); FL.S.seedMode = cfg.seedMode || "disc"; FL.reseed();
+        FL.applyConfig(cfg); FL.S.seedMode = seed || cfg.seedMode || "disc"; FL.reseed();
         FL.S.fps = fps; FL.S.zoom = 1; FL.S.panU = FL.S.panV = 0.5; FL.S.holdUntil = 0; FL.S.running = true;
       }, 250);
     },
@@ -121,13 +121,14 @@ async function go(i){
   cur = i; slides[cur].classList.add("on");
   $("count").textContent = `${cur + 1} / ${slides.length}`;
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
-  // A slide names a preset in data-field to put it behind everything.
+  // A slide names a preset in data-field to put it behind everything, and may
+  // ask for data-seed="noise" to fill the whole screen instead of a central disc.
   const name = slides[cur].dataset.field;
   if(!name){ shown = null; engine.hide(); return; }
   if(name === shown) return;             // same world on consecutive slides keeps running
   shown = name;
   const it = (await presets).find(s => s.name === name);
-  if(it && shown === name) engine.show(it.cfg);
+  if(it && shown === name) engine.show(it.cfg, 30, slides[cur].dataset.seed);
 }
 function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
 addEventListener("resize", fit); fit();
