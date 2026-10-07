@@ -1399,7 +1399,7 @@ SIMS.liz = (() => {
         if(n <= 2 || (n === 3 && was < 3) || (n === 7 && was !== 7)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
         // 7: the page's usual blend, every colour shown, instead of the first three read as red, green and blue
         S.blend = n === 7 ? 0 : cfg.blend; S.expo = n === 7 ? 2.2 : cfg.expo;
-        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 7 ? 20 : 120; S.holdUntil = 0;   // the all-colours step (10.4) slow enough to watch it grow
+        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 7 ? 20 : 120; S.holdUntil = n === 3 && was < 3 ? win.performance.now() + 1000 : 0;   // 3: a second on the seed before it starts   // the all-colours step (10.4) slow enough to watch it grow
       });
     },
     frame(){ draw(); }
