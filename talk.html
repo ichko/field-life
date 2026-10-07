@@ -993,14 +993,14 @@ SIMS.fl = (() => {
   // 13: the same world, at the size the title runs it, carrying over the field on screen
   async function goBig(){
     const it = (await presets).find(s_ => s_.name === WORLD); if(!it || k < 13) return;
-    const S = FL.S, NX1 = S.NX, NY1 = S.NY, C1 = S.C, src = FL.readRho(), z1 = S.zoom, sp1 = spanX();
+    const S = FL.S, NX1 = S.NX, NY1 = S.NY, C1 = S.C, src = FL.readRho(), z1 = S.zoom;   // zoom counts whole worlds, so it carries over
     FL.applyConfig(it.cfg); big = true;
     const NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
     for(let c = 0; c < C1; c++) for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){
       const fx = (x + .5)*NX1/NX - .5, fy = (y + .5)*NY1/NY - .5, ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
       const q = (xx, yy) => src[c*NX1*NY1 + ((yy + NY1) % NY1)*NX1 + ((xx + NX1) % NX1)];
       out[c*NX*NY + y*NX + x] = (q(ix, iy)*(1 - tx) + q(ix + 1, iy)*tx)*(1 - ty) + (q(ix, iy + 1)*(1 - tx) + q(ix + 1, iy + 1)*tx)*ty; }
-    FL.writeRho(out); S.zoom = z1*spanX()/sp1; S.panU = S.panV = 0.5; S.fps = 120; fills = 0;
+    FL.writeRho(out); S.zoom = z1; S.panU = S.panV = 0.5; S.fps = 120; fills = 0;
   }
   // and the rest of its mass, sprayed evenly over the whole world in a few passes
   function fill(){
