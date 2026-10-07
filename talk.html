@@ -17,7 +17,7 @@
 }
 html,body{height:100%}
 body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); overflow:hidden; -webkit-font-smoothing:antialiased}
-#engine{position:fixed; inset:0; width:100%; height:100%; border:0; display:none; background:var(--bg); pointer-events:none}
+#engine{position:fixed; inset:0; width:100%; height:100%; border:0; display:none; background:var(--bg); pointer-events:none; transition:opacity .7s ease}
 #deck{position:fixed; inset:0; overflow:hidden}
 #stage{width:1440px; height:900px; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); transform-origin:center center}
 .slide{position:absolute; inset:0; display:none}
@@ -148,7 +148,7 @@ body.dimmed .dim{opacity:1}
   </ul>
 </section>
 
-<section class="slide pl" data-field="fine brisk filling" data-cycle="10000" data-dim data-steps="10" data-sim="pl">
+<section class="slide pl" data-steps="10" data-sim="pl">
   <div>
     <h2>Particle life</h2>
     <ul>
@@ -196,7 +196,7 @@ body>*:not(.page),.page>*:not(.app){display:none!important}
   border:0!important;border-radius:0!important;box-shadow:none!important;margin:0!important}
 .app>*:not(#cv){display:none!important}`;
 const engine = (() => {
-  const f = $("engine"); let FL = null, failed = false, want = null, cur = null, morphing = 0;
+  const f = $("engine"); let FL = null, failed = false, want = null, cur = null, morphing = 0, fadeT = null;
   const ready = new Promise(res => {
     f.addEventListener("load", () => {
       let d; try{ d = f.contentDocument; }catch(e){ d = null; }
@@ -213,7 +213,7 @@ const engine = (() => {
     .then(src => f.src = src);
   return {
     async show(cfg, fps = 120, seed){
-      want = cfg; f.style.display = "block"; document.body.classList.add("field");
+      want = cfg; clearTimeout(fadeT); f.style.display = "block"; f.offsetWidth; f.style.opacity = 1; document.body.classList.add("field");
       await ready;
       if(failed || !FL){ f.style.display = "none"; $("note").style.display = "block"; return; }
       setTimeout(() => {                 // let the page settle on its size before seeding
@@ -237,7 +237,9 @@ const engine = (() => {
       };
       requestAnimationFrame(tick);
     },
-    hide(){ want = null; morphing++; f.style.display = "none"; document.body.classList.remove("field"); if(FL) FL.S.running = false; }
+    // Fade to black, then stop the field once it can no longer be seen.
+    hide(){ want = null; morphing++; f.style.opacity = 0; document.body.classList.remove("field");
+      clearTimeout(fadeT); fadeT = setTimeout(() => { if(want) return; f.style.display = "none"; if(FL) FL.S.running = false; }, 750); }
   };
 })();
 // Blend two rules: the matrix, the scalars and every kernel's reach and lobes.
