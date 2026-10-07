@@ -61,12 +61,13 @@ body.field .scrim{display:block}
 .pl h2 .sub{display:inline-block; margin-left:18px; font-family:var(--body); font-weight:400; font-size:18px; letter-spacing:0; color:var(--mut); vertical-align:middle}
 .mcsum{position:absolute; top:20px; right:20px; padding:12px 16px; background:rgba(0,0,0,.78); border:1px solid rgba(255,255,255,.18);
   border-radius:4px; font:500 20px/1.2 var(--mono); color:#fff; font-variant-numeric:tabular-nums; opacity:0; transition:opacity .4s ease}
-.pl.s8 .mcsum{opacity:1}
-.mcform{position:absolute; left:20px; top:20px; padding:10px 22px; background:rgba(0,0,0,.9); border:1px solid rgba(255,255,255,.18);
-  border-radius:4px; color:#fff; font-size:22px; opacity:0; transition:opacity .4s ease; pointer-events:none}
-.mcform mjx-container{margin:.4em 0 !important}
-.pl.s5 .mcform{opacity:1}
-.pl.s7 .mcform{opacity:0}
+.pl.s9 .mcsum{opacity:1}
+.mcform{height:0; overflow:hidden; color:#fff; font-size:24px; text-align:center; opacity:0; transition:opacity .4s ease, height .4s ease}
+.pl.s5 .mcform{height:78px; opacity:1}
+.pl.s8 .mcform{height:0; opacity:0}
+/* the MaCE slide's canvas is a little shorter, to leave room for the formula */
+#mc-cv{height:620px !important}
+.pl[data-sim="mace"] .plview{height:620px}
 .plcap{position:relative; width:1120px; height:44px}
 .plcap > div{position:absolute; inset:0; text-align:center; font-size:30px; line-height:44px; color:rgba(238,243,245,.92);
   opacity:0; transform:translateY(6px); transition:opacity .4s ease, transform .4s ease}
@@ -181,27 +182,26 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
-<section class="slide pl" data-steps="10" data-sim="mace">
+<section class="slide pl" data-steps="11" data-sim="mace">
   <h2>MaCE <span class="sub">mass-conserving cellular automata · Papadopoulos &amp; Guichard (2025)</span></h2>
   <div class="plview">
     <canvas id="mc-cv"></canvas>
     <div class="mcsum" id="mc-sum"></div>
-    <div class="mcform" id="mc-form">
-      <div>\[ s_{i \to j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \in \mathcal{N}(i)} e^{\beta A_k}} \qquad j \in \mathcal{N}(i) \]</div>
-      <div>\[ \rho'_j \;=\; \sum_{i \in \mathcal{N}(j)} \rho_i \; s_{i \to j} \]</div>
-    </div>
+
   </div>
   <div class="plcap" id="mc-cap">
     <div data-at="1">A grid of cells</div>
     <div data-at="2">each cell has some value</div>
     <div data-at="3">at each time step we compute a delta: how much we want to change that value, from local information</div>
     <div data-at="4">in the MaCE paper this delta is called the affinity, A</div>
-    <div data-at="5">the affinities are normalised with a softmax centred on each cell</div>
+    <div data-at="5">the affinities are normalised with a softmax over each cell's 3×3 neighbourhood</div>
     <div data-at="6">β sets how picky: low spreads the mass evenly, high sends it to the highest A</div>
-    <div data-at="7">every cell does this, all at once</div>
-    <div data-at="8">mass only moves, so the total never changes</div>
-    <div data-at="9" class="big">A can be anything: here, mass is drawn to nearby mass</div>
+    <div data-at="7">and each cell gets a contribution from the cells around it</div>
+    <div data-at="8">every cell does this, all at once</div>
+    <div data-at="9">mass only moves, so the total never changes</div>
+    <div data-at="10" class="big">A can be anything: here, a Lenia rule</div>
   </div>
+  <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
 
 </div></div>
@@ -567,11 +567,11 @@ SIMS.pl = (() => {
    score A, 4 one cell's split, 5 beta, 6 everyone at once, 7 the total, 8 A
    from the mass itself, zoomed out. */
 SIMS.mace = (() => {
-  const cv = $("mc-cv"), W = 1120, H = 700, d = Math.min(2, devicePixelRatio || 1);
+  const cv = $("mc-cv"), W = 1120, H = 620, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
   const NX = 64, NY = 40, NN = NX*NY, FX = 32, FY = 20;     // FX, FY: the cell we look at closely
   let rho, rho0, A = new Float64Array(NN), E = new Float64Array(NN), S = new Float64Array(NN), tmp = new Float64Array(NN);
-  let gridA = 1, k = 0, cam = { x: FX + .5, y: FY + .5, cs: 110 }, want = { ...cam }, beta = 2, last = 0, bT0 = 0;
+  let kFade = 0, gridA = 1, k = 0, cam = { x: FX + .5, y: FY + .5, cs: 110 }, want = { ...cam }, beta = 2, last = 0, bT0 = 0;
   const id = (x, y) => ((y % NY + NY) % NY)*NX + ((x % NX + NX) % NX);
   // the starting mass: a few soft blobs over a low floor, from the talk's seed
   function seedMass(){
@@ -615,6 +615,46 @@ SIMS.mace = (() => {
     g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - ux*h - uy*h*0.55, y1 - uy*h + ux*h*0.55);
     g.lineTo(x1 - ux*h + uy*h*0.55, y1 - uy*h - ux*h*0.55); g.closePath(); g.fill();
   }
+  // 9: a Lenia rule on a finer grid. A = growth(ring kernel * mass), a bell around mu, so
+  // mass flows toward where the neighbourhood has just the right amount: Flow-Lenia, moved by MaCE.
+  const L = (() => {
+    const LX = 160, LY = 100, LN = LX*LY, KR = 7, mu = 0.12, sg = 0.03, b = 6;
+    const lid = (x, y) => ((y % LY + LY) % LY)*LX + ((x % LX + LX) % LX);
+    const K = []; let ks = 0;
+    for(let dy = -KR; dy <= KR; dy++) for(let dx = -KR; dx <= KR; dx++){ const rr = Math.hypot(dx, dy)/KR; if(rr > 1) continue;
+      const w = Math.exp(-(((rr - 0.5)/0.15)**2)/2); K.push([dx, dy, w]); ks += w; }
+    for(const kk of K) kk[2] /= ks;
+    let r_ = new Float64Array(LN); const LA = new Float64Array(LN), LE = new Float64Array(LN), LS = new Float64Array(LN);
+    const img = g.createImageData(LX, LY), off = document.createElement("canvas"); off.width = LX; off.height = LY;
+    return {
+      seed(){ const r = mulberry32(SEED*5); r_ = new Float64Array(LN);
+        for(let q = 0; q < 10; q++){ const cx = r()*LX, cy = r()*LY, s = 4 + r()*5;
+          for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let dx = x - cx, dy = y - cy; dx -= LX*Math.round(dx/LX); dy -= LY*Math.round(dy/LY);
+            if(Math.hypot(dx, dy) < s) r_[lid(x, y)] += r()*0.9; } } },
+      step(){
+        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let u = 0; for(const [dx, dy, w] of K) u += w*r_[lid(x + dx, y + dy)];
+          LA[lid(x, y)] = 2*Math.exp(-(((u - mu)/sg)**2)/2) - 1; }
+        for(let i = 0; i < LN; i++) LE[i] = Math.exp(b*LA[i]);
+        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let Z = 0; for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++) Z += LE[lid(x + ox, y + oy)]; LS[lid(x, y)] = r_[lid(x, y)]/Z; }
+        const o = new Float64Array(LN);
+        for(let y = 0; y < LY; y++) for(let x = 0; x < LX; x++){ let t = 0; for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++) t += LS[lid(x + ox, y + oy)]; o[lid(x, y)] = LE[lid(x, y)]*t; }
+        r_ = o; },
+      total(){ let t = 0; for(let i = 0; i < LN; i++) t += r_[i]; return t; },
+      draw(alpha){
+        const d_ = img.data;
+        for(let i = 0; i < LN; i++){ const v = Math.round(255*(1 - Math.exp(-r_[i]*2.5))); d_[4*i] = d_[4*i + 1] = d_[4*i + 2] = v; d_[4*i + 3] = 255; }
+        off.getContext("2d").putImageData(img, 0, 0);
+        g.globalAlpha = alpha; g.imageSmoothingEnabled = true; g.drawImage(off, 0, (H - W*LY/LX)/2, W, W*LY/LX); g.globalAlpha = 1; }
+    };
+  })();
+  let lenT0 = 0;
+  function drawLenia(){ L.draw(Math.min(1, (performance.now() - lenT0)/700)); }
+  // a number in a cell: big, centred, white, lifted off the cells by a shadow rather than a plate
+  function bigLabel(t, x, y){
+    g.save(); g.font = `700 ${Math.round(cam.cs*0.25)}px 'IBM Plex Mono', monospace`; g.textAlign = "center"; g.textBaseline = "middle";
+    g.shadowColor = "rgba(0,0,0,.95)"; g.shadowBlur = 10; g.lineWidth = 5; g.strokeStyle = "rgba(0,0,0,.55)"; g.strokeText(t, x, y);
+    g.fillStyle = "#fff"; g.fillText(t, x, y); g.restore();
+  }
   function draw(){
     g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
     const cs = cam.cs, x0 = cam.x - W/2/cs, y0 = cam.y - H/2/cs;
@@ -626,7 +666,7 @@ SIMS.mace = (() => {
         const v = rho[id(x, y)];
         if(k >= 2){ // mass as the cell's colour, dark to bright
           const t = Math.min(1, v/1.3), m = cs > 30 ? cs*(0.015 + 0.055*gridA) : 0;   // close up, a square inset in its cell; the gap closes from 5.3
-          g.fillStyle = `rgb(${Math.round(20 + 215*t)},${Math.round(24 + 196*t)},${Math.round(40 + 120*t)})`;
+          g.fillStyle = `rgb(${Math.round(16 + 226*t)},${Math.round(18 + 226*t)},${Math.round(24 + 224*t)})`;
           g.fillRect(sx(x) + m, sy(y) + m, cs + 0.5 - 2*m, cs + 0.5 - 2*m); }
         else if(cs > 30){ const side = cs*0.44*Math.min(1, Math.sqrt(v/1.2)); g.fillStyle = "rgba(235,240,245,.92)";
           g.fillRect(sx(x) + (cs - side)/2, sy(y) + (cs - side)/2 + cs*0.04, side, side); }
@@ -640,10 +680,18 @@ SIMS.mace = (() => {
       for(let y = Math.floor(y0); y < y0 + H/cs + 1; y++){ g.moveTo(0, sy(y)); g.lineTo(W, sy(y)); }
       g.stroke();
     }
+    // 5-7: the kernel is the subject, so everything outside its 3x3 steps back
+    kFade += ((k >= 5 && k <= 7 ? 1 : 0) - kFade)*0.08;
+    if(kFade > 0.01){
+      const L_ = sx(FX - 1), T_ = sy(FY - 1), S_ = 3*cs;
+      g.fillStyle = `rgba(0,0,0,${0.72*kFade})`;
+      g.fillRect(0, 0, W, T_); g.fillRect(0, T_ + S_, W, H - T_ - S_); g.fillRect(0, T_, L_, S_); g.fillRect(L_ + S_, T_, W - L_ - S_, S_);
+    }
     // the score A, written in each cell while close
-    if(k >= 3 && k <= 6 && cs > 60){
+    if(k >= 3 && k <= 7 && cs > 60){
       g.font = `500 ${Math.round(cs*0.17)}px 'IBM Plex Mono', monospace`; g.textAlign = "left"; g.textBaseline = "top";
       for(let y = Math.floor(y0); y < y0 + H/cs + 1; y++) for(let x = Math.floor(x0); x < x0 + W/cs + 1; x++){
+        if(k >= 5 && (Math.abs(x - FX) > 1 || Math.abs(y - FY) > 1)) continue;   // kernel up: only its nine keep their labels
         const a = A[id(x, y)], txt = (k === 3 ? "Δ " : "A ") + (a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), tw = g.measureText(txt).width;
         g.fillStyle = "rgba(0,0,0,.72)"; g.fillRect(sx(x) + 3, sy(y) + 3, tw + 7, cs*0.17 + 7);
         g.fillStyle = a >= 0 ? "rgb(120,170,255)" : "rgb(255,120,120)";
@@ -654,15 +702,12 @@ SIMS.mace = (() => {
     if(k === 5 || k === 6){
       const cx = sx(FX + .5), cy = sy(FY + .5); let Z = 0; const e = [];
       for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++){ const v = Math.exp(beta*A[id(FX + ox, FY + oy)]); e.push([ox, oy, v]); Z += v; }
-      g.strokeStyle = "rgba(167,139,250,.9)"; g.lineWidth = 3; g.strokeRect(sx(FX - 1), sy(FY - 1), 3*cs, 3*cs);
+      g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 6; g.strokeRect(sx(FX - 1), sy(FY - 1), 3*cs, 3*cs);
       for(const [ox, oy, v] of e){
         const p = v/Z, tx = cx + ox*cs, ty = cy + oy*cs;
         if(ox || oy) arrow(cx + ox*cs*0.18, cy + oy*cs*0.18, tx - ox*cs*0.22, ty - oy*cs*0.22, "rgb(167,139,250)", 1 + 16*p);
         else { g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 1 + 16*p; g.beginPath(); g.arc(cx, cy, cs*0.16, 0, 6.2832); g.stroke(); }
-        g.fillStyle = "#fff"; g.font = `600 ${Math.round(cs*0.2)}px 'IBM Plex Mono', monospace`; g.textAlign = "center"; g.textBaseline = "alphabetic";
-        const pt = Math.round(p*100) + "%", pw = g.measureText(pt).width;
-        g.fillStyle = "rgba(0,0,0,.72)"; g.fillRect(tx - pw/2 - 4, ty + cs*0.42 - cs*0.2, pw + 8, cs*0.24);
-        g.fillStyle = "#fff"; g.fillText(pt, tx, ty + cs*0.42);
+        bigLabel(Math.round(p*100) + "%", tx, ty + (ox || oy ? 0 : cs*0.3));
       }
       if(k === 6){
         g.fillStyle = "rgba(0,0,0,.78)"; g.fillRect(20, 20, 150, 46);
@@ -670,9 +715,27 @@ SIMS.mace = (() => {
         g.fillText("β = " + beta.toFixed(1), 34, 43);
       }
     }
-    if(k >= 8) $("mc-sum").textContent = "total mass " + total().toFixed(3);
+    // 7: the other way round: what one cell receives, an arrow in from each of its nine, as thick as the amount
+    if(k === 7){
+      const tx = sx(FX + .5), ty = sy(FY + .5), ins = []; let sum = 0, mx = 0;
+      for(let i = 0; i < NN; i++) E[i] = Math.exp(beta*A[i]);
+      for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++){
+        const ix = FX + ox, iy = FY + oy; let Z = 0;
+        for(let qy = -1; qy <= 1; qy++) for(let qx = -1; qx <= 1; qx++) Z += E[id(ix + qx, iy + qy)];
+        const c = rho[id(ix, iy)]*E[id(FX, FY)]/Z; ins.push([ox, oy, c]); sum += c; mx = Math.max(mx, c); }
+      g.strokeStyle = "rgb(167,139,250)"; g.lineWidth = 6; g.strokeRect(sx(FX - 1), sy(FY - 1), 3*cs, 3*cs);
+      g.lineWidth = 4; g.strokeRect(sx(FX) + 3, sy(FY) + 3, cs - 6, cs - 6);
+      for(const [ox, oy, c] of ins){
+        const fx_ = tx + ox*cs, fy_ = ty + oy*cs, w = 1 + 12*c/mx;
+        if(ox || oy) arrow(fx_ - ox*cs*0.2, fy_ - oy*cs*0.2, tx + ox*cs*0.24, ty + oy*cs*0.24, "rgb(167,139,250)", w);
+        bigLabel("+" + c.toFixed(2), fx_, fy_ + (ox || oy ? 0 : cs*0.3));
+      }
+      bigLabel("new value " + sum.toFixed(2), tx, ty - cs*1.75);
+    }
+    if(k === 10) drawLenia();
+    if(k >= 9) $("mc-sum").textContent = "total mass " + (k === 10 ? L.total() : total()).toFixed(3);
   }
-  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: NX/2, y: NY/2, cs: W/NX } ];
+  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 } ];
   return {
     enter(){ seedMass(); fixedA(); k = 0; beta = 2; cam = { ...views[0] }; want = { ...views[0] }; },
     step(n){
@@ -680,12 +743,13 @@ SIMS.mace = (() => {
       const was = k; k = n;
       want = views[n] || views[0];
       if(n <= 6){ rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 7 && was !== 8) { rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 9 && was < 9){ rho = Float64Array.from(rho0); }
-      if(n < 9 && was === 9){ rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 7){ rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 8 && was !== 9) { rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 10 && was < 10){ L.seed(); lenT0 = performance.now(); }
+      if(n < 10 && was === 10){ rho = Float64Array.from(rho0); fixedA(); }
       if(n === 6) bT0 = performance.now();
       if(n !== 6) beta = 2;
-      if(n === 5 && window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([$("mc-form")]).catch(() => {});
+
     },
     frame(now){
       gridA += ((k >= 3 ? 0.3 : 1) - gridA)*0.06;   // from 5.3 the grid fades back so the colours carry it
@@ -693,9 +757,9 @@ SIMS.mace = (() => {
       if(k === 6) beta = 2 + 2*Math.sin((now - bT0)/1000*1.3 - Math.PI/2) + 0;   // 0 .. 4 and back
       if(k === 6) beta = Math.max(0, beta);
       // 6, 7: the fixed score, a few steps a second so the moves can be followed; 8: A from the mass, quick
-      const rate = k === 9 ? 30 : (k === 7 || k === 8) ? 4 : 0;
+      const rate = k === 10 ? 20 : (k === 8 || k === 9) ? 4 : 0;
       if(rate && now - last > 1000/rate - 2){ last = now;
-        if(k === 9){ blurA(); mace(1); } else mace(1.5); }
+        if(k === 10) L.step(); else mace(1.5); }
       draw();
     }
   };
