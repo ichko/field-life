@@ -829,7 +829,7 @@ SIMS.fl = (() => {
   const WX = 40, WY = 22, NN = WX*WY, C = 3, CH = [0, 2, 4];   // the window, in cells; the three colours used
   const WORLD = "fine brisk filling", UP = 4, KR = 7, EXPO = 2.2, CS = 28;   // the engine's cells are UP x finer, so its kernel reaches UP*KR
   const POS = [90, 150, 255], NEG = [255, 90, 90];
-  let PAL = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FL = null, win = null, cfg = null, kern = null, prof = null;
+  let PAL = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FL = null, win = null, cfg = null, kern = null, prof = null, bells = [];
   let M = [[-0.35, -0.57, -0.69], [0.66, 0.51, 0.93], [0.21, 0.23, -0.1]];
   const target = [0, 1, 2].map(() => new Float32Array(NN)), rho = [0, 1, 2].map(() => new Float32Array(NN));
   const U = [0, 1, 2].map(() => new Float32Array(NN)), A0 = new Float32Array(NN), AF = new Float32Array(NN), NB = new Float32Array(NN);
@@ -894,6 +894,7 @@ SIMS.fl = (() => {
     const c = sW > 1e-9 ? sG/sW : 0; let l1 = 0;
     for(let i = 0; i < n*n; i++){ out[i] -= c*tap[i]; l1 += Math.abs(out[i]); }
     for(let i = 0; i < n*n; i++) out[i] /= l1;
+    out.l1 = l1;   // what the bells were divided by, to draw them on the same scale
     return out;
   }
 
@@ -913,7 +914,9 @@ SIMS.fl = (() => {
   // the world's kernel, from its own numbers, so it shows even before (or without) the engine; the engine's copy replaces it once loaded
   const KDEF = { feather: 0.1, terms: [{ a: 1, r: 0, w: 0.354 }, { a: -6.25, r: 0, w: 0.141 }] };
   let KCUR = JSON.parse(JSON.stringify(KDEF));
-  function setKernel(K_){ const KH = 40; kern = CH.map(() => bakeExact(K_, KR)); const hi = bakeExact(K_, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
+  function setKernel(K_){ const KH = 40; kern = CH.map(() => bakeExact(K_, KR)); const hi = bakeExact(K_, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1)));
+    // each bell on its own, same scale as the profile: what the profile is the sum of
+    bells = K_.terms.map(t => prof.map((_, i) => t.a*Math.exp(-(((Math.abs(i - KH)/KH - t.r)/t.w)**2))/hi.l1)); }
   setKernel(KDEF);
   // 6.7: the two bells' heights and widths on sliders; the square and the profile follow
   const ktune = $("fl-ktune");
@@ -1041,7 +1044,7 @@ SIMS.fl = (() => {
       g.strokeStyle = css(PAL[0]); g.lineWidth = 3; g.strokeRect(x0 - 4, y0 - 4, n*CS + 8, n*CS + 8);
       // its profile through the middle, column for column: two bells, the narrow one taken away, so it dips below zero
       if(prof){
-        const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v));
+        const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v)); for(const b of bells) for(const v of b) pm = Math.max(pm, -v*0.84, v*0.84/0.42*0.58);
         // K(r) through the middle of the kernel, on a true, linear scale
         const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.5;
         g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(x0 - 4, py0 - 6, n*CS + 8, ph + 8);
@@ -1057,8 +1060,14 @@ SIMS.fl = (() => {
         g.lineWidth = 2.5; g.lineCap = "round";
         for(let i = 0; i < L - 1; i++){ const v = (prof[i] + prof[i + 1])/2;
           g.strokeStyle = `rgba(${(v >= 0 ? POS : NEG).join(",")},.9)`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
+        // the two bells it is made of, dashed: the wide positive one and the narrow upside-down one
+        g.setLineDash([6, 5]); g.lineWidth = 1.8;
+        for(const b of bells){ g.strokeStyle = b[(L - 1) >> 1] >= 0 ? "rgba(90,150,255,.75)" : "rgba(255,90,90,.75)"; g.beginPath();
+          for(let i = 0; i < L; i++) i ? g.lineTo(X(i), Y(b[i])) : g.moveTo(X(i), Y(b[i])); g.stroke(); }
+        g.setLineDash([]);
         g.font = "500 15px 'IBM Plex Mono', monospace"; g.textAlign = "left"; g.textBaseline = "top";
         g.fillStyle = "rgba(255,255,255,.85)"; g.fillText("K(r)", x0 + 8, py0 + 2);
+        g.fillStyle = "rgba(255,255,255,.55)"; g.fillText("- - the two bells", x0 + 8, py0 + 20);
       }
       // one per channel, at the side
       const s = 9;
