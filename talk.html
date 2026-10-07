@@ -1379,7 +1379,7 @@ SIMS.liz = (() => {
       load().then(() => {
         if(!FL) return; const S = FL.S;
         if(n <= 2 || (n === 3 && was < 3)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
-        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = 120; S.holdUntil = 0;
+        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 3 ? 20 : 120; S.holdUntil = 0;   // 3: slow enough to watch it grow
       });
     },
     frame(){ draw(); }
