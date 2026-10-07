@@ -1,6 +1,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Field Life</title>
+<script>window.MathJax = { svg: { fontCache: "global" }, startup: { typeset: true } };</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-svg.min.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap">
@@ -59,7 +61,12 @@ body.field .scrim{display:block}
 .pl h2 .sub{display:inline-block; margin-left:18px; font-family:var(--body); font-weight:400; font-size:18px; letter-spacing:0; color:var(--mut); vertical-align:middle}
 .mcsum{position:absolute; top:20px; right:20px; padding:12px 16px; background:rgba(0,0,0,.78); border:1px solid rgba(255,255,255,.18);
   border-radius:4px; font:500 20px/1.2 var(--mono); color:#fff; font-variant-numeric:tabular-nums; opacity:0; transition:opacity .4s ease}
-.pl.s7 .mcsum{opacity:1}
+.pl.s8 .mcsum{opacity:1}
+.mcform{position:absolute; left:20px; top:20px; padding:10px 22px; background:rgba(0,0,0,.9); border:1px solid rgba(255,255,255,.18);
+  border-radius:4px; color:#fff; font-size:22px; opacity:0; transition:opacity .4s ease; pointer-events:none}
+.mcform mjx-container{margin:.4em 0 !important}
+.pl.s5 .mcform{opacity:1}
+.pl.s7 .mcform{opacity:0}
 .plcap{position:relative; width:1120px; height:44px}
 .plcap > div{position:absolute; inset:0; text-align:center; font-size:30px; line-height:44px; color:rgba(238,243,245,.92);
   opacity:0; transform:translateY(6px); transition:opacity .4s ease, transform .4s ease}
@@ -174,21 +181,26 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
-<section class="slide pl" data-steps="9" data-sim="mace">
+<section class="slide pl" data-steps="10" data-sim="mace">
   <h2>MaCE <span class="sub">mass-conserving cellular automata · Papadopoulos &amp; Guichard (2025)</span></h2>
   <div class="plview">
     <canvas id="mc-cv"></canvas>
     <div class="mcsum" id="mc-sum"></div>
+    <div class="mcform" id="mc-form">
+      <div>\[ s_{i \to j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \in \mathcal{N}(i)} e^{\beta A_k}} \qquad j \in \mathcal{N}(i) \]</div>
+      <div>\[ \rho'_j \;=\; \sum_{i \in \mathcal{N}(j)} \rho_i \; s_{i \to j} \]</div>
+    </div>
   </div>
   <div class="plcap" id="mc-cap">
     <div data-at="1">A grid of cells</div>
     <div data-at="2">each cell has some value</div>
     <div data-at="3">at each time step we compute a delta: how much we want to change that value, from local information</div>
-    <div data-at="4">each cell hands all its mass to its 3×3 neighbourhood, more where A is higher</div>
-    <div data-at="5">share = e<sup>βA</sup> / Σ e<sup>βA</sup> · β sets how picky</div>
-    <div data-at="6">every cell does this, all at once</div>
-    <div data-at="7">mass only moves, so the total never changes</div>
-    <div data-at="8" class="big">A can be anything: here, mass is drawn to nearby mass</div>
+    <div data-at="4">in the MaCE paper this delta is called the affinity, A</div>
+    <div data-at="5">the affinities are normalised with a softmax centred on each cell</div>
+    <div data-at="6">β sets how picky: low spreads the mass evenly, high sends it to the highest A</div>
+    <div data-at="7">every cell does this, all at once</div>
+    <div data-at="8">mass only moves, so the total never changes</div>
+    <div data-at="9" class="big">A can be anything: here, mass is drawn to nearby mass</div>
   </div>
 </section>
 
@@ -629,7 +641,7 @@ SIMS.mace = (() => {
       g.stroke();
     }
     // the score A, written in each cell while close
-    if(k >= 3 && k <= 5 && cs > 60){
+    if(k >= 3 && k <= 6 && cs > 60){
       g.font = `500 ${Math.round(cs*0.17)}px 'IBM Plex Mono', monospace`; g.textAlign = "left"; g.textBaseline = "top";
       for(let y = Math.floor(y0); y < y0 + H/cs + 1; y++) for(let x = Math.floor(x0); x < x0 + W/cs + 1; x++){
         const a = A[id(x, y)], txt = (k === 3 ? "Δ " : "A ") + (a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), tw = g.measureText(txt).width;
@@ -639,7 +651,7 @@ SIMS.mace = (() => {
       }
     }
     // one cell's split: an arrow to each of the nine, as wide as its share
-    if(k === 4 || k === 5){
+    if(k === 5 || k === 6){
       const cx = sx(FX + .5), cy = sy(FY + .5); let Z = 0; const e = [];
       for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++){ const v = Math.exp(beta*A[id(FX + ox, FY + oy)]); e.push([ox, oy, v]); Z += v; }
       g.strokeStyle = "rgba(167,139,250,.9)"; g.lineWidth = 3; g.strokeRect(sx(FX - 1), sy(FY - 1), 3*cs, 3*cs);
@@ -652,37 +664,38 @@ SIMS.mace = (() => {
         g.fillStyle = "rgba(0,0,0,.72)"; g.fillRect(tx - pw/2 - 4, ty + cs*0.42 - cs*0.2, pw + 8, cs*0.24);
         g.fillStyle = "#fff"; g.fillText(pt, tx, ty + cs*0.42);
       }
-      if(k === 5){
+      if(k === 6){
         g.fillStyle = "rgba(0,0,0,.78)"; g.fillRect(20, 20, 150, 46);
         g.fillStyle = "#fff"; g.font = "600 24px 'IBM Plex Mono', monospace"; g.textAlign = "left"; g.textBaseline = "middle";
         g.fillText("β = " + beta.toFixed(1), 34, 43);
       }
     }
-    if(k >= 7) $("mc-sum").textContent = "total mass " + total().toFixed(3);
+    if(k >= 8) $("mc-sum").textContent = "total mass " + total().toFixed(3);
   }
-  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: NX/2, y: NY/2, cs: W/NX } ];
+  const views = [ { x: FX + .5, y: FY + .5, cs: 110 }, null, null, null, null, null, null, { x: FX + .5, y: FY + .5, cs: 36 }, { x: FX + .5, y: FY + .5, cs: 36 }, { x: NX/2, y: NY/2, cs: W/NX } ];
   return {
     enter(){ seedMass(); fixedA(); k = 0; beta = 2; cam = { ...views[0] }; want = { ...views[0] }; },
     step(n){
       for(const c of $("mc-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
       const was = k; k = n;
       want = views[n] || views[0];
-      if(n <= 5){ rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 6 && was !== 7) { rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 8 && was < 8){ rho = Float64Array.from(rho0); }
-      if(n < 8 && was === 8){ rho = Float64Array.from(rho0); fixedA(); }
-      if(n === 5) bT0 = performance.now();
-      if(n !== 5) beta = 2;
+      if(n <= 6){ rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 7 && was !== 8) { rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 9 && was < 9){ rho = Float64Array.from(rho0); }
+      if(n < 9 && was === 9){ rho = Float64Array.from(rho0); fixedA(); }
+      if(n === 6) bT0 = performance.now();
+      if(n !== 6) beta = 2;
+      if(n === 5 && window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise([$("mc-form")]).catch(() => {});
     },
     frame(now){
       gridA += ((k >= 3 ? 0.3 : 1) - gridA)*0.06;   // from 5.3 the grid fades back so the colours carry it
       const e = 0.07; cam.x += (want.x - cam.x)*e; cam.y += (want.y - cam.y)*e; cam.cs += (want.cs - cam.cs)*e;
-      if(k === 5) beta = 2 + 2*Math.sin((now - bT0)/1000*1.3 - Math.PI/2) + 0;   // 0 .. 4 and back
-      if(k === 5) beta = Math.max(0, beta);
+      if(k === 6) beta = 2 + 2*Math.sin((now - bT0)/1000*1.3 - Math.PI/2) + 0;   // 0 .. 4 and back
+      if(k === 6) beta = Math.max(0, beta);
       // 6, 7: the fixed score, a few steps a second so the moves can be followed; 8: A from the mass, quick
-      const rate = k === 8 ? 30 : (k === 6 || k === 7) ? 4 : 0;
+      const rate = k === 9 ? 30 : (k === 7 || k === 8) ? 4 : 0;
       if(rate && now - last > 1000/rate - 2){ last = now;
-        if(k === 8){ blurA(); mace(1); } else mace(1.5); }
+        if(k === 9){ blurA(); mace(1); } else mace(1.5); }
       draw();
     }
   };
