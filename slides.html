@@ -388,7 +388,10 @@ const engine = (() => {
       poll();
     });
   });
-  f.src = "index.html";
+  // The repo serves the page as index.html; a published copy of the deck, whose
+  // own index is the deck, carries it as engine.html instead.
+  fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html")
+    .then(src => f.src = src);
   function place(host){
     const st = $("stage").getBoundingClientRect(), k = st.width/1440, r = host.getBoundingClientRect();
     Object.assign(f.style, { left: (r.left - st.left)/k + "px", top: (r.top - st.top)/k + "px",
@@ -601,7 +604,7 @@ SIMS.probe = (() => {
 
 SIMS.both = (() => {
   const cv = $("c-b0"); let P = null, gw;
-  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); } engine.show(hostOf("both"), CHASE_FIELD, 30); },
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); for(let i = 0; i < 150; i++) P.step(); } engine.show(hostOf("both"), CHASE_FIELD, 30); },
     step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
 })();
 
