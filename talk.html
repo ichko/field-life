@@ -149,7 +149,8 @@ body.dimmed .dim{opacity:1}
 .pl[data-sim="liz"].on{gap:14px}
 #liz-eng{position:absolute; left:250px; top:0; width:620px; height:620px; border:0; border-radius:4px; opacity:0; transition:opacity .6s ease; pointer-events:none; background:#000}
 .pl[data-sim="liz"].s2 #liz-eng{opacity:1}
-.lizemoji{position:absolute; inset:0; display:grid; place-items:center; font-size:380px; line-height:1; opacity:0; transition:opacity .6s ease}
+/* the target exactly as the fit saw it: Noto Color Emoji's lizard, on black */
+.lizemoji{position:absolute; left:310px; top:60px; width:500px; height:500px; object-fit:contain; opacity:0; transition:opacity .6s ease}
 .pl[data-sim="liz"].s1 .lizemoji{opacity:1}
 .pl[data-sim="liz"].s2 .lizemoji{opacity:0}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
@@ -312,7 +313,7 @@ body.dimmed .dim{opacity:1}
   <h2>Training a lizard</h2>
   <div class="plview">
     <iframe id="liz-eng" title="Trained lizard" tabindex="-1"></iframe>
-    <div class="lizemoji" id="liz-emoji">🦎</div>
+    <img class="lizemoji" id="liz-emoji" src="lizard-target.png" alt="the lizard emoji, as the fit saw it">
     <canvas id="liz-cv"></canvas>
   </div>
   <div class="plcap" id="liz-cap">
