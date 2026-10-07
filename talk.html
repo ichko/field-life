@@ -39,6 +39,14 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 .scrim{position:fixed; inset:0; pointer-events:none; display:none;
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
 body.field .scrim{display:block}
+/* a text slide over the field: the field dims right down behind it */
+.dim{position:fixed; inset:0; pointer-events:none; background:rgba(4,8,11,.82); opacity:0; transition:opacity .6s ease}
+body.dimmed .dim{opacity:1}
+.text{padding:110px 140px}
+.text h2{margin:0 0 56px; font-family:var(--display); font-weight:600; font-size:72px; letter-spacing:-.02em; color:#fff}
+.text ul{margin:0; padding:0; list-style:none; display:grid; gap:30px; max-width:30em}
+.text li{position:relative; padding-left:40px; font-size:36px; line-height:1.35; color:rgba(238,243,245,.92)}
+.text li::before{content:""; position:absolute; left:0; top:.55em; width:14px; height:14px; border-radius:50%; background:var(--accent)}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -54,6 +62,7 @@ body.field .scrim{display:block}
 
 <iframe id="engine" title="Field Life simulation" tabindex="-1"></iframe>
 <div class="scrim"></div>
+<div class="dim"></div>
 
 <div id="deck"><div id="stage">
 
@@ -62,6 +71,17 @@ body.field .scrim{display:block}
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
   </div>
+</section>
+
+<section class="slide text" data-field="fine brisk filling" data-cycle="10000" data-dim>
+  <h2>What is it?</h2>
+  <ul>
+    <li>A cellular automaton on a grid</li>
+    <li>Every cell holds a concentration of each colour</li>
+    <li>A matrix says which colours attract or repel each other</li>
+    <li>Mass only moves between neighbouring cells, so each colour keeps its total</li>
+    <li>Runs live in the browser, on the GPU</li>
+  </ul>
 </section>
 
 </div></div>
@@ -172,6 +192,7 @@ async function go(i){
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
   // A slide names a preset in data-field to put it behind everything, and may
   // ask for data-seed="noise" to fill the whole screen instead of a central disc.
+  document.body.classList.toggle("dimmed", "dim" in slides[cur].dataset);
   startCycle(+(slides[cur].dataset.cycle || 0));
   const name = slides[cur].dataset.field;
   if(!name){ shown = null; engine.hide(); return; }
