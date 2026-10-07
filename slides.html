@@ -26,12 +26,14 @@
 html,body{height:100%}
 body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body);
   overflow:hidden; -webkit-font-smoothing:antialiased}
-#deck{position:fixed; inset:0; display:grid; place-items:center}
-#stage{width:1440px; height:900px; position:relative; transform-origin:center center; flex:none}
+#deck{position:fixed; inset:0; overflow:hidden}
+#stage{width:1440px; height:900px; position:absolute; left:50%; top:50%; transform-origin:center center;
+  transform:translate(-50%, -50%)}
 .slide{position:absolute; inset:0; padding:72px 80px; display:none;
-  grid-template-columns:420px 1fr; gap:56px; align-items:start}
+  grid-template-columns:420px auto; gap:56px; align-items:start;
+  justify-content:center; align-content:center}
 .slide.on{display:grid}
-.slide.wide{grid-template-columns:1fr; align-content:start; gap:36px}
+.slide.wide{grid-template-columns:auto; gap:36px}
 .txt{display:flex; flex-direction:column; gap:22px; min-width:0}
 .eyebrow{font:500 13px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--mut)}
 h1,h2{font-family:var(--display); font-weight:600; margin:0; text-wrap:balance; letter-spacing:-.01em}
@@ -68,8 +70,8 @@ a{color:var(--accent)}
 
 <div id="deck"><div id="stage">
 
-<section class="slide" data-sim="title">
-  <div class="txt" style="padding-top:250px">
+<section class="slide" data-sim="title" style="align-items:center">
+  <div class="txt">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations.</p>
     <p class="small">Iliya Zhechev · <a href="https://www.izhv.eu/field-life" target="_blank" rel="noopener">izhv.eu/field-life</a></p>
@@ -717,7 +719,7 @@ function go(i){
   $("count").textContent = `${cur + 1} / ${slides.length}`;
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
 }
-function fit(){ $("stage").style.transform = `scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
+function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
 addEventListener("resize", fit); fit();
 addEventListener("keydown", e => {
   if(e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
