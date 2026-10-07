@@ -58,6 +58,9 @@ body.dimmed .dim{opacity:1}
 .text.s5 li:nth-child(5),
 .text.s6 li:nth-child(6),
 .text.s7 li:nth-child(7){opacity:1; transform:none}
+.text li .cite{display:block; margin-top:8px; font-family:var(--body); font-size:22px; line-height:1.45; color:var(--mut)}
+.text li .cite a{color:var(--mut); text-decoration:underline; text-decoration-color:rgba(143,160,166,.5); text-underline-offset:3px}
+.text li .cite i{font-style:italic}
 .text li::before{content:""; position:absolute; left:0; top:.55em; width:14px; height:14px; border-radius:50%; background:var(--accent)}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
@@ -92,6 +95,18 @@ body.dimmed .dim{opacity:1}
     <li>Every cell holds a concentration of each colour</li>
     <li>A matrix says which colours attract or repel each other</li>
     <li>Mass only moves between neighbouring cells, so each colour keeps its total</li>
+  </ul>
+</section>
+
+<section class="slide text" data-field="fine brisk filling" data-cycle="10000" data-dim data-steps="3">
+  <h2>Prior work</h2>
+  <ul>
+    <li>Particle Life
+      <span class="cite">Mohr, T. <i>Particle Life.</i> <a href="https://particle-life.com" target="_blank" rel="noopener">particle-life.com</a>,
+        after Ventrella, J. <i>Clusters.</i> <a href="https://www.ventrella.com/Clusters/" target="_blank" rel="noopener">ventrella.com/Clusters</a></span></li>
+    <li>MaCE: General Mass Conserving Dynamics for Cellular Automata
+      <span class="cite">Papadopoulos, V. &amp; Guichard, E. (2025). arXiv:2507.12306.
+        <a href="https://arxiv.org/abs/2507.12306" target="_blank" rel="noopener">arxiv.org/abs/2507.12306</a></span></li>
   </ul>
 </section>
 
