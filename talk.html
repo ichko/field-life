@@ -143,6 +143,15 @@ body.dimmed .dim{opacity:1}
 .fltune label{display:grid; grid-template-columns:64px 180px 52px; align-items:center; gap:10px}
 .fltune input{accent-color:var(--accent); width:180px}
 .fltune button{font:500 14px/1 var(--mono); color:#fff; background:transparent; border:1px solid rgba(255,255,255,.3); padding:6px 8px; border-radius:2px; cursor:pointer}
+/* the lizard: the trained world in a square frame (it is a square world), the emoji it was trained on, kernels over it */
+#liz-cv{position:absolute; inset:0; width:1120px; height:620px !important; background:transparent !important; box-shadow:none !important; pointer-events:none}
+.pl[data-sim="liz"] .plview{height:620px}
+.pl[data-sim="liz"].on{gap:14px}
+#liz-eng{position:absolute; left:250px; top:0; width:620px; height:620px; border:0; border-radius:4px; opacity:0; transition:opacity .6s ease; pointer-events:none; background:#000}
+.pl[data-sim="liz"].s2 #liz-eng{opacity:1}
+.lizemoji{position:absolute; inset:0; display:grid; place-items:center; font-size:380px; line-height:1; opacity:0; transition:opacity .6s ease}
+.pl[data-sim="liz"].s1 .lizemoji{opacity:1}
+.pl[data-sim="liz"].s2 .lizemoji{opacity:0}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -297,6 +306,27 @@ body.dimmed .dim{opacity:1}
   <div class="plview"></div>
   <div class="plcap"></div>
   <div class="flform"></div>
+</section>
+
+<section class="slide pl" data-steps="7" data-sim="liz">
+  <h2>Training a lizard</h2>
+  <div class="plview">
+    <iframe id="liz-eng" title="Trained lizard" tabindex="-1"></iframe>
+    <div class="lizemoji" id="liz-emoji">🦎</div>
+    <canvas id="liz-cv"></canvas>
+  </div>
+  <div class="plcap" id="liz-cap">
+    <div data-at="1">the target: a picture</div>
+    <div data-at="2">the start: a disc holding a fixed amount of each of 12 colours</div>
+    <div data-at="3">run it, compare with the picture, backpropagate through every step</div>
+    <div data-at="4">it learns the matrix, force, repel, β, the seed and every kernel</div>
+    <div data-at="5">each kernel: 20 bells, each at its own distance, with angular lobes</div>
+    <div data-at="6">trained to hold for about 1000 steps; well past that it comes apart</div>
+  </div>
+  <div class="flform" id="liz-form">
+    <div data-at="3">\( \displaystyle \text{loss} = \sum_{t \,\in\, \{128,\dots,1024\}} \big\| \rho(t) - \text{picture} \big\|^2 \)</div>
+    <div data-at="5">\( \displaystyle K(r,\theta) = \sum_{i=1}^{20} a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \cos(m_i\theta + \varphi_i) \)</div>
+  </div>
 </section>
 
 <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
@@ -1263,6 +1293,85 @@ SIMS.fl = (() => {
   };
 })();
 
+
+/* ------------------------------------------------------------ the lizard
+   The trained 12-colour world from staging, at 512: a disc of exactly the
+   right mass per colour grows into the emoji. Steps: 1 the target, 2 the seed,
+   3 run, 4 what is learned (the matrix shown), 5 the kernels, 6 fast forward. */
+SIMS.liz = (() => {
+  const cv = $("liz-cv"), W = 1120, H = 620, d = Math.min(2, devicePixelRatio || 1);
+  cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d");
+  const fe = $("liz-eng"); let FL = null, win = null, cfg = null, k = 0, kimgs = null;
+  const ready = new Promise(res => {
+    fe.addEventListener("load", () => {
+      let dd; try{ dd = fe.contentDocument; }catch(e){ dd = null; }
+      if(!dd) return res();
+      const st = dd.createElement("style"); st.textContent = ENGINE_CSS; dd.head.appendChild(st);
+      let tries = 0;
+      const poll = () => { const w = fe.contentWindow;
+        if(w.FL){ FL = w.FL; win = w; FL.S.running = false; res(); } else if(++tries > 200) res(); else setTimeout(poll, 50); };
+      poll();
+    });
+  });
+  let loading = null;
+  function load(){
+    if(loading) return loading;
+    fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html").then(src => fe.src = src);
+    loading = Promise.all([ready, fetch("lizard-512.json").then(r => r.json()).catch(() => null)]).then(([, j]) => {
+      if(!j || !FL) return; cfg = j.cfg;
+      win.Math.random = mulberry32(SEED*31337);
+      FL.applyConfig(cfg); FL.reseed(); FL.S.running = false; FL.S.zoom = 1; FL.S.panU = FL.S.panV = 0.5;
+      // every kernel as a picture: blue where it pulls, red where it pushes, each to its own peak
+      kimgs = FL.kernels.map(kn => {
+        const KR = Math.ceil(kn.R), n = 2*KR + 1, K = win.bakeKernel(kn, KR, kn.R), c = document.createElement("canvas"); c.width = c.height = n;
+        const cx = c.getContext("2d"), im = cx.createImageData(n, n); let pp = 1e-12, pn = 1e-12; for(const v of K){ pp = Math.max(pp, v); pn = Math.max(pn, -v); }
+        for(let i = 0; i < n*n; i++){ const v = K[i], t = Math.pow(Math.abs(v)/(v >= 0 ? pp : pn), 0.6), col = v >= 0 ? [90, 150, 255] : [255, 90, 90];
+          im.data[4*i] = 8 + (col[0] - 8)*t; im.data[4*i + 1] = 10 + (col[1] - 10)*t; im.data[4*i + 2] = 14 + (col[2] - 14)*t; im.data[4*i + 3] = 255; }
+        cx.putImageData(im, 0, 0); return c; });
+    });
+    return loading;
+  }
+  function draw(){
+    g.setTransform(d, 0, 0, d, 0, 0); g.clearRect(0, 0, W, H);
+    if(!FL || k < 2) return;
+    const S = FL.S;
+    // the step count, top left of the square
+    g.font = "500 20px 'IBM Plex Mono', monospace"; g.textAlign = "left"; g.textBaseline = "top";
+    g.fillStyle = "rgba(0,0,0,.7)"; g.fillRect(262, 12, 150, 34); g.fillStyle = "#fff"; g.fillText("step " + (S.tick | 0), 274, 19);
+    // 4: the learned matrix, 12 x 12, no numbers, beside the square
+    if(k === 4){
+      const C = S.C, cs = 16, x0 = 890, y0 = 150; g.fillStyle = "rgba(0,0,0,.75)"; g.fillRect(x0 - 10, y0 - 10, C*cs + 20, C*cs + 20);
+      for(let r = 0; r < C; r++) for(let c = 0; c < C; c++){ const v = FL.mat[r*C + c], a = Math.min(1, Math.abs(v))*0.9;
+        g.fillStyle = v >= 0 ? `rgba(70,130,255,${a})` : `rgba(255,70,70,${a})`; g.fillRect(x0 + c*cs + 1, y0 + r*cs + 1, cs - 2, cs - 2); }
+    }
+    // 5: the twelve kernels it found, each at its own reach
+    if(k === 5 && kimgs){
+      g.fillStyle = "rgba(0,0,0,.82)"; g.fillRect(0, 0, W, H);
+      const cols = 6, sz = 150, gap = 22, x0 = (W - cols*sz - (cols - 1)*gap)/2, y0 = (H - 2*sz - gap)/2;
+      let Rm = 1; for(const kn of FL.kernels) Rm = Math.max(Rm, kn.R);
+      g.imageSmoothingEnabled = false;
+      kimgs.forEach((im, i) => { const x = x0 + (i % cols)*(sz + gap), y = y0 + Math.floor(i/cols)*(sz + gap), s_ = sz*FL.kernels[i].R/Rm;
+        g.strokeStyle = "rgba(255,255,255,.25)"; g.lineWidth = 1; g.strokeRect(x, y, sz, sz);
+        g.drawImage(im, x + (sz - s_)/2, y + (sz - s_)/2, s_, s_); });
+    }
+  }
+  return {
+    enter(){ load(); k = 0; },
+    leave(){ if(FL) FL.S.running = false; },
+    step(n){
+      for(const c of $("liz-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
+      const form = $("liz-form"); form.classList.toggle("on", n === 3 || n === 5);
+      for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
+      const was = k; k = n;
+      load().then(() => {
+        if(!FL) return; const S = FL.S;
+        if(n <= 2 || (n === 3 && was < 3)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
+        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = 120; S.holdUntil = 0;
+      });
+    },
+    frame(){ draw(); }
+  };
+})();
 $("pl-rmin").value = 0.3/1.3; $("pl-rmax").value = 1/1.3;
 function frameLoop(now){ const h = cur >= 0 && SIMS[slides[cur].dataset.sim]; if(h && h.frame && !document.hidden) h.frame(now); requestAnimationFrame(frameLoop); }
 requestAnimationFrame(frameLoop);
