@@ -199,7 +199,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="7">and each cell gets a contribution from the cells around it</div>
     <div data-at="8">every cell does this, all at once</div>
     <div data-at="9">mass only moves, so the total never changes</div>
-    <div data-at="10" class="big">A can be anything: here, mass is drawn to nearby mass</div>
+    <div data-at="10" class="big">A can be anything: here, mass is drawn to nearby mass and to a drifting wave</div>
   </div>
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
@@ -587,11 +587,15 @@ SIMS.mace = (() => {
     for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++)
       A[id(x, y)] = Math.round(10*(Math.sin(x*0.45 + 0.7)*Math.cos(y*0.38 - 0.4) + 0.35*Math.sin((x + y)*0.22)))/10;
   }
-  // A = how much mass is nearby: a small blur of the mass itself, so mass gathers into clumps
-  const K5 = [0.054, 0.244, 0.403, 0.244, 0.054];
+  // A = how much mass is nearby (a blur of the mass) plus a slowly drifting wave, so clumps keep moving
+  const KG = (() => { const w = []; let t = 0; for(let i = -7; i <= 7; i++){ w.push(Math.exp(-i*i/12.5)); t += w[w.length - 1]; } return w.map(v => v/t); })();
+  let tA = 0;
   function blurA(){
-    for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){ let v = 0; for(let i = -2; i <= 2; i++) v += K5[i + 2]*rho[id(x + i, y)]; tmp[id(x, y)] = v; }
-    for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){ let v = 0; for(let i = -2; i <= 2; i++) v += K5[i + 2]*tmp[id(x, y + i)]; A[id(x, y)] = 5*v; }
+    tA++;
+    for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){ let v = 0; for(let i = -7; i <= 7; i++) v += KG[i + 7]*rho[id(x + i, y)]; tmp[id(x, y)] = v; }
+    for(let y = 0; y < NY; y++) for(let x = 0; x < NX; x++){ let v = 0; for(let i = -7; i <= 7; i++) v += KG[i + 7]*tmp[id(x, y + i)];
+      const w = Math.sin(2*Math.PI*(x/32 + tA*0.006))*Math.cos(2*Math.PI*(y/20 - tA*0.004)) + Math.sin(2*Math.PI*((x - y)/45 + tA*0.005));
+      A[id(x, y)] = 4*v + 1.5*w; }
   }
 
   // MaCE: every cell splits its mass over its 3x3 by e^(beta A), normalised at the sender
@@ -723,7 +727,7 @@ SIMS.mace = (() => {
       // 6, 7: the fixed score, a few steps a second so the moves can be followed; 8: A from the mass, quick
       const rate = k === 10 ? 30 : (k === 8 || k === 9) ? 4 : 0;
       if(rate && now - last > 1000/rate - 2){ last = now;
-        if(k === 10){ blurA(); mace(1); } else mace(1.5); }
+        if(k === 10){ blurA(); mace(0.5); } else mace(1.5); }
       draw();
     }
   };
