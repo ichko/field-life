@@ -47,12 +47,13 @@ body.field .scrim{display:block}
 .pl.s1 .plview{opacity:1}
 .plview canvas{display:block; width:1120px; height:700px; background:#000; border-radius:4px;
   box-shadow:0 0 0 2px rgba(255,255,255,.38), 0 0 40px rgba(167,139,250,.08)}
-.plmat{position:absolute; top:20px; right:20px; display:grid; grid-template-columns:repeat(4, 66px); grid-auto-rows:66px; gap:3px;
+.plmat{position:absolute; top:20px; right:20px; display:grid; grid-template-columns:repeat(4, 66px); grid-auto-rows:66px; gap:3px; transition:opacity .5s ease;
   padding:14px; background:rgba(0,0,0,.78); border:1px solid rgba(255,255,255,.18); border-radius:4px;
   opacity:0; transition:opacity .5s ease; pointer-events:none}
 .pl.s7 .plmat{opacity:1}
 .pl.s9 .plmat{opacity:0}
-.plmat > div{display:grid; place-items:center; font:500 21px/1 var(--mono); color:#fff; border-radius:2px}
+.pl.s12 .plmat{opacity:1}
+.plmat > div{display:grid; place-items:center; font-family:var(--mono); font-weight:500; font-size:21px; line-height:1; color:#fff; border-radius:2px}
 .plmat .dot{width:24px; height:24px; border-radius:50%}
 .plmat .row{outline:2px solid rgba(255,255,255,.55); outline-offset:-2px}
 .plcap{position:relative; width:1120px; height:44px}
@@ -140,7 +141,7 @@ body.dimmed .dim{opacity:1}
   </ul>
 </section>
 
-<section class="slide pl" data-steps="12" data-sim="pl">
+<section class="slide pl" data-steps="16" data-sim="pl">
   <h2>Particle life</h2>
   <div class="plview">
     <canvas id="pl-cv"></canvas>
@@ -162,6 +163,10 @@ body.dimmed .dim{opacity:1}
     <div data-at="9">each particle also has a velocity</div>
     <div data-at="10">forces push the velocity on every update</div>
     <div data-at="11" class="big">More particles</div>
+    <div data-at="12">the matrix behind it</div>
+    <div data-at="13">another matrix</div>
+    <div data-at="14">and another</div>
+    <div data-at="15" class="big">More colours, more particles</div>
   </div>
 </section>
 
@@ -276,14 +281,20 @@ SIMS.pl = (() => {
   // The world is AR wide and 1 tall, and wraps on both axes; it fills the canvas at zoom 1.
   const cv = $("pl-cv"), W = 1120, H = 700, AR = W/H, XO = (AR - 1)/2, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
-  const COL = ["rgb(255,70,70)", "rgb(70,230,110)", "rgb(80,150,255)"], GREY = "rgb(220,226,230)";
+  const COL = ["rgb(255,70,70)", "rgb(70,230,110)", "rgb(80,150,255)", "rgb(255,215,60)", "rgb(60,225,225)", "rgb(220,110,255)"], GREY = "rgb(220,226,230)";
   // M[a][b]: how a feels about b. Picked by searching random 3x3 matrices in this exact physics,
   // 610 particles, for many separate clumps that keep moving: no single giant, nothing frozen.
   // With it the world settles into red rings and green-and-blue cells drifting about.
   const M = [[0.8, -0.9, 0.2], [-0.8, 0.3, 0.6], [-0.7, 0.1, 0.6]];
   // the three the matrix step glides between
   const MATS = [M, [[-0.5, 0.3, 0.9], [0.8, -0.4, -0.6], [0.2, 0.9, -0.8]], [[0.9, -0.8, 0.2], [0.3, 0.7, -0.9], [-0.6, 0.4, 0.6]]];
-  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600;   // ADD: how many More particles brings in
+  // What the running world sweeps through from 4.12 on. Each was tried in this physics,
+  // run on from the one before: drifting cells, then crescent gliders, then spinning
+  // three-colour pinwheels; then three more colours, the 6x6 grown from the last 3x3.
+  const RUN = [M, [[0.6, -0.7, 0.2], [-0.2, -0.3, 1], [0.8, 0.2, -0.5]], [[0, 1, -0.3], [-0.3, 0, 1], [1, -0.3, 0]],
+    [[0, 1, -0.3, -0.97, -0.11, 0.64], [-0.3, 0, 1, 0.93, -0.36, 0.62], [1, -0.3, 0, 0.26, 0.14, -0.75],
+     [-0.84, -0.45, 0.68, -0.54, 0.46, 0.13], [0.11, 0.24, 0.66, 0.34, -0.16, 0.37], [0.75, 0.4, -0.29, 0.79, 0.7, 0.09]]];
+  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600, ADD6 = 500;   // ADD: how many More particles brings in
   // Ten particles laid out by hand around a red one, so the close-ups have
   // a green and a blue inside its reach and everyone else outside it.
   const LAYOUT = [[0.5, 0.5, 0], [0.585, 0.49, 1], [0.505, 0.585, 2],
@@ -293,6 +304,7 @@ SIMS.pl = (() => {
   const MOVES = { 7: { 1: [0.61, 0.46], 2: [0.47, 0.61], 4: [0.62, 0.62] }, 8: { 1: [0.5 + (0.585 - 0.5)*0.32, 0.5 + (0.49 - 0.5)*0.32] } };
   const SHOWN = { 4: [0], 5: [0, 1, 2], 6: [0, 1, 2], 7: [0, 1, 2, 4], 8: [0, 1] };   // the rest dim
   let P = [], k = 0, cam = { x: .5 + XO, y: .5, z: 1.4 }, want = { x: .5 + XO, y: .5, z: 1.4 }, Mv = M, matT0 = 0;
+  let Mrun = M, swFrom = M, swTo = M, swT0 = -1e9, add6T0 = 0, added6 = 0, rnd6 = mulberry32(SEED*103);
   let rnd = mulberry32(SEED*101), colT0 = -1e9, running = false, ramp = 0, runT0 = 0, addT0 = 0, added = 0, rmin = B*R, rmax = R, t0 = 0, last = 0;
   const reset = () => { P = LAYOUT.map(([x, y, c]) => ({ x: x + XO, y, c, vx: 0, vy: 0, tx: x + XO, ty: y })); };
   const wrap = v => v - Math.round(v), wrapX = v => v - AR*Math.round(v/AR);
@@ -311,7 +323,7 @@ SIMS.pl = (() => {
         for(const q of list){ if(p === q) continue;
           const dx = wrapX(q.x - p.x), dy = wrap(q.y - p.y), r = Math.hypot(dx, dy);
           if(r >= R || r === 0) continue;
-          const k_ = f(r/R, M[p.c][q.c], B); ax += k_*dx/r; ay += k_*dy/r; } }
+          const k_ = f(r/R, Mrun[p.c][q.c], B); ax += k_*dx/r; ay += k_*dy/r; } }
       const fr = Math.pow(0.5, DT*s/FH);
       p.vx = p.vx*fr + ax*R*F*DT*s; p.vy = p.vy*fr + ay*R*F*DT*s;
     }
@@ -328,21 +340,28 @@ SIMS.pl = (() => {
   // the matrix panel: coloured dots on the edges, signed values, blue positive, red negative
   const mat = $("pl-mat");
   function paintMat(Mx, row){
-    if(!mat.children.length){
+    const n = Mx.length;
+    if(+mat.dataset.n !== n){                // (re)build for this many colours
+      mat.dataset.n = n; mat.innerHTML = "";
+      const sz = n > 3 ? 46 : 66;
+      mat.style.gridTemplateColumns = `repeat(${n + 1}, ${sz}px)`; mat.style.gridAutoRows = sz + "px";
+      mat.style.fontSize = n > 3 ? "15px" : "";
       mat.appendChild(document.createElement("div"));
-      for(let c = 0; c < 3; c++){ const h = document.createElement("div"); h.innerHTML = `<span class="dot" style="background:${COL[c]}"></span>`; mat.appendChild(h); }
-      for(let r = 0; r < 3; r++){
+      for(let c = 0; c < n; c++){ const h = document.createElement("div"); h.innerHTML = `<span class="dot" style="background:${COL[c]}"></span>`; mat.appendChild(h); }
+      for(let r = 0; r < n; r++){
         const h = document.createElement("div"); h.innerHTML = `<span class="dot" style="background:${COL[r]}"></span>`; mat.appendChild(h);
-        for(let c = 0; c < 3; c++){ const e = document.createElement("div"); e.dataset.rc = r + "," + c; mat.appendChild(e); }
+        for(let c = 0; c < n; c++){ const e = document.createElement("div"); e.dataset.rc = r + "," + c; mat.appendChild(e); }
       }
     }
     for(const e of mat.querySelectorAll("[data-rc]")){
       const [r, c] = e.dataset.rc.split(",").map(Number), v = Mx[r][c], a = Math.min(1, Math.abs(v))*0.85;
       e.style.background = v >= 0 ? `rgba(70,130,255,${a})` : `rgba(255,70,70,${a})`;
+      e.style.fontSize = n > 3 ? "15px" : "";
       e.textContent = (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
       e.classList.toggle("row", r === row);
     }
   }
+
   function loopArrow(fx, fy, a){            // red's arrow towards its own colour, a loop above it
     const w = 2 + 6*Math.abs(a), rr = 30, col = COL[0];
     g.save(); g.translate(fx, fy); g.rotate(Math.PI/2);   // drawn on the left, turned to sit on top
@@ -457,7 +476,18 @@ SIMS.pl = (() => {
       if(n === 3 && was < 3) colT0 = performance.now();
       if(n === 4) t0 = performance.now();
       if(n === 7) matT0 = performance.now();
-      Mv = M; paintMat(M, n === 6 ? 0 : -1);
+      Mv = M;
+      // 12 on: the running world's matrix, swept to the next on every press
+      const target = n <= 12 ? RUN[0] : RUN[Math.min(n - 12, 3)];
+      if(target !== swTo){
+        const N_ = target.length;               // pad the old one out with the new entries
+        swFrom = target.map((r, a) => r.map((v, b) => a < Mrun.length && b < Mrun.length ? Mrun[a][b] : v));
+        swTo = target; swT0 = performance.now();
+      }
+      if(n === 15 && was < 15){ add6T0 = performance.now(); added6 = 0; rnd6 = mulberry32(SEED*103); }
+      if(n < 15 && was >= 15){ P = P.filter(p => p.c < 3); }
+      if(n < 11){ Mrun = M; swFrom = swTo = M; }
+      paintMat(n >= 12 ? Mrun : M, n === 6 ? 0 : -1);
       rmin = B*R; rmax = R;
     },
     frame(now){
@@ -474,10 +504,19 @@ SIMS.pl = (() => {
         Mv = A.map((r, a) => r.map((v, b) => v + (Bm[a][b] - v)*u));
         paintMat(Mv, -1);
       }
+      if(now - swT0 < 1100 || Mrun !== swTo){ // the sweep between running matrices, 1 s
+        const u = Math.min(1, (now - swT0)/1000), e_ = u*u*(3 - 2*u);
+        Mrun = u >= 1 ? swTo : swFrom.map((r, a) => r.map((v, b) => v + (swTo[a][b] - v)*e_));
+        if(k >= 12) paintMat(Mrun, -1);
+      }
+      if(k >= 15 && running){              // three more colours, five hundred more particles over 2 s
+        const w6 = Math.min(ADD6, Math.floor((now - add6T0)/2000*ADD6));
+        while(added6 < w6){ P.push({ x: rnd6()*AR, y: rnd6(), c: 3 + Math.floor(rnd6()*3), vx: 0, vy: 0 }); added6++; }
+      }
       if(!running) for(const p of P){ if(p.tx === undefined) continue; p.x += (p.tx - p.x)*0.08; p.y += (p.ty - p.y)*0.08; }
       if(running){
         if(k === 10) ramp = Math.min(1, (now - runT0)/3500);
-        if(k === 11){
+        if(k >= 11){
           ramp = 1;
           const want_ = Math.min(ADD, Math.floor((now - addT0)/2500*ADD));
           while(added < want_){ P.push({ x: rnd()*AR, y: rnd(), c: Math.floor(rnd()*3), vx: 0, vy: 0 }); added++; }
