@@ -107,12 +107,13 @@ body.dimmed .dim{opacity:1}
 #fl-cv{height:620px !important}
 .pl[data-sim="fl"] .plview{height:620px}
 .pl[data-sim="fl"] #fl-cv{background:transparent; box-shadow:none}
-#fl-eng{position:absolute; left:160px; top:140px; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; pointer-events:none; background:#000; transition:opacity .6s ease}
-#fl-eng.grow{transition:opacity .6s ease, left 2s ease-in-out, top 2s ease-in-out, width 2s ease-in-out, height 2s ease-in-out, border-radius 2s ease}
+/* the engine is always window-sized, so it never has to re-grid; a clip shows just the slide's picture, and slide 7 opens it up */
+#fl-eng{position:absolute; border:0; opacity:0; pointer-events:none; background:#000; transition:opacity .6s ease}
+#fl-eng.grow{transition:opacity .6s ease, clip-path 2s ease-in-out}
 #fl-eng.on{opacity:1}
 /* slide 7: the frame grows to the whole screen while the title goes */
 .fl7.on{gap:14px}
-#fl7-hud{position:absolute; right:24px; top:24px; width:480px; height:220px; z-index:3; opacity:0; animation:fadein 1s ease 2s forwards}
+#fl7-hud{position:absolute; right:24px; top:24px; width:124px; height:124px; z-index:3; opacity:0; animation:fadein 1s ease 2s forwards}
 .fl7 h2{position:relative; z-index:2; animation:fadeout 1.2s ease forwards}
 @keyframes fadeout{to{opacity:0}}
 
@@ -292,7 +293,7 @@ body.dimmed .dim{opacity:1}
 
 <section class="slide pl fl7" data-sim="fl7">
   <h2>Field Life</h2>
-  <canvas id="fl7-hud" width="960" height="440"></canvas>
+  <canvas id="fl7-hud" width="248" height="248"></canvas>
   <div class="plview"></div>
   <div class="plcap"></div>
   <div class="flform"></div>
@@ -1126,7 +1127,9 @@ SIMS.fl = (() => {
     w.paintAt(0.5, 0.5, 0.05);
     S.tool = tool; S.brush = brush; S.flow = flow;
   }
-  const spanX = () => Math.min(FL.S.NX, FL.S.NY*W/H), zOf = cs => cs*spanX()/W, csOf = z => z*W/spanX();
+  // the engine's canvas is the whole window (IW x IH in stage pixels); a cell is IW*zoom/spanX of them across
+  let IL = 0, IT = 0, IW = W, IH = H;
+  const spanX = () => Math.min(FL.S.NX, FL.S.NY*IW/IH), zOf = cs => cs*spanX()/IW, csOf = z => z*IW/spanX();
   function hand(){
     const S = FL.S, NX = S.NX, NY = S.NY, out = new Float32Array(NX*NY*S.C);
     const x0 = Math.round(NX/2 - WX*UP/2), y0 = Math.round(NY/2 - WY*UP/2);
@@ -1143,38 +1146,35 @@ SIMS.fl = (() => {
   addEventListener("keydown", e => { if(e.key === "t" && k >= 13){ tune.classList.toggle("on"); syncTune(); } });
   // the engine's frame sits over this slide's picture; slide 7 grows it to the whole window
   const pv = cv.parentElement;
-  function fit(el = pv){ Object.assign(fe.style, { left: el.offsetLeft + "px", top: el.offsetTop + "px", width: "1120px", height: "620px", borderRadius: "4px" }); }
-  function full(){ const sc = Math.min(innerWidth/1440, innerHeight/900), w = innerWidth/sc, h = innerHeight/sc;
-    Object.assign(fe.style, { left: (1440 - w)/2 + "px", top: (900 - h)/2 + "px", width: w + "px", height: h + "px", borderRadius: "0" }); }
+  function full(){ const sc = Math.min(innerWidth/1440, innerHeight/900); IW = innerWidth/sc; IH = innerHeight/sc; IL = (1440 - IW)/2; IT = (900 - IH)/2;
+    Object.assign(fe.style, { left: IL + "px", top: IT + "px", width: IW + "px", height: IH + "px" }); }
+  full(); addEventListener("resize", full);
+  // show only the rectangle of a slide's picture, and put the world's middle in the middle of it
+  function fit(el = pv){
+    const l = el.offsetLeft - IL, t = el.offsetTop - IT, r = IW - l - W, b = IH - t - H;
+    fe.style.clipPath = `inset(${t}px ${r}px ${b}px ${l}px round 4px)`;
+    if(FL && FL.S.NX){ const S = FL.S, cpp = spanX()/(IW*S.zoom), dx = l + W/2 - IW/2, dy = t + H/2 - IH/2;
+      S.panU = 0.5 - dx*cpp/S.NX; S.panV = 0.5 + dy*cpp/S.NY; }
+  }
+  function open_(){ fe.style.clipPath = "inset(0px 0px 0px 0px round 0px)"; }
 
   /* Slide 7: the same run, full screen. For two seconds a big soft brush on a Lissajous curve lays down
      every colour at once; then every ten seconds the rule glides, over two, to a random world's. */
-  let t7 = 0, cyc = null, morphId = 0, live = null, hudDirty = true;
-  // top right on slide 7: the rule as it stands, matrix without numbers and every kernel's profile, redrawn as it glides
+  let t7 = 0, cyc = null, morphId = 0, live = null, hudDirty = true, pan0 = [0.5, 0.5];
+  // top right on slide 7: the matrix as it stands, without numbers, redrawn as the rule glides
   const hud = $("fl7-hud"), hg = hud.getContext("2d");
   function drawHud(){
     if(!live || !hudDirty) return; hudDirty = false;
     const C_ = live.C, pal = win && win.makePalette ? win.makePalette(C_, live.palette || "Spectrum") : null, col = c => pal ? css(pal[c]) : "#fff";
-    hg.setTransform(2, 0, 0, 2, 0, 0); hg.clearRect(0, 0, 480, 220);
-    hg.fillStyle = "rgba(0,0,0,.72)"; hg.fillRect(0, 0, 480, 220);
+    const HW = 124, HH = 124; hg.setTransform(2, 0, 0, 2, 0, 0); hg.clearRect(0, 0, HW, HH);
+    hg.fillStyle = "rgba(0,0,0,.72)"; hg.fillRect(0, 0, HW, HH);
     // the matrix: a coloured dot per row and column, each cell blue for +, red for -, brighter for stronger
-    const cs = 26, mx = 14 + cs, my = 14 + cs;
+    const cs = 15, o = 8, mx = o + 12, my = o + 12;
     for(let c = 0; c < C_; c++){ hg.fillStyle = col(c);
-      hg.beginPath(); hg.arc(mx + c*cs + cs/2, 14 + cs/2, 6, 0, 6.2832); hg.fill();
-      hg.beginPath(); hg.arc(14 + cs/2, my + c*cs + cs/2, 6, 0, 6.2832); hg.fill(); }
+      hg.beginPath(); hg.arc(mx + c*cs + cs/2, o + 5, 3.5, 0, 6.2832); hg.fill();
+      hg.beginPath(); hg.arc(o + 5, my + c*cs + cs/2, 3.5, 0, 6.2832); hg.fill(); }
     for(let r = 0; r < C_; r++) for(let c = 0; c < C_; c++){ const v = live.mat[r*C_ + c], a = Math.min(1, Math.abs(v))*0.9;
       hg.fillStyle = v >= 0 ? `rgba(70,130,255,${a})` : `rgba(255,70,70,${a})`; hg.fillRect(mx + c*cs + 1, my + r*cs + 1, cs - 2, cs - 2); }
-    // the kernels: one profile each, in its colour, against distance in cells
-    const px0 = mx + C_*cs + 24, pw = 480 - px0 - 14, py0 = 14, ph = 220 - 28, KH = 24;
-    let Rm = 1; for(const k_ of live.kernels) Rm = Math.max(Rm, k_.R);
-    const profs = live.kernels.map(k_ => { const h = bakeExact(k_, KH); return Array.from(h.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); });
-    let pm = 1e-12; for(const pr of profs) for(const v of pr) pm = Math.max(pm, Math.abs(v));
-    const zy = py0 + ph*0.38;
-    hg.strokeStyle = "rgba(255,255,255,.25)"; hg.lineWidth = 1; hg.beginPath(); hg.moveTo(px0, zy); hg.lineTo(px0 + pw, zy); hg.stroke();
-    hg.lineWidth = 1.8;
-    profs.forEach((pr, c) => { const sc_ = live.kernels[c].R/Rm; hg.strokeStyle = col(c); hg.globalAlpha = 0.9; hg.beginPath();
-      pr.forEach((v, i) => { const x = px0 + pw/2 + (i - KH)/KH*sc_*pw/2, y = zy - v/pm*ph*0.6; i ? hg.lineTo(x, y) : hg.moveTo(x, y); }); hg.stroke(); });
-    hg.globalAlpha = 1;
   }
   SIMS.fl7 = {
     enter(){
@@ -1184,7 +1184,8 @@ SIMS.fl = (() => {
         if(!big){ hand(); goBig(); }
         FL.S.fps = 120; FL.S.running = true; FL.S.smooth = true;
         { const it = (await presets).find(s_ => s_.name === WORLD); live = SIMS.fl7.cur || it.cfg; hudDirty = true; }
-        fe.classList.add("on"); fit(slides[cur].querySelector(".plview")); fe.offsetWidth; fe.classList.add("grow"); full(); t7 = performance.now();
+        fe.classList.add("on"); fit(slides[cur].querySelector(".plview")); fe.offsetWidth; fe.classList.add("grow"); open_(); t7 = performance.now();
+        pan0 = [FL.S.panU, FL.S.panV];
         clearInterval(cyc); cyc = setInterval(nextRule, 12000);
       });
     },
@@ -1192,7 +1193,9 @@ SIMS.fl = (() => {
     frame(now){
       if(!FL || !big) return;
       drawHud();
-      const S = FL.S, t = (now - t7)/2000;
+      const S = FL.S, t = (now - t7)/2000, e = Math.min(1, t), ee = e*e*(3 - 2*e);
+      // the middle of the world drifts to the middle of the screen as the clip opens
+      S.panU = pan0[0] + (0.5 - pan0[0])*ee; S.panV = pan0[1] + (0.5 - pan0[1])*ee;
       if(t < 1){
         S.zoom += (1 - S.zoom)*0.06;
         // the brush: a fifth of the screen across, every colour, following a Lissajous figure
