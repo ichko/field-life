@@ -63,13 +63,14 @@ body.field .scrim{display:block}
 .pl.s11 [data-at="11"],
 .pl.s12 [data-at="12"]{opacity:1; transform:none}
 /* "more particles": everything else steps back */
-.pl.s9 [data-at]:not([data-at="9"]){opacity:.22}
+.pl.s9 [data-at]:not([data-at="9"]){opacity:.55}
 .pl li.big{font-weight:600; font-size:40px; color:#fff; margin-top:10px}
 .pl li.big::before{display:none}
 .pl li.big{padding-left:0}
 .plview{position:relative; width:740px; height:740px; opacity:0; transition:opacity .6s ease}
 .pl.s1 .plview{opacity:1}
-.plview canvas{display:block; width:740px; height:740px; background:#000; border-radius:3px}
+.plview canvas{display:block; width:740px; height:740px; background:#000; border-radius:4px;
+  box-shadow:0 0 0 1px rgba(255,255,255,.16), 0 0 40px rgba(167,139,250,.06)}
 .plsliders{position:absolute; left:20px; bottom:20px; display:grid; gap:10px; padding:14px 18px; background:rgba(0,0,0,.7);
   border:1px solid rgba(255,255,255,.12); border-radius:4px; font:400 16px/1 var(--mono); color:#cfd8dc;
   opacity:0; transition:opacity .4s ease; pointer-events:none}
