@@ -230,7 +230,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="3">each cell holds a value in every channel</div>
     <div data-at="4">blended additively</div>
     <div data-at="5">blended by dominance</div>
-    <div data-at="6">each channel has a kernel</div>
+    <div data-at="6">each channel has a kernel: bells over distance, normalised to sum to 0</div>
     <div data-at="7">and there is an interaction matrix</div>
     <div data-at="8">each channel is convolved with its own kernel</div>
     <div data-at="9">weighted by the target channel's row of the matrix</div>
@@ -240,6 +240,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="13" class="big">full speed, more mass</div>
   </div>
   <div class="flform" id="fl-form">
+    <div data-at="6">\( \displaystyle K(r) = \sum_i a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \qquad a = (1,\,-6.25) \quad \mu = (0,\,0) \quad \sigma = (0.354,\,0.141) \)</div>
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
     <div data-at="9">\( \displaystyle M_{cd}\, U_d \)</div>
     <div data-at="10">\( \displaystyle A_c \;=\; \sum_d M_{cd}\, U_d \)</div>
@@ -974,14 +975,15 @@ SIMS.fl = (() => {
       // its profile through the middle, column for column: two bells, the narrow one taken away, so it dips below zero
       if(prof){
         const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v));
-        // eased the same way as the cells above, so the low positive ring reads as well as the deep core
-        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - Math.sign(v)*Math.pow(Math.abs(v)/pm, 0.6)*ph*0.4;
+        // K(r) on a true, linear scale; and, dashed, K(r)*|r|: in 2D a value at distance r covers a ring of length 2 pi r,
+        // so the wide shallow ring holds as much as the deep narrow core, and the two halves cancel
+        const L2 = (L - 1)/2, wv = prof.map((v, i) => v*Math.abs(i - L2)); let wm = 1e-12; for(const v of wv) wm = Math.max(wm, Math.abs(v));
+        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.5, Yw = v => zy - v/wm*ph*0.5;
         g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(x0 - 4, py0 - 6, n*CS + 8, ph + 8);
         g.strokeStyle = "rgba(255,255,255,.08)"; g.lineWidth = 1; g.beginPath();
         for(let i = 1; i < n; i++){ g.moveTo(x0 + i*CS, py0); g.lineTo(x0 + i*CS, py0 + ph - 4); } g.stroke();
-        // the area between the curve and zero, faded, in the sign's colour
         for(const [sg, col] of [[1, POS], [-1, NEG]]){
-          const grad = g.createLinearGradient(0, zy - sg*ph*0.4, 0, zy);
+          const grad = g.createLinearGradient(0, zy - sg*ph*0.5, 0, zy);
           grad.addColorStop(0, `rgba(${col.join(",")},.42)`); grad.addColorStop(1, `rgba(${col.join(",")},.04)`);
           g.fillStyle = grad; g.beginPath(); g.moveTo(X(0), zy);
           for(let i = 0; i < L; i++) g.lineTo(X(i), sg*prof[i] > 0 ? Y(prof[i]) : zy);
@@ -989,7 +991,12 @@ SIMS.fl = (() => {
         g.strokeStyle = "rgba(255,255,255,.3)"; g.beginPath(); g.moveTo(x0, zy); g.lineTo(x0 + n*CS, zy); g.stroke();
         g.lineWidth = 2.5; g.lineCap = "round";
         for(let i = 0; i < L - 1; i++){ const v = (prof[i] + prof[i + 1])/2;
-          g.strokeStyle = `rgba(${(v >= 0 ? POS : NEG).join(",")},.85)`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
+          g.strokeStyle = `rgba(${(v >= 0 ? POS : NEG).join(",")},.9)`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
+        g.setLineDash([5, 5]); g.lineWidth = 1.5; g.strokeStyle = "rgba(255,255,255,.6)"; g.beginPath();
+        for(let i = 0; i < L; i++) i ? g.lineTo(X(i), Yw(wv[i])) : g.moveTo(X(i), Yw(wv[i])); g.stroke(); g.setLineDash([]);
+        g.font = "500 15px 'IBM Plex Mono', monospace"; g.textAlign = "left"; g.textBaseline = "top";
+        g.fillStyle = "rgba(255,255,255,.85)"; g.fillText("K(r)", x0 + 8, py0 + 2);
+        g.fillStyle = "rgba(255,255,255,.6)"; g.fillText("- - K(r)·r", x0 + 8, py0 + 20);
       }
       // one per channel, at the side
       const s = 9;
@@ -1043,7 +1050,7 @@ SIMS.fl = (() => {
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
     step(n){
       for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
-      const form = $("fl-form"); form.classList.toggle("on", n >= 8 && n <= 11);
+      const form = $("fl-form"); form.classList.toggle("on", n === 6 || (n >= 8 && n <= 11));
       for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
       for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", (n === 9 || n === 10) && e.dataset.r === "0");
       const now = performance.now(), was = k;
