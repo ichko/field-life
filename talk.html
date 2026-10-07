@@ -1001,10 +1001,8 @@ SIMS.fl = (() => {
       // its profile through the middle, column for column: two bells, the narrow one taken away, so it dips below zero
       if(prof){
         const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v));
-        // K(r) on a true, linear scale; and, dashed, K(r)*|r|: in 2D a value at distance r covers a ring of length 2 pi r,
-        // so the wide shallow ring holds as much as the deep narrow core, and the two halves cancel
-        const L2 = (L - 1)/2, wv = prof.map((v, i) => v*Math.abs(i - L2)); let wm = 1e-12; for(const v of wv) wm = Math.max(wm, Math.abs(v));
-        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.5, Yw = v => zy - v/wm*ph*0.5;
+        // K(r) through the middle of the kernel, on a true, linear scale
+        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.5;
         g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(x0 - 4, py0 - 6, n*CS + 8, ph + 8);
         g.strokeStyle = "rgba(255,255,255,.08)"; g.lineWidth = 1; g.beginPath();
         for(let i = 1; i < n; i++){ g.moveTo(x0 + i*CS, py0); g.lineTo(x0 + i*CS, py0 + ph - 4); } g.stroke();
@@ -1018,11 +1016,8 @@ SIMS.fl = (() => {
         g.lineWidth = 2.5; g.lineCap = "round";
         for(let i = 0; i < L - 1; i++){ const v = (prof[i] + prof[i + 1])/2;
           g.strokeStyle = `rgba(${(v >= 0 ? POS : NEG).join(",")},.9)`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
-        g.setLineDash([5, 5]); g.lineWidth = 1.5; g.strokeStyle = "rgba(255,255,255,.6)"; g.beginPath();
-        for(let i = 0; i < L; i++) i ? g.lineTo(X(i), Yw(wv[i])) : g.moveTo(X(i), Yw(wv[i])); g.stroke(); g.setLineDash([]);
         g.font = "500 15px 'IBM Plex Mono', monospace"; g.textAlign = "left"; g.textBaseline = "top";
         g.fillStyle = "rgba(255,255,255,.85)"; g.fillText("K(r)", x0 + 8, py0 + 2);
-        g.fillStyle = "rgba(255,255,255,.6)"; g.fillText("- - K(r)·r", x0 + 8, py0 + 20);
       }
       // one per channel, at the side
       const s = 9;
