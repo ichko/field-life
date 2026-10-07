@@ -160,9 +160,18 @@ function lerpCfg(a, b, t){
   });
   return c;
 }
+// The same world on a finer grid: every reach scales with the grid, so the
+// shapes keep their size on screen and just come out sharper. 768 is 1.5x the site.
+const RES = 768;
+function atRes(cfg){
+  if(cfg.square || cfg.seedMode === "pattern" || cfg.seedMode === "masses") return cfg;
+  const k = RES/cfg.N, c = JSON.parse(JSON.stringify(cfg));
+  c.N = RES; c.radMin *= k; c.radMax *= k; for(const kn of c.kernels) kn.R *= k;
+  return c;
+}
 const presets = Promise.all(["worlds", "gliders"].map(k =>
   fetch(k + ".json").then(r => r.json()).then(j => j.setups).catch(() => [])))
-  .then(([w, g]) => [...w, ...g]);
+  .then(([w, g]) => [...w, ...g].map(s => ({ ...s, cfg: atRes(s.cfg) })));
 
 /* ------------------------------------------------------------------ deck */
 const slides = [...document.querySelectorAll(".slide")];
