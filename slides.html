@@ -1,0 +1,666 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Field Life Talk</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* A 1440x900 (16:10) stage, scaled to the window and centred.
+   Every slide: a heading block top-left, one picture centred below it. */
+:root{
+  --bg:#F2F5F6; --fg:#111A1E; --mut:#5E6D72; --line:#D3DCDF;
+  --accent:#6246C8; --screen:#04080B;
+  --display:"Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#070C0F; --fg:#E1EBEF; --mut:#87999F; --line:#22313A; --accent:#A78BFA; --screen:#020406; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#070C0F; --fg:#E1EBEF; --mut:#87999F; --line:#22313A; --accent:#A78BFA; --screen:#020406; color-scheme:dark;
+}
+html,body{height:100%}
+body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); overflow:hidden; -webkit-font-smoothing:antialiased}
+#deck{position:fixed; inset:0; overflow:hidden}
+#stage{width:1440px; height:900px; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); transform-origin:center center}
+.slide{position:absolute; inset:0; padding:60px 88px 64px; display:none; flex-direction:column; gap:30px}
+.slide.on{display:flex}
+.head{display:flex; flex-direction:column; gap:12px}
+.body{flex:1; min-height:0; display:flex; align-items:center; justify-content:center; gap:40px}
+.eyebrow{font:500 13px/1 var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--mut)}
+h1,h2{font-family:var(--display); font-weight:600; margin:0; letter-spacing:-.01em; text-wrap:balance}
+h1{font-size:104px; line-height:1}
+h2{font-size:48px; line-height:1.05}
+p{margin:0; font-size:23px; line-height:1.4; max-width:62ch; text-wrap:pretty}
+.small{font-size:15px; color:var(--mut)}
+.screen{background:var(--screen); display:block}
+.col{display:flex; flex-direction:column; gap:12px; align-items:flex-start}
+.cap{font:400 15px/1.35 var(--mono); color:var(--mut)}
+.big{font:500 24px/1 var(--mono); font-variant-numeric:tabular-nums}
+.eq{font:400 22px/1.6 var(--mono)}
+.ctl{display:flex; gap:10px; align-items:center; flex-wrap:wrap; font:400 14px/1 var(--mono); color:var(--mut)}
+button{font:500 14px/1 var(--mono); color:var(--fg); background:transparent; border:1px solid var(--line); padding:8px 12px; cursor:pointer; border-radius:2px}
+button:hover{border-color:var(--mut)}
+button[aria-pressed="true"]{border-color:var(--fg)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+input[type=range]{accent-color:var(--accent); width:160px}
+.val{min-width:3em; color:var(--fg); font-variant-numeric:tabular-nums}
+.c0{color:rgb(255,40,40)} .c1{color:rgb(0,190,190)}
+a{color:var(--accent)}
+.host{position:relative; background:var(--screen)}
+.host .note{position:absolute; inset:0; display:grid; place-items:center; padding:40px; text-align:center;
+  font:400 15px/1.5 var(--mono); color:#87999F}
+#engine{position:absolute; border:0; display:none; background:#04080B; z-index:1; pointer-events:none}
+.refs{list-style:none; margin:0; padding:0; display:grid; gap:16px; font-size:21px; line-height:1.4}
+.refs span{color:var(--mut)}
+#nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; gap:8px; align-items:center;
+  font:400 12px/1 var(--mono); color:var(--mut); z-index:2; opacity:.5}
+#nav:hover{opacity:1}
+#nav button{padding:5px 9px; font-size:12px}
+#count{min-width:4.5em; text-align:center; font-variant-numeric:tabular-nums}
+</style>
+
+<div id="deck"><div id="stage">
+
+<section class="slide" data-sim="title">
+  <div class="body" style="gap:72px">
+    <div class="col" style="gap:20px; width:440px">
+      <h1>Field Life</h1>
+      <p>Particle life as a grid of concentrations.</p>
+      <p class="small">Iliya Zhechev · <a href="https://www.izhv.eu/field-life" target="_blank" rel="noopener">izhv.eu/field-life</a></p>
+    </div>
+    <div class="host" data-engine style="width:700px;height:700px"></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="six">
+  <div class="head">
+    <div class="eyebrow">Particle life</div>
+    <h2>Particle life</h2>
+    <p>Dots of a few colours. Each pair attracts or repels, depending only on the two colours.</p>
+  </div>
+  <div class="body"><canvas id="c-six" class="screen" style="width:600px;height:600px"></canvas></div>
+</section>
+
+<section class="slide" data-sim="pair">
+  <div class="head">
+    <div class="eyebrow">Particle life</div>
+    <h2>One pair</h2>
+    <p><span class="c0">Red</span> is drawn to <span class="c1">cyan</span>. <span class="c1">Cyan</span> runs from <span class="c0">red</span>. Too close, both push apart.</p>
+  </div>
+  <div class="body">
+    <canvas id="c-pair" style="width:600px;height:600px"></canvas>
+    <div class="col"><canvas class="mat" style="width:190px;height:190px"></canvas><div class="cap">how the row feels<br>about the column</div></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="chase">
+  <div class="head">
+    <div class="eyebrow">Particle life</div>
+    <h2>Many pairs</h2>
+    <p>The same matrix for every pair within reach. It isn't symmetric, so clumps chase each other.</p>
+  </div>
+  <div class="body">
+    <canvas id="c-chase" class="screen" style="width:600px;height:600px"></canvas>
+    <div class="col"><canvas class="mat" style="width:190px;height:190px"></canvas></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="give">
+  <div class="head">
+    <div class="eyebrow">Conserving mass</div>
+    <h2>Taking vs giving</h2>
+    <p>A grid where mass is drawn to nearby mass. Two ways to update it.</p>
+  </div>
+  <div class="body" style="align-items:flex-start">
+    <div class="col"><canvas id="c-take" class="screen" width="96" height="96" style="width:390px;height:390px"></canvas>
+      <div class="cap">taking: each cell becomes a<br>weighted average of its neighbours</div>
+      <div class="big">total × <span id="take-t">1.00</span></div></div>
+    <div class="col"><canvas id="c-give" class="screen" width="96" height="96" style="width:390px;height:390px"></canvas>
+      <div class="cap">giving: each cell splits what<br>it holds among its neighbours</div>
+      <div class="big">total × <span id="give-t">1.00</span></div></div>
+    <div class="col"><canvas id="c-tot" style="width:390px;height:390px"></canvas>
+      <div class="cap">total mass</div></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="split">
+  <div class="head">
+    <div class="eyebrow">Conserving mass</div>
+    <h2>Giving, one cell at a time</h2>
+    <p>A cell hands out everything it holds. Neighbours with a higher score <i>A</i> get more. This is MaCE.</p>
+  </div>
+  <div class="body" style="flex-direction:column; gap:18px">
+    <canvas id="c-split" style="width:860px;height:470px"></canvas>
+    <div class="eq">share = e<sup>βA</sup> / Σ<sub>neighbours</sub> e<sup>βA</sup></div>
+    <div class="ctl">β <input id="split-b" type="range" min="0" max="4" step="0.05" value="1"><span class="val" id="split-bv">1.00</span>
+      <span>· drag the A bars · in 2D, the same over 3×3</span></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="chan">
+  <div class="head">
+    <div class="eyebrow">Particles as channels</div>
+    <h2>One colour, one channel</h2>
+    <p>Count the dots of each colour in each cell. Keep the counts, drop the dots.</p>
+  </div>
+  <div class="body" style="align-items:flex-start">
+    <div class="col"><canvas id="c-ch0" class="screen" style="width:390px;height:390px"></canvas><div class="cap">dots</div></div>
+    <div class="col"><canvas id="c-ch1" class="screen" width="64" height="64" style="width:390px;height:390px"></canvas><div class="cap"><span class="c0">red</span> channel</div></div>
+    <div class="col"><canvas id="c-ch2" class="screen" width="64" height="64" style="width:390px;height:390px"></canvas><div class="cap"><span class="c1">cyan</span> channel</div></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="probe">
+  <div class="head">
+    <div class="eyebrow">Particles as channels</div>
+    <h2>Within reach</h2>
+    <p>A dot adds up the dots within reach. A cell adds up the mass within reach, weighted by the same force curve.</p>
+  </div>
+  <div class="body">
+    <div class="col"><canvas id="c-pr0" class="screen" style="width:460px;height:460px"></canvas><div class="cap">dots → a push</div></div>
+    <div class="col"><canvas id="c-pr1" class="screen" width="64" height="64" style="width:460px;height:460px"></canvas><div class="cap">cells → a score <i>A</i>, per channel</div></div>
+    <div class="col" style="gap:20px; width:330px">
+      <div class="eq" style="font-size:19px; white-space:nowrap">A<sub>c</sub> = Σ<sub>d</sub> M[c][d] · (K ∗ ρ<sub>d</sub>)</div>
+      <p style="font-size:19px">Then MaCE moves each channel's mass toward its higher <i>A</i>.</p>
+      <p class="small">move the mouse over either picture</p>
+    </div>
+  </div>
+</section>
+
+<section class="slide" data-sim="both">
+  <div class="head">
+    <div class="eyebrow">Particles as channels</div>
+    <h2>The same chase, as fields</h2>
+    <p>Same matrix, same force curve as the kernel. Two channels, moved by MaCE.</p>
+  </div>
+  <div class="body">
+    <div class="col"><canvas id="c-b0" class="screen" style="width:560px;height:560px"></canvas><div class="cap">dots</div></div>
+    <div class="col"><div class="host" data-engine style="width:560px;height:560px"></div><div class="cap">fields, 256×256</div></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="world">
+  <div class="head">
+    <div class="eyebrow">Field Life</div>
+    <h2>Worlds</h2>
+    <p>A matrix, a kernel per channel, 512×512 cells. Found by sampling random ones and keeping those that move.</p>
+  </div>
+  <div class="body">
+    <div class="host" data-engine style="width:580px;height:580px"></div>
+    <div class="col" id="world-pick" style="width:240px"></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="creature">
+  <div class="head">
+    <div class="eyebrow">Field Life</div>
+    <h2>Creatures</h2>
+    <p>Cut out of those worlds, dropped alone into an empty one, kept if they hold together.</p>
+  </div>
+  <div class="body">
+    <div class="host" data-engine style="width:580px;height:580px"></div>
+    <div class="col" id="creature-pick" style="width:240px"></div>
+  </div>
+</section>
+
+<section class="slide" data-sim="refs">
+  <div class="head"><h2>Built on</h2></div>
+  <div class="body" style="justify-content:flex-start; align-items:flex-start">
+    <div class="col" style="gap:30px">
+      <ul class="refs">
+        <li>MaCE <span>· Papadopoulos &amp; Guichard (2025) · <a href="https://arxiv.org/abs/2507.12306" target="_blank" rel="noopener">arXiv:2507.12306</a></span></li>
+        <li>Particle Life <span>· Mohr, <a href="https://particle-life.com" target="_blank" rel="noopener">particle-life.com</a>, after Ventrella, <i>Clusters</i></span></li>
+        <li>Lenia <span>· Chan (2019) · <a href="https://arxiv.org/abs/1812.05433" target="_blank" rel="noopener">arXiv:1812.05433</a></span></li>
+        <li>Flow-Lenia <span>· Plantec et al. (2023) · <a href="https://arxiv.org/abs/2212.07906" target="_blank" rel="noopener">arXiv:2212.07906</a></span></li>
+        <li>Non-reciprocal Cahn–Hilliard <span>· Saha, Agudo-Canalejo &amp; Golestanian (2020) · <a href="https://arxiv.org/abs/2005.07101" target="_blank" rel="noopener">arXiv:2005.07101</a></span></li>
+      </ul>
+      <p class="small">Thanks to Alex Rowe (cip-life), Mundy Reimer and Sean Hardy.</p>
+      <p><a href="https://www.izhv.eu/field-life" target="_blank" rel="noopener">izhv.eu/field-life</a></p>
+    </div>
+  </div>
+</section>
+
+<iframe id="engine" title="Field Life simulation"></iframe>
+</div></div>
+
+<div id="nav"><button id="prev" aria-label="Previous slide">←</button><span id="count"></span><button id="next" aria-label="Next slide">→</button></div>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ shared */
+// The live page's "Spectrum" palette: C hues evenly round the wheel.
+function hue(t){ const h = ((t % 1) + 1) % 1*6, x = 1 - Math.abs(h % 2 - 1);
+  return [[1,x,0],[x,1,0],[0,1,x],[0,x,1],[x,0,1],[1,0,x]][Math.floor(h) % 6].map(v => Math.round(v*255)); }
+const spectrum = C => Array.from({length:C}, (_, i) => hue(i/C));
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const $ = id => document.getElementById(id);
+function rng(seed){ return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+  let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+  return ((t ^ t >>> 14) >>> 0)/4294967296; }; }
+const randMatrix = (C, r) => Array.from({length:C}, () => Array.from({length:C}, () => r()*2 - 1));
+const CHASE = [[0.3, 0.6], [-1, 1]];     // red is drawn to cyan, cyan flees red
+const PAL2 = spectrum(2);
+
+function hidpi(cv){
+  const w = parseFloat(cv.style.width), h = parseFloat(cv.style.height);
+  const d = Math.min(2, window.devicePixelRatio || 1);
+  cv.width = Math.round(w*d); cv.height = Math.round(h*d);
+  const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
+  return {g, w, h};
+}
+function at(cv, e){
+  const r = cv.getBoundingClientRect();
+  return [(e.clientX - r.left)/r.width*parseFloat(cv.style.width), (e.clientY - r.top)/r.height*parseFloat(cv.style.height)];
+}
+function arrow(g, x0, y0, x1, y1, col, w){
+  const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy); if(L < 2) return;
+  const ux = dx/L, uy = dy/L, hd = Math.min(16, L*0.5);
+  g.strokeStyle = g.fillStyle = col; g.lineWidth = w; g.lineCap = "round";
+  g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1 - ux*hd*0.8, y1 - uy*hd*0.8); g.stroke();
+  g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - ux*hd - uy*hd*0.5, y1 - uy*hd + ux*hd*0.5);
+  g.lineTo(x1 - ux*hd + uy*hd*0.5, y1 - uy*hd - ux*hd*0.5); g.closePath(); g.fill();
+}
+// A small read-only matrix: coloured dots on the edges, signed values in the cells.
+function drawMatrix(cv, M, pal){
+  const {g, w} = cv._g || (cv._g = hidpi(cv)), C = M.length, s = w/(C + 1);
+  g.clearRect(0, 0, w, w);
+  for(let k = 0; k < C; k++){
+    g.fillStyle = `rgb(${pal[k]})`;
+    g.beginPath(); g.arc(s*(k + 1.5), s*0.5, s*0.16, 0, 6.3); g.fill();
+    g.beginPath(); g.arc(s*0.5, s*(k + 1.5), s*0.16, 0, 6.3); g.fill();
+  }
+  for(let a = 0; a < C; a++) for(let b = 0; b < C; b++){
+    const v = M[a][b], x = s*(b + 1), y = s*(a + 1);
+    g.strokeStyle = css("--line"); g.lineWidth = 1; g.strokeRect(x + .5, y + .5, s - 1, s - 1);
+    g.fillStyle = css("--fg"); g.font = `500 ${Math.round(s*0.24)}px "IBM Plex Mono", monospace`;
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText((v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1), x + s/2, y + s/2);
+  }
+}
+
+/* ------------------------------------------------------- particle life
+   particle_life.py, ported: same force law, same constants. */
+const PL_B = 0.3;
+const plForce = (r, a) => r >= 1 ? 0 : r < PL_B ? r/PL_B - 1 : a*(1 - Math.abs(2*r - 1 - PL_B)/(1 - PL_B));
+class Particles{
+  constructor(C, N, M){ this.C = C; this.N = N; this.M = M; this.pal = spectrum(C);
+    this.R = 0.1; this.F = 10; this.DT = 0.02; this.FH = 0.04; this.reset(); }
+  reset(){
+    const N = this.N;
+    this.x = new Float32Array(N); this.y = new Float32Array(N);
+    this.vx = new Float32Array(N); this.vy = new Float32Array(N); this.c = new Uint8Array(N);
+    for(let i = 0; i < N; i++){ this.x[i] = Math.random(); this.y[i] = Math.random(); this.c[i] = i % this.C; }
+  }
+  step(){
+    const {N, x, y, vx, vy, c, M, R, F, DT} = this, R2 = R*R, fr = Math.pow(0.5, DT/this.FH);
+    for(let i = 0; i < N; i++){
+      let ax = 0, ay = 0; const xi = x[i], yi = y[i], row = M[c[i]];
+      for(let j = 0; j < N; j++){
+        let dx = x[j] - xi, dy = y[j] - yi; dx -= Math.round(dx); dy -= Math.round(dy);
+        const d2 = dx*dx + dy*dy; if(d2 >= R2 || d2 === 0) continue;
+        const d = Math.sqrt(d2), f = plForce(d/R, row[c[j]]);
+        ax += f*dx/d; ay += f*dy/d;
+      }
+      vx[i] = vx[i]*fr + ax*R*F*DT; vy[i] = vy[i]*fr + ay*R*F*DT;
+    }
+    for(let i = 0; i < N; i++){ x[i] = ((x[i] + vx[i]*DT) % 1 + 1) % 1; y[i] = ((y[i] + vy[i]*DT) % 1 + 1) % 1; }
+  }
+  draw(g, w, h, rad = 2.4){
+    g.fillStyle = css("--screen"); g.fillRect(0, 0, w, h);
+    for(let k = 0; k < this.C; k++){
+      g.fillStyle = `rgb(${this.pal[k]})`; g.beginPath();
+      for(let i = 0; i < this.N; i++) if(this.c[i] === k){
+        const px = this.x[i]*w, py = this.y[i]*h; g.moveTo(px + rad, py); g.arc(px, py, rad, 0, 6.2832); }
+      g.fill();
+    }
+  }
+  bin(G, out){ out.fill(0);
+    for(let i = 0; i < this.N; i++) out[this.c[i]*G*G + (Math.floor(this.y[i]*G) % G)*G + Math.floor(this.x[i]*G) % G] += 1; }
+}
+
+/* ------------------------------------------------------- grids, giving and taking */
+function wrapTable(n, r){ const t = new Int32Array(n + 2*r); for(let i = 0; i < t.length; i++) t[i] = ((i - r) % n + n) % n; return t; }
+const W1 = {};
+function expA(A, nn, beta, E){ for(let i = 0; i < nn; i++){ const a = beta*A[i]; E[i] = Math.exp(a > 20 ? 20 : a < -20 ? -20 : a); } }
+function sum3(F, W, n, x, y){ let s = 0; for(let dy = 0; dy < 3; dy++){ const r = W[y + dy]*n; s += F[r + W[x]] + F[r + W[x + 1]] + F[r + W[x + 2]]; } return s; }
+// Giving (MaCE): each cell splits rho over its 3x3 by e^(beta A), normalised at the sender.
+function give(rho, A, n, beta, E, S, out){
+  const W = W1[n] || (W1[n] = wrapTable(n, 1)); expA(A, n*n, beta, E);
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) S[y*n + x] = rho[y*n + x]/Math.max(sum3(E, W, n, x, y), 1e-30);
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) out[y*n + x] = E[y*n + x]*sum3(S, W, n, x, y);
+}
+// Taking: the same weights, normalised at the receiver.
+function take(rho, A, n, beta, E, S, out){
+  const W = W1[n] || (W1[n] = wrapTable(n, 1)); expA(A, n*n, beta, E);
+  for(let i = 0; i < n*n; i++) S[i] = E[i]*rho[i];
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++) out[y*n + x] = sum3(S, W, n, x, y)/sum3(E, W, n, x, y);
+}
+function gauss(sig){ const r = Math.ceil(3*sig), w = new Float32Array(2*r + 1); let s = 0;
+  for(let k = -r; k <= r; k++){ w[k + r] = Math.exp(-0.5*k*k/(sig*sig)); s += w[k + r]; }
+  for(let k = 0; k < w.length; k++) w[k] /= s; return {r, w}; }
+function blur(src, soff, dst, doff, tmp, n, K){
+  const {r, w} = K, W = wrapTable(n, r), L = w.length;
+  for(let y = 0; y < n; y++){ const row = soff + y*n;
+    for(let x = 0; x < n; x++){ let s = 0; for(let k = 0; k < L; k++) s += w[k]*src[row + W[x + k]]; tmp[y*n + x] = s; } }
+  for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){ let s = 0; for(let k = 0; k < L; k++) s += w[k]*tmp[W[y + k]*n + x]; dst[doff + y*n + x] = s; }
+}
+function drawGrey(cv, rho, n, scale){
+  const g = cv.getContext("2d"); cv._img = cv._img || g.createImageData(n, n); const d = cv._img.data;
+  for(let i = 0; i < n*n; i++){ const v = 255*(1 - Math.exp(-rho[i]*scale)); d[4*i] = v*0.92; d[4*i+1] = v*0.95; d[4*i+2] = v; d[4*i+3] = 255; }
+  g.putImageData(cv._img, 0, 0);
+}
+function drawChannels(cv, rho, n, pal, k, only = -1){
+  const g = cv.getContext("2d"), nn = n*n; cv._img = cv._img || g.createImageData(n, n); const d = cv._img.data;
+  for(let i = 0; i < nn; i++){
+    let r = 0, gg = 0, b = 0;
+    for(let c = 0; c < pal.length; c++){ if(only >= 0 && c !== only) continue;
+      const v = rho[c*nn + i]; r += v*pal[c][0]; gg += v*pal[c][1]; b += v*pal[c][2]; }
+    d[4*i] = 255*(1 - Math.exp(-r/255*k)); d[4*i+1] = 255*(1 - Math.exp(-gg/255*k)); d[4*i+2] = 255*(1 - Math.exp(-b/255*k)); d[4*i+3] = 255;
+  }
+  g.putImageData(cv._img, 0, 0);
+}
+
+/* ------------------------------------------------------- the real engine
+   One iframe of index.html, the live site's own page, laid over whichever
+   slide shows a field. Its controls are hidden and it is driven through the
+   window.FL handle the page exposes. Reaching into it needs the deck and the
+   page on the same origin, so this runs when the folder is served. */
+const ENGINE_CSS = `body{margin:0!important;overflow:hidden!important;background:#04080B!important}
+body>*:not(.page),.page>*:not(.app){display:none!important}
+.page{padding:0!important;margin:0!important;max-width:none!important}
+.app{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;aspect-ratio:auto!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;margin:0!important}
+.app>*:not(#cv){display:none!important}#cv{cursor:default!important}`;
+const engine = (() => {
+  const f = $("engine"); let FL = null, want = null, failed = false;
+  const ready = new Promise(res => {
+    f.addEventListener("load", () => {
+      let d; try{ d = f.contentDocument; }catch(e){ d = null; }
+      if(!d){ failed = true; return res(); }
+      const st = d.createElement("style"); st.textContent = ENGINE_CSS; d.head.appendChild(st);
+      let tries = 0;
+      const poll = () => { if(f.contentWindow.FL){ FL = f.contentWindow.FL; FL.S.running = false; res(); }
+        else if(++tries > 200){ failed = true; res(); } else setTimeout(poll, 50); };
+      poll();
+    });
+  });
+  // The repo serves the page as index.html; a published copy of the deck, whose
+  // own index is the deck, carries it as engine.html instead.
+  fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html")
+    .then(src => f.src = src);
+  function place(host){
+    const st = $("stage").getBoundingClientRect(), k = st.width/1440, r = host.getBoundingClientRect();
+    Object.assign(f.style, { left: (r.left - st.left)/k + "px", top: (r.top - st.top)/k + "px",
+                             width: r.width/k + "px", height: r.height/k + "px", display: "block" });
+  }
+  return {
+    async show(host, cfg, fps = 30, zoom = 1){
+      want = cfg; place(host);
+      await ready;
+      if(failed || !FL){ f.style.display = "none";
+        host.innerHTML = '<div class="note">The live field needs this folder served over http,<br>e.g. python3 -m http.server</div>'; return; }
+      if(want !== cfg) return;
+      setTimeout(() => {               // let the page settle on its new size before seeding
+        if(want !== cfg) return;
+        FL.applyConfig(cfg); FL.S.seedMode = cfg.seedMode || "disc"; FL.reseed();
+        FL.S.fps = fps; FL.S.zoom = zoom; FL.S.panU = 0.5; FL.S.panV = 0.5; FL.S.holdUntil = 0; FL.S.running = true;
+      }, 250);
+    },
+    hide(){ want = null; f.style.display = "none"; if(FL) FL.S.running = false; },
+    replace(host){ if(want) place(host); }
+  };
+})();
+let PRESETS = { worlds: [], gliders: [] };
+const presetsReady = Promise.all(["worlds", "gliders"].map(k =>
+  fetch(k + ".json").then(r => r.json()).then(j => PRESETS[k] = j.setups).catch(() => {})));
+const plKernel = R => ({ R, type: "pl", sym: "radial", beta: 0.3, feather: 0.1, seed: 1, oct: 3, terms: [] });
+const CHASE_FIELD = { seed: 1, mat: CHASE.flat(), kernels: [plKernel(30), plKernel(30)], N: 256, C: 2,
+  density: 0.12, radMin: 30, radMax: 30, force: 90, repel: 6, beta: 3, noise: 0, steps: 1, expo: 2.2,
+  seedMode: "disc", palette: "Spectrum", blend: 0, kterms: 2, kwidth: 0.7, ksym: "mixed", cfreq: 1.1, cdepth: 2 };
+
+/* ------------------------------------------------------------------ slides
+   Each sim may have enter/leave, a frame() drawn every frame, and a step()
+   it wants run `rate` times a second. */
+const SIMS = {};
+const hostOf = name => document.querySelector(`[data-sim="${name}"] [data-engine]`);
+
+function picker(boxId, items, onPick){
+  const box = $(boxId); box.innerHTML = "";
+  items.forEach((it, i) => { const b = document.createElement("button"); b.textContent = it.name;
+    b.onclick = () => { for(const o of box.children) o.setAttribute("aria-pressed", String(o === b)); onPick(it); };
+    b.setAttribute("aria-pressed", String(i === 0)); box.appendChild(b); });
+}
+function pickerShow(name, boxId, list, zoom = 1){
+  if(!$(boxId).children.length) picker(boxId, list, it => engine.show(hostOf(name), it.cfg, 30, zoom));
+  const on = [...$(boxId).children].findIndex(b => b.getAttribute("aria-pressed") === "true");
+  if(list.length) engine.show(hostOf(name), list[Math.max(0, on)].cfg, 30, zoom);
+}
+
+SIMS.title = { async enter(){ await presetsReady; const w = PRESETS.worlds.find(s => s.name === "fine brisk colony");
+  if(w) engine.show(hostOf("title"), w.cfg, 30); } };
+
+SIMS.six = (() => {
+  const cv = $("c-six"); let P = null, gw;
+  cv.onclick = () => P.reset();
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(6, 600, randMatrix(6, rng(33))); for(let i = 0; i < 200; i++) P.step(); } },
+    step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
+})();
+
+// Red is fixed in the middle, cyan follows the pointer. Each arrow is the force that dot feels.
+SIMS.pair = (() => {
+  const cv = $("c-pair"); let gw, gx = 0.66, gy = 0.38, drag = false; const R = 0.36;
+  const draw = () => {
+    const {g, w, h} = gw, cx = w/2, cy = h/2, line = css("--line"), mut = css("--mut");
+    g.clearRect(0, 0, w, h);
+    g.strokeStyle = line; g.lineWidth = 1.5; g.setLineDash([5, 6]);
+    g.beginPath(); g.arc(cx, cy, R*w, 0, 6.3); g.stroke();
+    g.beginPath(); g.arc(cx, cy, R*w*PL_B, 0, 6.3); g.stroke(); g.setLineDash([]);
+    g.fillStyle = mut; g.font = `400 15px "IBM Plex Mono", monospace`; g.textAlign = "center";
+    g.fillText("reach", cx, cy - R*w - 12); g.fillText("too close", cx, cy - R*w*PL_B - 10);
+    const px = gx*w, py = gy*h, dx = px - cx, dy = py - cy, d = Math.hypot(dx, dy) || 1, r = d/(R*w);
+    const fr = plForce(r, CHASE[0][1]), fc = plForce(r, CHASE[1][0]), L = 150;
+    arrow(g, cx, cy, cx + dx/d*fr*L, cy + dy/d*fr*L, `rgb(${PAL2[0]})`, 4);
+    arrow(g, px, py, px - dx/d*fc*L, py - dy/d*fc*L, `rgb(${PAL2[1]})`, 4);
+    for(const [x, y, c] of [[cx, cy, PAL2[0]], [px, py, PAL2[1]]]){ g.fillStyle = `rgb(${c})`; g.beginPath(); g.arc(x, y, 14, 0, 6.3); g.fill(); }
+  };
+  const move = e => { const [x, y] = at(cv, e); gx = Math.min(.97, Math.max(.03, x/gw.w)); gy = Math.min(.97, Math.max(.03, y/gw.h)); draw(); };
+  cv.addEventListener("pointerdown", e => { drag = true; cv.setPointerCapture(e.pointerId); move(e); });
+  cv.addEventListener("pointermove", e => { if(drag) move(e); });
+  cv.addEventListener("pointerup", () => drag = false);
+  cv.style.cursor = "grab"; cv.style.touchAction = "none";
+  return { enter(){ gw = gw || hidpi(cv); draw(); } };
+})();
+
+SIMS.chase = (() => {
+  const cv = $("c-chase"); let P = null, gw;
+  cv.onclick = () => P.reset();
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); for(let i = 0; i < 150; i++) P.step(); } },
+    step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
+})();
+
+SIMS.give = (() => {
+  const n = 96, nn = n*n, K = gauss(2), STEPS = 600;
+  let a, b, t, A, E, S, tmp, a0, hist, gw;
+  const init = () => { const r = new Float64Array(nn);
+    for(let i = 0; i < nn; i++) r[i] = 0.05*Math.random();
+    for(let k = 0; k < 12; k++){ const cx = Math.random()*n, cy = Math.random()*n;
+      for(let y = 0; y < n; y++) for(let x = 0; x < n; x++){
+        let dx = x - cx, dy = y - cy; dx -= n*Math.round(dx/n); dy -= n*Math.round(dy/n); r[y*n + x] += Math.exp(-(dx*dx + dy*dy)/18); } }
+    return r; };
+  const reset = () => { a = init(); b = Float64Array.from(a); t = new Float64Array(nn); A = new Float64Array(nn);
+    E = new Float64Array(nn); S = new Float64Array(nn); tmp = new Float64Array(nn); a0 = a.reduce((p, q) => p + q, 0); hist = [[1, 1]]; };
+  reset();
+  const chart = () => {
+    const {g, w, h} = gw, L = 46, Rr = w - 12, T = 12, B = h - 30, top = 20;
+    const X = i => L + Math.min(i, STEPS)/STEPS*(Rr - L), Y = v => B - v/top*(B - T);
+    g.clearRect(0, 0, w, h); g.strokeStyle = css("--line"); g.lineWidth = 1;
+    g.fillStyle = css("--mut"); g.font = `400 13px "IBM Plex Mono", monospace`; g.textAlign = "right"; g.textBaseline = "middle";
+    for(const v of [1, 5, 10, 15, 20]){ g.fillText("×" + v, L - 8, Y(v)); g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(Rr, Y(v)); g.stroke(); }
+    g.textAlign = "center"; g.textBaseline = "top"; g.fillText("steps", (L + Rr)/2, B + 10);
+    const n_ = Math.min(hist.length, STEPS + 1), last = hist[n_ - 1], xe = X(n_ - 1);
+    for(const [k, col, lab] of [[0, css("--fg"), "taking"], [1, css("--accent"), "giving"]]){
+      g.strokeStyle = col; g.lineWidth = 2.5; g.beginPath();
+      for(let i = 0; i < n_; i++) i ? g.lineTo(X(i), Y(Math.min(top, hist[i][k]))) : g.moveTo(X(i), Y(hist[i][k])); g.stroke();
+      g.fillStyle = col; g.textAlign = xe > w*0.7 ? "right" : "left"; g.textBaseline = "bottom";
+      g.fillText(lab, xe + (xe > w*0.7 ? -4 : 6), Y(Math.min(top, last[k])) - 6);
+    }
+  };
+  $("c-take").onclick = $("c-give").onclick = reset;
+  return { rate: 20, enter(){ gw = gw || hidpi($("c-tot")); },
+    step(){
+      if(hist.length > STEPS + 80) reset();          // hold the finished chart a moment, then go again
+      if(hist.length <= STEPS){
+        blur(a, 0, A, 0, tmp, n, K); for(let i = 0; i < nn; i++) A[i] *= 4; take(a, A, n, 1, E, S, t); [a, t] = [t, a];
+        blur(b, 0, A, 0, tmp, n, K); for(let i = 0; i < nn; i++) A[i] *= 4; give(b, A, n, 1, E, S, t); [b, t] = [t, b];
+        hist.push([a.reduce((p, q) => p + q, 0)/a0, b.reduce((p, q) => p + q, 0)/a0]);
+        $("take-t").textContent = hist[hist.length - 1][0].toFixed(2); $("give-t").textContent = hist[hist.length - 1][1].toFixed(2);
+      }else hist.push(hist[hist.length - 1]);
+      drawGrey($("c-take"), a, n, 1.5); drawGrey($("c-give"), b, n, 1.5); chart();
+    } };
+})();
+
+// One cell's mass, split three ways, on a loop.
+SIMS.split = (() => {
+  const cv = $("c-split"); let gw, A = [0.5, 0, 1.5], drag = -1, t0 = 0;
+  const geo = () => { const bw = 180, gap = 70, x0 = (gw.w - 3*bw - 2*gap)/2;
+    return { bw, xs: [0, 1, 2].map(i => x0 + i*(bw + gap)), base: 270, aMid: 380, aScale: 36 }; };
+  const shares = () => { const b = +$("split-b").value, e = A.map(a => Math.exp(b*a)), z = e[0] + e[1] + e[2]; return e.map(v => v/z); };
+  $("split-b").oninput = () => $("split-bv").textContent = (+$("split-b").value).toFixed(2);
+  cv.style.touchAction = "none";
+  const pick = e => { const [x] = at(cv, e), G = geo(); return G.xs.findIndex(X => x >= X && x <= X + G.bw); };
+  const set = e => { const [, y] = at(cv, e), G = geo(); A[drag] = Math.max(-2, Math.min(2, (G.aMid - y)/G.aScale)); };
+  cv.addEventListener("pointerdown", e => { const [, y] = at(cv, e); if(y < geo().base + 30) return;
+    drag = pick(e); if(drag >= 0){ cv.setPointerCapture(e.pointerId); set(e); } });
+  cv.addEventListener("pointermove", e => { if(drag >= 0) set(e); });
+  cv.addEventListener("pointerup", () => drag = -1);
+  return { enter(){ gw = gw || hidpi(cv); t0 = performance.now(); },
+    frame(now){
+      const {g, w, h} = gw, G = geo(), s = shares(), fg = css("--fg"), mut = css("--mut"), line = css("--line"), acc = css("--accent");
+      const T = ((now - t0)/2800) % 1, k = T < 0.25 ? 0 : T < 0.6 ? (T - 0.25)/0.35 : 1, e = k*k*(3 - 2*k), H = 210;
+      g.clearRect(0, 0, w, h); g.font = `400 15px "IBM Plex Mono", monospace`; g.textAlign = "center";
+      ["left", "this cell", "right"].forEach((lab, i) => {
+        g.strokeStyle = line; g.lineWidth = 1.5; g.strokeRect(G.xs[i] + .5, G.base - H - 20 + .5, G.bw, H + 20);
+        g.fillStyle = mut; g.fillText(lab, G.xs[i] + G.bw/2, G.base + 24); });
+      let stack = 0;
+      for(let i = 0; i < 3; i++){
+        const ph = s[i]*H, fromY = G.base - stack - ph, toY = G.base - ph, x = G.xs[1] + (G.xs[i] - G.xs[1])*e, y = fromY + (toY - fromY)*e;
+        g.fillStyle = acc; g.globalAlpha = 0.55 + 0.15*i; g.fillRect(x + 22, y, G.bw - 44, ph); g.globalAlpha = 1; stack += ph;
+        if(e > 0.95){ g.fillStyle = fg; g.font = `500 20px "IBM Plex Mono", monospace`;
+          g.fillText(Math.round(s[i]*100) + "%", G.xs[i] + G.bw/2, Math.min(G.base - ph - 10, G.base - 30)); g.font = `400 15px "IBM Plex Mono", monospace`; }
+      }
+      g.strokeStyle = line; g.beginPath(); g.moveTo(G.xs[0] - 20, G.aMid); g.lineTo(G.xs[2] + G.bw + 20, G.aMid); g.stroke();
+      g.fillStyle = mut; g.textAlign = "right"; g.fillText("A", G.xs[0] - 30, G.aMid + 5);
+      for(let i = 0; i < 3; i++){
+        const y = G.aMid - A[i]*G.aScale; g.fillStyle = fg; g.globalAlpha = 0.75;
+        g.fillRect(G.xs[i] + 60, Math.min(y, G.aMid), G.bw - 120, Math.abs(y - G.aMid) || 1); g.globalAlpha = 1;
+        g.textAlign = "left"; g.fillStyle = mut; g.fillText(A[i].toFixed(1), G.xs[i] + G.bw - 52, y + 5);
+      }
+    } };
+})();
+
+SIMS.chan = (() => {
+  const G = 64, K = gauss(0.7); let P = null, gw;
+  const cnt = new Float32Array(2*G*G), sm = new Float32Array(2*G*G), tmp = new Float32Array(G*G);
+  return { rate: 30, enter(){ if(!P){ gw = hidpi($("c-ch0")); P = new Particles(2, 500, CHASE); for(let i = 0; i < 150; i++) P.step(); } },
+    step(){ P.step(); P.draw(gw.g, gw.w, gw.h);
+      P.bin(G, cnt); for(let c = 0; c < 2; c++) blur(cnt, c*G*G, sm, c*G*G, tmp, G, K);
+      drawChannels($("c-ch1"), sm, G, PAL2, 1.1, 0); drawChannels($("c-ch2"), sm, G, PAL2, 1.1, 1); } };
+})();
+
+// The dots within reach of a point, and the same reach drawn over the binned field.
+SIMS.probe = (() => {
+  const G = 64, K = gauss(0.7); let P = null, g0, px = 0.5, py = 0.5;
+  const cnt = new Float32Array(2*G*G), sm = new Float32Array(2*G*G), tmp = new Float32Array(G*G);
+  const draw = () => {
+    const {g, w, h} = g0, R = P.R*w;
+    P.draw(g, w, h);
+    g.lineWidth = 1;
+    for(let i = 0; i < P.N; i++){
+      let dx = P.x[i] - px, dy = P.y[i] - py; dx -= Math.round(dx); dy -= Math.round(dy);
+      if(dx*dx + dy*dy < P.R*P.R){ g.strokeStyle = `rgba(${P.pal[P.c[i]]},.55)`; g.beginPath(); g.moveTo(px*w, py*h); g.lineTo(px*w + dx*w, py*h + dy*h); g.stroke(); }
+    }
+    g.strokeStyle = "rgba(255,255,255,.8)"; g.lineWidth = 1.5; g.setLineDash([4, 5]); g.beginPath(); g.arc(px*w, py*h, R, 0, 6.3); g.stroke(); g.setLineDash([]);
+    g.fillStyle = "#fff"; g.beginPath(); g.arc(px*w, py*h, 5, 0, 6.3); g.fill();
+    const cv1 = $("c-pr1"); drawChannels(cv1, sm, G, PAL2, 1.1);
+    const g1 = cv1.getContext("2d"), cx = px*G, cy = py*G, r = P.R*G;
+    // the force curve as a footprint: a repelling core, an attracting ring
+    const grd = g1.createRadialGradient(cx, cy, 0, cx, cy, r);
+    grd.addColorStop(0, "rgba(255,255,255,.45)"); grd.addColorStop(PL_B, "rgba(255,255,255,0)");
+    grd.addColorStop((1 + PL_B)/2, "rgba(255,255,255,.22)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+    g1.fillStyle = grd; g1.beginPath(); g1.arc(cx, cy, r, 0, 6.3); g1.fill();
+    g1.strokeStyle = "rgba(255,255,255,.8)"; g1.lineWidth = 0.15; g1.beginPath(); g1.arc(cx, cy, r, 0, 6.3); g1.stroke();
+    g1.fillStyle = "#fff"; g1.fillRect(Math.floor(cx), Math.floor(cy), 1, 1);
+  };
+  const move = e => { const [x, y] = at(e.currentTarget, e), W = parseFloat(e.currentTarget.style.width); px = x/W; py = y/W; draw(); };
+  $("c-pr0").addEventListener("pointermove", move); $("c-pr1").addEventListener("pointermove", move);
+  $("c-pr1").style.imageRendering = "pixelated";
+  return { enter(){ if(!P){ g0 = hidpi($("c-pr0")); P = new Particles(2, 500, CHASE); for(let i = 0; i < 300; i++) P.step();
+      P.bin(G, cnt); for(let c = 0; c < 2; c++) blur(cnt, c*G*G, sm, c*G*G, tmp, G, K); } draw(); } };
+})();
+
+SIMS.both = (() => {
+  const cv = $("c-b0"); let P = null, gw;
+  return { rate: 30, enter(){ if(!P){ gw = hidpi(cv); P = new Particles(2, 500, CHASE); for(let i = 0; i < 150; i++) P.step(); } engine.show(hostOf("both"), CHASE_FIELD, 30); },
+    step(){ P.step(); P.draw(gw.g, gw.w, gw.h); } };
+})();
+
+const WORLDS = ["fine brisk colony", "medium steady colony", "medium slow colony", "large brisk colony", "large brisk filling"];
+SIMS.world = { async enter(){ await presetsReady;
+  pickerShow("world", "world-pick", WORLDS.map(n => PRESETS.worlds.find(s => s.name === n)).filter(Boolean)); } };
+SIMS.creature = { async enter(){ await presetsReady; const order = ["large gliding flock", "broad gliding cruiser", "medium gliding cruiser", "broad drifting crawler", "small drifting crawler", "mite racing darter", "mite quick darter"];
+  pickerShow("creature", "creature-pick", order.map(n => PRESETS.gliders.find(s => s.name === n)).filter(Boolean), 1.6); } };
+
+function drawMatrices(){ for(const cv of document.querySelectorAll("canvas.mat")) drawMatrix(cv, CHASE, PAL2); }
+drawMatrices();
+
+/* --------------------------------------------------------------- deck */
+const slides = [...document.querySelectorAll(".slide")];
+let cur = -1, lastStep = 0;
+function go(i){
+  i = Math.max(0, Math.min(slides.length - 1, i));
+  if(i === cur) return;
+  if(cur >= 0){ slides[cur].classList.remove("on"); const s = SIMS[slides[cur].dataset.sim]; s && s.leave && s.leave(); }
+  cur = i; slides[cur].classList.add("on");
+  if(!slides[cur].querySelector("[data-engine]")) engine.hide();
+  const s = SIMS[slides[cur].dataset.sim]; s && s.enter && s.enter();
+  $("count").textContent = `${cur + 1} / ${slides.length}`;
+  try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
+}
+function fit(){
+  $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`;
+  const h = slides[cur] && slides[cur].querySelector("[data-engine]"); if(h) engine.replace(h);
+}
+addEventListener("resize", fit);
+addEventListener("keydown", e => {
+  if(e.target.tagName === "INPUT") return;
+  if(["ArrowRight", "PageDown", " "].includes(e.key)){ e.preventDefault(); go(cur + 1); }
+  if(["ArrowLeft", "PageUp"].includes(e.key)){ e.preventDefault(); go(cur - 1); }
+  if(e.key === "Home") go(0); if(e.key === "End") go(slides.length - 1);
+  if(e.key === "f" && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+});
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+let tx0 = null;
+addEventListener("touchstart", e => { tx0 = e.touches[0].clientX; }, {passive:true});
+addEventListener("touchend", e => { if(tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0;
+  if(Math.abs(dx) > 80 && !e.target.closest("canvas")) go(cur + (dx < 0 ? 1 : -1)); tx0 = null; });
+addEventListener("hashchange", () => go((parseInt(location.hash.slice(1), 10) || 1) - 1));
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", drawMatrices);
+
+// Each sim steps at its own fixed rate, whatever the display's refresh rate.
+function loop(now){
+  const s = SIMS[slides[cur].dataset.sim];
+  if(s && !document.hidden){
+    if(s.frame) s.frame(now);
+    if(s.step && now - lastStep >= 1000/s.rate - 2){ lastStep = now; s.step(); }
+  }
+  requestAnimationFrame(loop);
+}
+fit();
+go((parseInt(location.hash.slice(1), 10) || 1) - 1);
+fit();
+requestAnimationFrame(loop);
+</script>
