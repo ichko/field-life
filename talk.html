@@ -245,7 +245,7 @@ body.dimmed .dim{opacity:1}
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
     <div data-at="9">\( \displaystyle M_{\text{red},d}\; U_d \)</div>
     <div data-at="10">\( \displaystyle \sum_d M_{cd}\, U_d \)</div>
-    <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \qquad F = 90 \quad \text{repel} = 6 \)</div>
+    <div data-at="11">\( \displaystyle A_c \;=\; F \sum_d M_{cd}\, U_d \;-\; \text{repel} \sum_d G \ast \rho_d \qquad F = 70 \quad \text{repel} = 6 \)</div>
     <div data-at="12">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_{c,j}}}{\sum_{k \,\in\, 3\times3} e^{\beta A_{c,k}}} \qquad \beta = 3 \)</div>
   </div>
 </section>
@@ -785,7 +785,7 @@ SIMS.mace = (() => {
    top, added together, they ARE the blend; nothing is crossfaded. The world
    is the title's own (fine brisk filling), using three of its six colours,
    on a coarse 40x22 window so every cell reads. From step 12 the engine
-   itself runs it, on a grid three times finer with the kernel three times
+   itself runs it, on a grid four times finer with the kernel four times
    wider, which is the same world sampled finer; at 13 it moves to the size
    the title slide runs it at, and the rest of the world's mass fades in.
    Steps: 1 grid, 2 channels, 3 mass, 4 additive, 5 dominant, 6 kernel,
@@ -795,7 +795,7 @@ SIMS.fl = (() => {
   const cv = $("fl-cv"), W = 1120, H = 620, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d");
   const WX = 40, WY = 22, NN = WX*WY, C = 3, CH = [0, 2, 4];   // the window, in cells; the three colours used
-  const WORLD = "fine brisk filling", UP = 3, KR = 7, EXPO = 2.2, CS = 28;
+  const WORLD = "fine brisk filling", UP = 4, KR = 7, EXPO = 2.2, CS = 28;   // the engine's cells are UP x finer, so its kernel reaches UP*KR
   const POS = [90, 150, 255], NEG = [255, 90, 90];
   let PAL = [[1, 0, 0], [0, 1, 0], [0, 0, 1]], FL = null, win = null, cfg = null, kern = null, prof = null;
   let M = [[-0.35, -0.57, -0.69], [0.66, 0.51, 0.93], [0.21, 0.23, -0.1]];
@@ -832,6 +832,7 @@ SIMS.fl = (() => {
       // the engine's grid: fine enough that its kernel reaches UP*KR cells, i.e. KR of ours
       const N = Math.round(cfg.N*UP*KR/cfg.radMax), k = N/cfg.N;
       cfg.N = N; cfg.radMin *= k; cfg.radMax *= k; for(const kn of cfg.kernels) kn.R *= k;
+      cfg.force = 70;   // a little gentler than the title's 90: on this coarser grid 90 makes the mass flip back and forth each step
       win.Math.random = mulberry32(SEED*7919);
       FL.applyConfig(cfg); FL.S.running = false;
       M = CH.map(c => CH.map(dd => cfg.mat[c*cfg.C + dd]));
