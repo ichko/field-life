@@ -1,0 +1,147 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Field Life</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500&display=swap">
+<style>
+/* A talk built one slide at a time. The stage is 1440x900 (16:10), scaled to
+   the window; a slide can also put the live field behind everything. */
+:root{
+  --bg:#04080B; --fg:#EEF3F5; --mut:#8FA0A6; --accent:#A78BFA;
+  --display:"Bricolage Grotesque", "IBM Plex Sans", system-ui, sans-serif;
+  --body:"IBM Plex Sans", system-ui, -apple-system, sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  color-scheme:dark;
+}
+html,body{height:100%}
+body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); overflow:hidden; -webkit-font-smoothing:antialiased}
+#engine{position:fixed; inset:0; width:100%; height:100%; border:0; display:none; background:var(--bg); pointer-events:none}
+#deck{position:fixed; inset:0; overflow:hidden}
+#stage{width:1440px; height:900px; position:absolute; left:50%; top:50%; transform:translate(-50%, -50%); transform-origin:center center}
+.slide{position:absolute; inset:0; display:none}
+.slide.on{display:block}
+
+/* title: the field behind, the words fading up out of it */
+.title{display:none; place-items:center; text-align:center}
+.title.on{display:grid}
+.title .words{display:flex; flex-direction:column; align-items:center; gap:22px; animation:rise 2.4s ease-out both}
+.title h1{margin:0; font-family:var(--display); font-weight:600; font-size:150px; line-height:.95; letter-spacing:-.025em;
+  color:rgba(238,243,245,.86); text-shadow:0 0 60px rgba(4,8,11,.9), 0 0 18px rgba(4,8,11,.7)}
+.title p{margin:0; font-size:30px; letter-spacing:.01em; color:rgba(238,243,245,.7); text-shadow:0 0 24px rgba(4,8,11,.95)}
+/* a soft dark pool behind the words, so they read on any part of the field */
+.scrim{position:fixed; inset:0; pointer-events:none; display:none;
+  background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
+body.field .scrim{display:block}
+@keyframes rise{from{opacity:0; transform:translateY(10px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){ .title .words{animation:none} }
+
+#nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; gap:8px; align-items:center;
+  font:400 12px/1 var(--mono); color:var(--mut); z-index:2; opacity:0; transition:opacity .2s}
+#nav:hover, #nav:focus-within{opacity:.9}
+#nav button{font:500 12px/1 var(--mono); color:var(--fg); background:transparent; border:1px solid rgba(255,255,255,.18);
+  padding:5px 9px; border-radius:2px; cursor:pointer}
+#nav button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+#count{min-width:4.5em; text-align:center; font-variant-numeric:tabular-nums}
+#note{position:fixed; left:16px; bottom:14px; font:400 13px/1.4 var(--mono); color:var(--mut); display:none}
+</style>
+
+<iframe id="engine" title="Field Life simulation" tabindex="-1"></iframe>
+<div class="scrim"></div>
+
+<div id="deck"><div id="stage">
+
+<section class="slide title" data-field="large brisk filling">
+  <div class="words">
+    <h1>Field Life</h1>
+    <p>Particle life as a grid of concentrations</p>
+  </div>
+</section>
+
+</div></div>
+
+<div id="note">The live field needs this folder served over http, e.g. python3 -m http.server</div>
+<div id="nav"><button id="prev" aria-label="Previous slide">←</button><span id="count"></span><button id="next" aria-label="Next slide">→</button></div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+/* The live field is the site's own page, index.html, in a frame with its
+   controls hidden, driven through the window.FL handle it exposes. That needs
+   the deck and the page on one origin, so serve the folder. A published copy
+   whose own index is this deck carries the page as engine.html instead. */
+const ENGINE_CSS = `body{margin:0!important;overflow:hidden!important;background:#04080B!important}
+body>*:not(.page),.page>*:not(.app){display:none!important}
+.page{padding:0!important;margin:0!important;max-width:none!important}
+.app{position:fixed!important;inset:0!important;width:100vw!important;height:100vh!important;aspect-ratio:auto!important;
+  border:0!important;border-radius:0!important;box-shadow:none!important;margin:0!important}
+.app>*:not(#cv){display:none!important}`;
+const engine = (() => {
+  const f = $("engine"); let FL = null, failed = false, want = null;
+  const ready = new Promise(res => {
+    f.addEventListener("load", () => {
+      let d; try{ d = f.contentDocument; }catch(e){ d = null; }
+      if(!d){ failed = true; return res(); }
+      const st = d.createElement("style"); st.textContent = ENGINE_CSS; d.head.appendChild(st);
+      let tries = 0;
+      const poll = () => { const w = f.contentWindow;
+        if(w.FL){ FL = w.FL; FL.S.running = false; res(); }
+        else if(++tries > 200){ failed = true; res(); } else setTimeout(poll, 50); };
+      poll();
+    });
+  });
+  fetch("engine.html", { method: "HEAD" }).then(r => r.ok ? "engine.html" : "index.html", () => "index.html")
+    .then(src => f.src = src);
+  return {
+    async show(cfg, fps = 30){
+      want = cfg; f.style.display = "block"; document.body.classList.add("field");
+      await ready;
+      if(failed || !FL){ f.style.display = "none"; $("note").style.display = "block"; return; }
+      setTimeout(() => {                 // let the page settle on its size before seeding
+        if(want !== cfg) return;
+        FL.applyConfig(cfg); FL.S.seedMode = cfg.seedMode || "disc"; FL.reseed();
+        FL.S.fps = fps; FL.S.zoom = 1; FL.S.panU = FL.S.panV = 0.5; FL.S.holdUntil = 0; FL.S.running = true;
+      }, 250);
+    },
+    hide(){ want = null; f.style.display = "none"; document.body.classList.remove("field"); if(FL) FL.S.running = false; }
+  };
+})();
+const presets = Promise.all(["worlds", "gliders"].map(k =>
+  fetch(k + ".json").then(r => r.json()).then(j => j.setups).catch(() => [])))
+  .then(([w, g]) => [...w, ...g]);
+
+/* ------------------------------------------------------------------ deck */
+const slides = [...document.querySelectorAll(".slide")];
+let cur = -1, shown = null;
+async function go(i){
+  i = Math.max(0, Math.min(slides.length - 1, i));
+  if(i === cur) return;
+  if(cur >= 0) slides[cur].classList.remove("on");
+  cur = i; slides[cur].classList.add("on");
+  $("count").textContent = `${cur + 1} / ${slides.length}`;
+  try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
+  // A slide names a preset in data-field to put it behind everything.
+  const name = slides[cur].dataset.field;
+  if(!name){ shown = null; engine.hide(); return; }
+  if(name === shown) return;             // same world on consecutive slides keeps running
+  shown = name;
+  const it = (await presets).find(s => s.name === name);
+  if(it && shown === name) engine.show(it.cfg);
+}
+function fit(){ $("stage").style.transform = `translate(-50%, -50%) scale(${Math.min(innerWidth/1440, innerHeight/900)})`; }
+addEventListener("resize", fit); fit();
+addEventListener("keydown", e => {
+  if(["ArrowRight", "PageDown", " "].includes(e.key)){ e.preventDefault(); go(cur + 1); }
+  if(["ArrowLeft", "PageUp"].includes(e.key)){ e.preventDefault(); go(cur - 1); }
+  if(e.key === "Home") go(0); if(e.key === "End") go(slides.length - 1);
+  if(e.key === "f" && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {});
+});
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+let tx0 = null;
+addEventListener("touchstart", e => { tx0 = e.touches[0].clientX; }, {passive:true});
+addEventListener("touchend", e => { if(tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0;
+  if(Math.abs(dx) > 80) go(cur + (dx < 0 ? 1 : -1)); tx0 = null; });
+addEventListener("hashchange", () => go((parseInt(location.hash.slice(1), 10) || 1) - 1));
+go((parseInt(location.hash.slice(1), 10) || 1) - 1);
+</script>
