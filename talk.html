@@ -110,8 +110,8 @@ body.dimmed .dim{opacity:1}
 #fl-eng{position:absolute; inset:0; width:1120px; height:620px; border:0; border-radius:4px; opacity:0; transition:opacity .6s ease; pointer-events:none; background:#000}
 #fl-eng.on{opacity:1}
 .flmat{grid-template-columns:repeat(4, 66px)}
-.pl.s7 #fl-mat{opacity:1}
-.pl.s12 #fl-mat{opacity:0}
+.pl.s8 #fl-mat{opacity:1}
+.pl.s13 #fl-mat{opacity:0}
 .flform{position:relative; width:1120px; height:0; transition:height .4s ease}
 .flform.on{height:78px}
 .flform > div{position:absolute; inset:0; display:grid; place-items:center; color:#fff; font-size:24px; opacity:0; transition:opacity .4s ease}
@@ -120,6 +120,8 @@ body.dimmed .dim{opacity:1}
 .fltune{position:absolute; left:16px; bottom:16px; display:none; gap:8px; padding:12px 14px; background:rgba(0,0,0,.82);
   border:1px solid rgba(255,255,255,.2); border-radius:4px; font:400 15px/1 var(--mono); color:#dfe6ea; z-index:3}
 .fltune.on{display:grid}
+.fltune.kt{left:auto; right:16px; bottom:auto; top:50%; transform:translateY(-50%); font-size:20px}
+.fltune.kt label{grid-template-columns:40px 180px 70px}
 .fltune label{display:grid; grid-template-columns:64px 180px 52px; align-items:center; gap:10px}
 .fltune input{accent-color:var(--accent); width:180px}
 .fltune button{font:500 14px/1 var(--mono); color:#fff; background:transparent; border:1px solid rgba(255,255,255,.3); padding:6px 8px; border-radius:2px; cursor:pointer}
@@ -224,12 +226,18 @@ body.dimmed .dim{opacity:1}
   <div class="mcform" id="mc-form">\( \displaystyle \text{share}_{\,j} \;=\; \frac{e^{\beta A_j}}{\sum_{k \,\in\, 3\times3} e^{\beta A_k}} \)</div>
 </section>
 
-<section class="slide pl" data-steps="14" data-sim="fl">
+<section class="slide pl" data-steps="15" data-sim="fl">
   <h2>Field Life</h2>
   <div class="plview">
     <canvas id="fl-cv"></canvas>
     <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
     <div class="plmat flmat" id="fl-mat"></div>
+    <div class="fltune kt" id="fl-ktune">
+      <label>a₁ <input data-t="0" data-p="a" type="range" min="0" max="2" step="0.01"><span></span></label>
+      <label>σ₁ <input data-t="0" data-p="w" type="range" min="0.05" max="0.6" step="0.005"><span></span></label>
+      <label>a₂ <input data-t="1" data-p="a" type="range" min="-12" max="0" step="0.05"><span></span></label>
+      <label>σ₂ <input data-t="1" data-p="w" type="range" min="0.03" max="0.4" step="0.005"><span></span></label>
+    </div>
     <div class="fltune" id="fl-tune">
       <label>force <input data-k="force" type="range" min="0" max="200" step="1"><span></span></label>
       <label>repel <input data-k="repel" type="range" min="0" max="15" step="0.1"><span></span></label>
@@ -245,16 +253,17 @@ body.dimmed .dim{opacity:1}
     <div data-at="4">blended additively</div>
     <div data-at="5">blended by dominance</div>
     <div data-at="6">each channel has a kernel: bells over distance, normalised to sum to 0</div>
-    <div data-at="7">and there is an interaction matrix</div>
-    <div data-at="8">convolving: how much of each colour is around, counted by its kernel</div>
-    <div data-at="9">red's row of the matrix: pulled towards (+) or pushed from (−) each colour</div>
-    <div data-at="10">summed: where red wants to go</div>
-    <div data-at="11">force scales that; repel pushes mass out of crowded cells, whatever their colour</div>
-    <div data-at="12">MaCE moves the mass along A; β sets how sharply</div>
-    <div data-at="13" class="big">running: the same world as the title</div>
+    <div data-at="7">two knobs per bell: its height a and its width σ</div>
+    <div data-at="8">and there is an interaction matrix</div>
+    <div data-at="9">convolving: how much of each colour is around, counted by its kernel</div>
+    <div data-at="10">red's row of the matrix: pulled towards (+) or pushed from (−) each colour</div>
+    <div data-at="11">summed: where red wants to go</div>
+    <div data-at="12">force scales that; repel pushes mass out of crowded cells, whatever their colour</div>
+    <div data-at="13">MaCE moves the mass along A; β sets how sharply</div>
+    <div data-at="14" class="big">running: the same world as the title</div>
   </div>
   <div class="flform" id="fl-form">
-    <div data-at="6">\( \displaystyle K(r) = \sum_i a_i\, e^{-\left(\frac{r/R \,-\, \mu_i}{\sigma_i}\right)^{2}} \qquad a = (1,\,-6.25) \quad \mu = (0,\,0) \quad \sigma = (0.354,\,0.141) \)</div>
+    <div data-at="6">\( \displaystyle K(r) = \sum_i a_i\, e^{-\left(\frac{r/R}{\sigma_i}\right)^{2}} \qquad a = (1,\,-6.25) \quad \sigma = (0.354,\,0.141) \)</div>
     <div data-at="8">\( \displaystyle U_d \;=\; K_d \ast \rho_d \)</div>
     <div data-at="9">\( \displaystyle M_{\text{red},d}\; U_d \)</div>
     <div data-at="10">\( \displaystyle \sum_d M_{cd}\, U_d \)</div>
@@ -892,8 +901,16 @@ SIMS.fl = (() => {
   }
   buildMat();
   // the world's kernel, from its own numbers, so it shows even before (or without) the engine; the engine's copy replaces it once loaded
-  { const KDEF = { feather: 0.1, terms: [{ a: 1, r: 0, w: 0.354 }, { a: -6.25, r: 0, w: 0.141 }] }, KH = 70;
-    kern = CH.map(() => bakeExact(KDEF, KR)); const hi = bakeExact(KDEF, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
+  const KDEF = { feather: 0.1, terms: [{ a: 1, r: 0, w: 0.354 }, { a: -6.25, r: 0, w: 0.141 }] };
+  let KCUR = JSON.parse(JSON.stringify(KDEF));
+  function setKernel(K_){ const KH = 70; kern = CH.map(() => bakeExact(K_, KR)); const hi = bakeExact(K_, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
+  setKernel(KDEF);
+  // 6.7: the two bells' heights and widths on sliders; the square and the profile follow
+  const ktune = $("fl-ktune");
+  for(const ev of ["click", "pointerdown", "touchstart"]) ktune.addEventListener(ev, e => e.stopPropagation());
+  const kshow = el => el.nextElementSibling.textContent = (+el.value).toFixed(el.dataset.p === "a" ? 2 : 3);
+  function syncK(){ for(const el of ktune.querySelectorAll("input")){ el.value = KCUR.terms[+el.dataset.t][el.dataset.p]; kshow(el); } }
+  for(const el of ktune.querySelectorAll("input")) el.addEventListener("input", () => { KCUR.terms[+el.dataset.t][el.dataset.p] = +el.value; kshow(el); setKernel(KCUR); });
 
   // U_d = K_d * rho_d on the window (nothing outside it), and A for the first channel
   let sU = 1, sA = 1, sAF = 1;
@@ -1079,8 +1096,12 @@ SIMS.fl = (() => {
   return {
     enter(){ load(); k = kPrev = 0; mixT0 = 0; isoT = isoFrom = isoTo = 0; fe.classList.remove("on"); },
     leave(){ if(FL) FL.S.running = false; fe.classList.remove("on"); },
-    step(n){
-      for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
+    step(n0){
+      // 7 is the kernel again, with its knobs; every later step is the one before it in what follows
+      const n = n0 <= 6 ? n0 : n0 === 7 ? 6 : n0 - 1;
+      ktune.classList.toggle("on", n0 === 7);
+      if(n0 === 7) syncK(); else { KCUR = JSON.parse(JSON.stringify(KDEF)); setKernel(KDEF); }
+      for(const c of $("fl-cap").children) c.classList.toggle("cur", +c.dataset.at === n0);
       const form = $("fl-form"); form.classList.toggle("on", n === 6 || (n >= 8 && n <= 12));
       for(const c of form.children) c.classList.toggle("cur", +c.dataset.at === n);
       for(const e of mat.querySelectorAll("[data-r]")) e.classList.toggle("row", n >= 9 && n <= 11 && e.dataset.r === "0");
