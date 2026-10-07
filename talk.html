@@ -46,7 +46,15 @@ body.field .scrim{display:block}
 .plview{position:relative; width:1120px; height:700px; opacity:0; transition:opacity .6s ease}
 .pl.s1 .plview{opacity:1}
 .plview canvas{display:block; width:1120px; height:700px; background:#000; border-radius:4px;
-  box-shadow:0 0 0 1px rgba(255,255,255,.16), 0 0 40px rgba(167,139,250,.06)}
+  box-shadow:0 0 0 2px rgba(255,255,255,.38), 0 0 40px rgba(167,139,250,.08)}
+.plmat{position:absolute; top:20px; right:20px; display:grid; grid-template-columns:repeat(4, 66px); grid-auto-rows:66px; gap:3px;
+  padding:14px; background:rgba(0,0,0,.78); border:1px solid rgba(255,255,255,.18); border-radius:4px;
+  opacity:0; transition:opacity .5s ease; pointer-events:none}
+.pl.s6 .plmat{opacity:1}
+.pl.s8 .plmat{opacity:0}
+.plmat > div{display:grid; place-items:center; font:500 21px/1 var(--mono); color:#fff; border-radius:2px}
+.plmat .dot{width:24px; height:24px; border-radius:50%}
+.plmat .row{outline:2px solid rgba(255,255,255,.55); outline-offset:-2px}
 .plcap{position:relative; width:1120px; height:44px}
 .plcap > div{position:absolute; inset:0; text-align:center; font-size:30px; line-height:44px; color:rgba(238,243,245,.92);
   opacity:0; transform:translateY(6px); transition:opacity .4s ease, transform .4s ease}
@@ -130,7 +138,7 @@ body.dimmed .dim{opacity:1}
   </ul>
 </section>
 
-<section class="slide pl" data-steps="10" data-sim="pl">
+<section class="slide pl" data-steps="12" data-sim="pl">
   <h2>Particle life</h2>
   <div class="plview">
     <canvas id="pl-cv"></canvas>
@@ -138,17 +146,20 @@ body.dimmed .dim{opacity:1}
       <label>min r <input id="pl-rmin" type="range" min="0" max="1" step="0.001" tabindex="-1"></label>
       <label>max r <input id="pl-rmax" type="range" min="0" max="1" step="0.001" tabindex="-1"></label>
     </div>
+    <div class="plmat" id="pl-mat"></div>
   </div>
   <div class="plcap" id="pl-cap">
     <div data-at="1">A 2D space</div>
     <div data-at="2">Particles</div>
     <div data-at="3">of several colours</div>
     <div data-at="4">a min and max radius of influence</div>
-    <div data-at="5">attraction or repulsion towards every colour</div>
-    <div data-at="6">within the min radius, every particle repels</div>
-    <div data-at="7">each has a position and a velocity</div>
-    <div data-at="8">forces push the velocity on every update</div>
-    <div data-at="9" class="big">More particles</div>
+    <div data-at="5">an attraction or repulsion towards every colour</div>
+    <div data-at="6">one number for every pair of colours: the matrix</div>
+    <div data-at="7">the matrix reparametrises the simulation</div>
+    <div data-at="8">within the min radius, every particle repels</div>
+    <div data-at="9">each has a position and a velocity</div>
+    <div data-at="10">forces push the velocity on every update</div>
+    <div data-at="11" class="big">More particles</div>
   </div>
 </section>
 
@@ -258,14 +269,20 @@ SIMS.pl = (() => {
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
   const COL = ["rgb(255,70,70)", "rgb(70,230,110)", "rgb(80,150,255)"], GREY = "rgb(220,226,230)";
   const M = [[0.4, 0.9, -0.7], [-0.6, 0.5, 0.8], [0.8, -0.5, 0.3]];   // M[a][b]: how a feels about b
+  // the three the matrix step glides between
+  const MATS = [M, [[-0.5, 0.3, 0.9], [0.8, -0.4, -0.6], [0.2, 0.9, -0.8]], [[0.9, -0.8, 0.2], [0.3, 0.7, -0.9], [-0.6, 0.4, 0.6]]];
   const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04;
   // Ten particles laid out by hand around a red one, so the close-ups have
   // a green and a blue inside its reach and everyone else outside it.
   const LAYOUT = [[0.5, 0.5, 0], [0.585, 0.49, 1], [0.505, 0.585, 2],
     [0.33, 0.36, 1], [0.66, 0.66, 0], [0.36, 0.7, 1], [0.7, 0.34, 2], [0.62, 0.8, 2], [0.24, 0.55, 0], [0.8, 0.52, 1]];
-  let P = [], k = 0, cam = { x: .5 + XO, y: .5, z: 1.4 }, want = { x: .5 + XO, y: .5, z: 1.4 };
-  let running = false, ramp = 0, runT0 = 0, addT0 = 0, added = 0, rmin = B*R, rmax = R, t0 = 0, last = 0;
-  const reset = () => { P = LAYOUT.map(([x, y, c]) => ({ x: x + XO, y, c, vx: 0, vy: 0 })); };
+  // where a step wants a particle other than its home: 7 brings a second red in,
+  // 8 slides the green inside red's min radius
+  const MOVES = { 7: { 1: [0.61, 0.46], 2: [0.47, 0.61], 4: [0.62, 0.62] }, 8: { 1: [0.5 + (0.585 - 0.5)*0.32, 0.5 + (0.49 - 0.5)*0.32] } };
+  const SHOWN = { 4: [0], 5: [0, 1, 2], 6: [0, 1, 2], 7: [0, 1, 2, 4], 8: [0, 1] };   // the rest dim
+  let P = [], k = 0, cam = { x: .5 + XO, y: .5, z: 1.4 }, want = { x: .5 + XO, y: .5, z: 1.4 }, Mv = M, matT0 = 0;
+  let colT0 = -1e9, running = false, ramp = 0, runT0 = 0, addT0 = 0, added = 0, rmin = B*R, rmax = R, t0 = 0, last = 0;
+  const reset = () => { P = LAYOUT.map(([x, y, c]) => ({ x: x + XO, y, c, vx: 0, vy: 0, tx: x + XO, ty: y })); };
   const wrap = v => v - Math.round(v), wrapX = v => v - AR*Math.round(v/AR);
   const toS = (x, y) => [W/2 + wrapX(x - cam.x)*H*cam.z, H/2 + wrap(y - cam.y)*H*cam.z];
   const f = (r, a, b) => r >= 1 ? 0 : r < b ? r/b - 1 : a*(1 - Math.abs(2*r - 1 - b)/(1 - b));
@@ -284,24 +301,51 @@ SIMS.pl = (() => {
   }
   function arrow(x0, y0, x1, y1, col, w){
     const dx = x1 - x0, dy = y1 - y0, L = Math.hypot(dx, dy); if(L < 3) return;
-    const ux = dx/L, uy = dy/L, h = Math.min(14 + w, L*0.5);
+    const ux = dx/L, uy = dy/L, h = Math.min(12 + w, L*0.5);
     g.strokeStyle = g.fillStyle = col; g.lineWidth = w; g.lineCap = "round";
     g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1 - ux*h*0.7, y1 - uy*h*0.7); g.stroke();
     g.beginPath(); g.moveTo(x1, y1); g.lineTo(x1 - ux*h - uy*h*0.55, y1 - uy*h + ux*h*0.55);
     g.lineTo(x1 - ux*h + uy*h*0.55, y1 - uy*h - ux*h*0.55); g.closePath(); g.fill();
   }
-  function draw(now){
+  // the matrix panel: coloured dots on the edges, signed values, blue positive, red negative
+  const mat = $("pl-mat");
+  function paintMat(Mx, row){
+    if(!mat.children.length){
+      mat.appendChild(document.createElement("div"));
+      for(let c = 0; c < 3; c++){ const h = document.createElement("div"); h.innerHTML = `<span class="dot" style="background:${COL[c]}"></span>`; mat.appendChild(h); }
+      for(let r = 0; r < 3; r++){
+        const h = document.createElement("div"); h.innerHTML = `<span class="dot" style="background:${COL[r]}"></span>`; mat.appendChild(h);
+        for(let c = 0; c < 3; c++){ const e = document.createElement("div"); e.dataset.rc = r + "," + c; mat.appendChild(e); }
+      }
+    }
+    for(const e of mat.querySelectorAll("[data-rc]")){
+      const [r, c] = e.dataset.rc.split(",").map(Number), v = Mx[r][c], a = Math.min(1, Math.abs(v))*0.85;
+      e.style.background = v >= 0 ? `rgba(70,130,255,${a})` : `rgba(255,70,70,${a})`;
+      e.textContent = (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(1);
+      e.classList.toggle("row", r === row);
+    }
+  }
+  function loopArrow(fx, fy, a){            // red's arrow towards its own colour, a loop on the left
+    const w = 2 + 6*Math.abs(a), rr = 30, cx = fx - 26 - rr, col = COL[0];
+    g.strokeStyle = g.fillStyle = col; g.lineWidth = w; g.beginPath();
+    g.arc(cx, fy, rr, 0.75, 0.75 + 5.2, false); g.stroke();
+    const ea = 0.75 + 5.2, ex = cx + rr*Math.cos(ea), ey = fy + rr*Math.sin(ea), tx = -Math.sin(ea), ty = Math.cos(ea), h = 13;
+    g.beginPath(); g.moveTo(ex + tx*h, ey + ty*h); g.lineTo(ex - ty*h*0.55, ey + tx*h*0.55); g.lineTo(ex + ty*h*0.55, ey - tx*h*0.55); g.closePath(); g.fill();
+    g.font = "600 20px 'IBM Plex Mono', monospace"; g.textAlign = "right";
+    g.fillText((a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), cx - rr - 10, fy + 7);
+  }
+  function draw(){
     g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
     // grid: a line every 0.1 of the world, following the camera
-    g.strokeStyle = "rgba(255,255,255,.09)"; g.lineWidth = 1; g.beginPath();
+    g.strokeStyle = "rgba(255,255,255,.2)"; g.lineWidth = 1; g.beginPath();
     const sp = 0.1*H*cam.z, ox = W/2 - ((cam.x % 0.1) + 0.1) % 0.1*H*cam.z, oy = H/2 - ((cam.y % 0.1) + 0.1) % 0.1*H*cam.z;
     for(let x = ox % sp; x < W; x += sp){ g.moveTo(x, 0); g.lineTo(x, H); }
     for(let y = oy % sp; y < H; y += sp){ g.moveTo(0, y); g.lineTo(W, y); }
     g.stroke();
     if(k < 2) return;
     const focus = P[0], [fx, fy] = toS(focus.x, focus.y), z = cam.z;
-    // 4-6: the reach of the red particle, min and max
-    if(k >= 4 && k <= 7){
+    // the reach of the red particle, min and max
+    if([4, 5, 6, 8, 9].includes(k)){
       g.setLineDash([6, 7]); g.lineWidth = 2;
       for(const [r, lab] of [[rmin, "min"], [rmax, "max"]]){
         g.strokeStyle = "rgba(255,255,255,.75)"; g.beginPath(); g.arc(fx, fy, r*H*z, 0, 6.2832); g.stroke();
@@ -310,8 +354,8 @@ SIMS.pl = (() => {
       }
       g.setLineDash([]);
     }
-    // 5: what red feels about each colour, as arrows of different weight
-    if(k === 5){
+    // 5, 6: what red feels about each colour, as arrows of different weight
+    if(k === 5 || k === 6){
       for(const j of [1, 2]){
         const q = P[j], [qx, qy] = toS(q.x, q.y), a = M[0][q.c];
         const dx = qx - fx, dy = qy - fy, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L, len = 40 + 90*Math.abs(a);
@@ -320,18 +364,20 @@ SIMS.pl = (() => {
         g.fillStyle = COL[q.c]; g.font = "600 20px 'IBM Plex Mono', monospace"; g.textAlign = "center";
         g.fillText((a > 0 ? "+" : "−") + Math.abs(a).toFixed(1), sx + ux*(len*sg + 26*sg) - uy*18, sy + uy*(len*sg + 26*sg) + ux*18 + 6);
       }
-      // and towards its own colour: a loop back onto itself, on the left
-      const a = M[0][0], w = 2 + 6*Math.abs(a), rr = 30, cx = fx - 26 - rr;
-      g.strokeStyle = g.fillStyle = COL[0]; g.lineWidth = w; g.beginPath();
-      g.arc(cx, fy, rr, 0.75, 0.75 + 5.2, false); g.stroke();
-      const ea = 0.75 + 5.2, ex = cx + rr*Math.cos(ea), ey = fy + rr*Math.sin(ea);
-      const tx = -Math.sin(ea), ty = Math.cos(ea), h = 13;
-      g.beginPath(); g.moveTo(ex + tx*h, ey + ty*h); g.lineTo(ex - ty*h*0.55, ey + tx*h*0.55); g.lineTo(ex + ty*h*0.55, ey - tx*h*0.55); g.closePath(); g.fill();
-      g.font = "600 20px 'IBM Plex Mono', monospace"; g.textAlign = "right";
-      g.fillText("+" + a.toFixed(1), cx - rr - 10, fy + 7);
+      loopArrow(fx, fy, M[0][0]);
     }
-    // 6: inside the min radius everyone repels, whatever the matrix says
-    if(k === 6){
+    // 7: a force on every particle from every other, weighted by the matrix as it changes
+    if(k === 7){
+      const ids = SHOWN[7];
+      for(const i of ids) for(const j of ids){ if(i === j) continue;
+        const p = P[i], q = P[j], [px, py] = toS(p.x, p.y), [qx, qy] = toS(q.x, q.y), m = Mv[p.c][q.c];
+        const dx = qx - px, dy = qy - py, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L, nx = -uy*6, ny = ux*6;
+        const len = (0.12 + 0.3*Math.abs(m))*L*Math.sign(m), sx = px + ux*14 + nx, sy = py + uy*14 + ny;
+        arrow(sx, sy, sx + ux*len, sy + uy*len, COL[p.c], 1.5 + 5*Math.abs(m));
+      }
+    }
+    // 8: inside the min radius everyone repels, whatever the matrix says
+    if(k === 8){
       const q = P[1], [qx, qy] = toS(q.x, q.y), dx = qx - fx, dy = qy - fy, L = Math.hypot(dx, dy) || 1, ux = dx/L, uy = dy/L;
       arrow(fx - ux*14, fy - uy*14, fx - ux*80, fy - uy*80, COL[0], 6);
       arrow(qx + ux*14, qy + uy*14, qx + ux*80, qy + uy*80, COL[1], 6);
@@ -339,16 +385,18 @@ SIMS.pl = (() => {
       g.fillText("repel", (fx + qx)/2 - uy*34, (fy + qy)/2 + ux*34 + 7);
     }
     // particles
-    const pr = 5 + 2.5*Math.sqrt(z);
-    for(const p of P){
-      const [x, y] = toS(p.x, p.y); if(x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
-      const dimmed = (k >= 4 && k <= 6) && p !== P[0] && !(k === 5 && (p === P[1] || p === P[2])) && !(k === 6 && p === P[1]);
-      g.globalAlpha = dimmed ? 0.35 : 1;
-      g.fillStyle = k >= 3 ? COL[p.c] : GREY; g.beginPath(); g.arc(x, y, pr, 0, 6.2832); g.fill();
-    }
+    const pr = 5 + 2.5*Math.sqrt(z), keep = SHOWN[k];
+    const tc = performance.now() - colT0;     // 3: the dots take their colour one after another, each with a pop
+    P.forEach((p, i) => {
+      const [x, y] = toS(p.x, p.y); if(x < -20 || y < -20 || x > W + 20 || y > H + 20) return;
+      g.globalAlpha = keep && !keep.includes(i) ? 0.3 : 1;
+      const u = (tc - i*70)/300, on = k > 3 || (k === 3 && (u >= 0 || i >= LAYOUT.length));
+      const pop = k === 3 && u > 0 && u < 1 ? 1 + 0.6*Math.sin(Math.PI*u) : 1;
+      g.fillStyle = on ? COL[p.c] : GREY; g.beginPath(); g.arc(x, y, pr*pop, 0, 6.2832); g.fill();
+    });
     g.globalAlpha = 1;
-    // 6: a position and a velocity for each
-    if(k === 7){
+    // 9: a position and a velocity for each
+    if(k === 9){
       for(const p of P){
         const [x, y] = toS(p.x, p.y); if(x < 0 || y < 0 || x > W || y > H) continue;
         arrow(x, y, x + p.vx*H*z*1.6, y + p.vy*H*z*1.6, "rgba(255,255,255,.85)", 2.5);
@@ -359,27 +407,30 @@ SIMS.pl = (() => {
       g.fillText("v", fx + p.vx*H*z*1.6 + 10, fy + p.vy*H*z*1.6 - 6);
     }
   }
-  const views = [ { x: .5 + XO, y: .5, z: 1.4 }, { x: .5 + XO, y: .5, z: 1.4 }, { x: .52 + XO, y: .56, z: 1.4 }, { x: .52 + XO, y: .56, z: 1.4 },
-    { x: .5 + XO, y: .5, z: 2.6 }, { x: .5 + XO, y: .5, z: 2.6 }, { x: .5 + XO, y: .5, z: 3.4 }, { x: .5 + XO, y: .5, z: 2.0 }, { x: .5 + XO, y: .5, z: 1 }, { x: .5 + XO, y: .5, z: 1 } ];
+  const V = (x, y, z) => ({ x: x + XO, y, z });
+  const views = [V(.5, .5, 1.4), V(.5, .5, 1.4), V(.52, .56, 1.4), V(.52, .56, 1.4), V(.5, .5, 2.6), V(.5, .5, 2.6),
+    V(.5, .5, 2.6), V(.545, .54, 2.7), V(.5, .5, 3.4), V(.5, .5, 2.0), V(.5, .5, 1), V(.5, .5, 1)];
   return {
     enter(){ reset(); k = 0; cam = { ...views[0] }; running = false; },
     leave(){ running = false; },
     step(n){
       for(const c of $("pl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
       const was = k; k = n; want = views[Math.min(n, views.length - 1)];
-      if(n <= 7){ running = false; if(was >= 8 || was === 0 && n > 0) reset(); P.length = LAYOUT.length; }
-      // 6: the green one slides inside red's min radius; any other step puts it back
-      const home = LAYOUT[1];
-      P[1].tx = XO + (n === 6 ? 0.5 + (home[0] - 0.5)*0.32 : home[0]); P[1].ty = n === 6 ? 0.5 + (home[1] - 0.5)*0.32 : home[1];
-      if(n === 7){ // a small velocity each, for the picture
+      if(n <= 9){ running = false; if(was >= 10 || was === 0 && n > 0) reset(); P.length = LAYOUT.length; }
+      // each particle eases to its home, or to where this step wants it
+      P.slice(0, LAYOUT.length).forEach((p, i) => { const m = (MOVES[n] || {})[i] || LAYOUT[i]; p.tx = m[0] + XO; p.ty = m[1]; });
+      if(n === 9){ // a small velocity each, for the picture
         const vs = [[0.06, -0.03], [-0.02, 0.05], [0.04, 0.04], [-0.05, 0.01], [0.02, -0.06], [0.05, 0.02], [-0.04, -0.03], [0.0, 0.05], [0.05, -0.02], [-0.03, -0.04]];
         P.forEach((p, i) => { p.vx = vs[i][0]*0.4; p.vy = vs[i][1]*0.4; });
       }
-      if(n < 7) for(const p of P){ p.vx = 0; p.vy = 0; }
-      if(n === 8 && was < 8){ running = true; ramp = 0; runT0 = performance.now(); P.length = LAYOUT.length; P[1].x = home[0] + XO; P[1].y = home[1]; }
-      if(n === 8 && was === 9) P.length = LAYOUT.length;
-      if(n === 9 && was < 9){ running = true; addT0 = performance.now(); added = 0; }
-      if(n === 4){ t0 = performance.now(); }
+      if(n < 9) for(const p of P){ p.vx = 0; p.vy = 0; }
+      if(n === 10 && was < 10){ running = true; ramp = 0; runT0 = performance.now(); P.length = LAYOUT.length; for(const p of P){ p.x = p.tx; p.y = p.ty; } }
+      if(n === 10 && was === 11) P.length = LAYOUT.length;
+      if(n === 11 && was < 11){ running = true; addT0 = performance.now(); added = 0; }
+      if(n === 3 && was < 3) colT0 = performance.now();
+      if(n === 4) t0 = performance.now();
+      if(n === 7) matT0 = performance.now();
+      Mv = M; paintMat(M, n === 6 ? 0 : -1);
       rmin = B*R; rmax = R;
     },
     frame(now){
@@ -390,17 +441,23 @@ SIMS.pl = (() => {
         rmin = B*R*(1 + 0.45*u); rmax = R*(1 + 0.22*v);
         $("pl-rmin").value = rmin/(R*1.3); $("pl-rmax").value = rmax/(R*1.3);
       }
-      if(!running && P[1] && P[1].tx !== undefined){ P[1].x += (P[1].tx - P[1].x)*0.08; P[1].y += (P[1].ty - P[1].y)*0.08; }
+      if(k === 7){ // hold each matrix 1.6 s, then glide to the next over 1.6 s
+        const t = ((now - matT0)/1600), i = Math.floor(t/2) % 3, ph = t % 2, u = ph < 1 ? 0 : (ph - 1)*(ph - 1)*(3 - 2*(ph - 1));
+        const A = MATS[i], Bm = MATS[(i + 1) % 3];
+        Mv = A.map((r, a) => r.map((v, b) => v + (Bm[a][b] - v)*u));
+        paintMat(Mv, -1);
+      }
+      if(!running) for(const p of P){ if(p.tx === undefined) continue; p.x += (p.tx - p.x)*0.08; p.y += (p.ty - p.y)*0.08; }
       if(running){
-        if(k === 8) ramp = Math.min(1, (now - runT0)/3500);
-        if(k === 9){
+        if(k === 10) ramp = Math.min(1, (now - runT0)/3500);
+        if(k === 11){
           ramp = 1;
           const want_ = Math.min(200, Math.floor((now - addT0)/2000*200));
           while(added < want_){ P.push({ x: Math.random()*AR, y: Math.random(), c: Math.floor(Math.random()*3), vx: 0, vy: 0 }); added++; }
         }
         if(now - last > 15){ last = now; phys(); }
       }
-      draw(now);
+      draw();
     }
   };
 })();
