@@ -495,12 +495,8 @@ requestAnimationFrame(frameLoop);
 const slides = [...document.querySelectorAll(".slide")];
 let cur = -1, shown = null, step = 0;
 // A slide with data-steps="n" builds in n stages: each press adds class s1, s2, ...
-// Every press is a frame, numbered through the whole talk: slide n step k is frame
-// (all steps of the slides before) + k + 1. Shown bottom left, to refer to when editing.
-function showFrame(){
-  let f = 1; for(let i = 0; i < cur; i++) f += +(slides[i].dataset.steps || 1);
-  $("frame").textContent = `frame ${f + step} · slide ${cur + 1}` + (+(slides[cur].dataset.steps || 1) > 1 ? `.${step + 1}` : "");
-}
+// Where you are, to refer to when editing: slide n, then n.1, n.2, ... for each press on it.
+function showFrame(){ $("frame").textContent = `${cur + 1}` + (step > 0 ? `.${step}` : ""); }
 function setStep(k){ const sl = slides[cur]; for(let j = 1; j < 16; j++) sl.classList.toggle("s" + j, j <= k); step = k; showFrame();
   const h = SIMS[sl.dataset.sim]; if(h && h.step) h.step(k); }
 function next(){ const n = +(slides[cur].dataset.steps || 1); if(step < n - 1) setStep(step + 1); else go(cur + 1); }
