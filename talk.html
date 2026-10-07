@@ -39,8 +39,11 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
 .scrim{position:fixed; inset:0; pointer-events:none; display:none;
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
 body.field .scrim{display:block}
-/* a text slide over the field: the field dims right down behind it */
-.dim{position:fixed; inset:0; pointer-events:none; background:rgba(4,8,11,.82); opacity:0; transition:opacity .6s ease}
+/* a text slide over the field: a dark band behind the slide, the field still
+   showing above and below it */
+.dim{position:fixed; left:0; right:0; top:8vh; bottom:8vh; pointer-events:none; background:rgba(4,8,11,.82); opacity:0; transition:opacity .6s ease;
+  -webkit-mask-image:linear-gradient(transparent, #000 3vh, #000 calc(100% - 3vh), transparent);
+          mask-image:linear-gradient(transparent, #000 3vh, #000 calc(100% - 3vh), transparent)}
 body.dimmed .dim{opacity:1}
 .text{padding:90px 100px}
 .text h2{margin:0 0 48px; font-family:var(--display); font-weight:600; font-size:72px; letter-spacing:-.02em; color:#fff}
