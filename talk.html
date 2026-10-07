@@ -99,6 +99,8 @@ body.dimmed .dim{opacity:1}
 #nav button{font:500 12px/1 var(--mono); color:var(--fg); background:transparent; border:1px solid rgba(255,255,255,.18);
   padding:5px 9px; border-radius:2px; cursor:pointer}
 #nav button:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+#frame{position:fixed; left:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); z-index:2;
+  font:500 13px/1 var(--mono); color:rgba(238,243,245,.55); font-variant-numeric:tabular-nums; pointer-events:none}
 #count{min-width:4.5em; text-align:center; font-variant-numeric:tabular-nums}
 #note{position:fixed; left:16px; bottom:14px; font:400 13px/1.4 var(--mono); color:var(--mut); display:none}
 </style>
@@ -166,6 +168,7 @@ body.dimmed .dim{opacity:1}
 </div></div>
 
 <div id="note">The live field needs this folder served over http, e.g. python3 -m http.server</div>
+<div id="frame" aria-live="off"></div>
 <div id="nav"><button id="prev" aria-label="Previous slide">←</button><span id="count"></span><button id="next" aria-label="Next slide">→</button></div>
 
 <script>
@@ -492,7 +495,13 @@ requestAnimationFrame(frameLoop);
 const slides = [...document.querySelectorAll(".slide")];
 let cur = -1, shown = null, step = 0;
 // A slide with data-steps="n" builds in n stages: each press adds class s1, s2, ...
-function setStep(k){ const sl = slides[cur]; for(let j = 1; j < 16; j++) sl.classList.toggle("s" + j, j <= k); step = k;
+// Every press is a frame, numbered through the whole talk: slide n step k is frame
+// (all steps of the slides before) + k + 1. Shown bottom left, to refer to when editing.
+function showFrame(){
+  let f = 1; for(let i = 0; i < cur; i++) f += +(slides[i].dataset.steps || 1);
+  $("frame").textContent = `frame ${f + step} · slide ${cur + 1}` + (+(slides[cur].dataset.steps || 1) > 1 ? `.${step + 1}` : "");
+}
+function setStep(k){ const sl = slides[cur]; for(let j = 1; j < 16; j++) sl.classList.toggle("s" + j, j <= k); step = k; showFrame();
   const h = SIMS[sl.dataset.sim]; if(h && h.step) h.step(k); }
 function next(){ const n = +(slides[cur].dataset.steps || 1); if(step < n - 1) setStep(step + 1); else go(cur + 1); }
 function prev(){ if(step > 0) setStep(step - 1); else go(cur - 1); }
