@@ -30,16 +30,6 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
   display:flex; flex-direction:column; align-items:center; gap:22px;
   transition:top .9s cubic-bezier(.6,0,.2,1), transform .9s cubic-bezier(.6,0,.2,1)}
 .title .words > *{animation:fadein 2.4s ease-out both}
-/* step 2: the title shrinks and moves up, the abstract rises into the middle */
-.title.s1 .words{top:70px; transform:translate(-50%, 0) scale(.55); transform-origin:top center}
-.abstract{position:absolute; left:50%; top:150%; transform:translate(-50%, -50%); width:1040px;
-  padding:52px 64px; background:rgba(0,0,0,.85); border-radius:4px; opacity:0;
-  transition:top .9s cubic-bezier(.6,0,.2,1) .1s, opacity .6s ease .1s}
-.title.s1 .abstract{top:58%; opacity:1}
-.abstract mark{color:inherit; background:rgba(255,214,60,.26); padding:0 .12em; margin:0 -.02em; border-radius:.15em;
-  box-decoration-break:clone; -webkit-box-decoration-break:clone}
-.abstract, .abstract *{text-shadow:none}
-.abstract p.more{margin-top:22px}
 .abstract h2{margin:0 0 18px; font-family:var(--serif); font-weight:500; font-size:40px; color:#fff}
 .abstract p{margin:0; font-family:var(--serif); font-size:31px; line-height:1.5; color:rgba(238,243,245,.92); text-shadow:none; text-align:left}
 .title h1{margin:0; font-family:var(--display); font-weight:600; font-size:150px; line-height:.95; letter-spacing:-.025em;
@@ -52,7 +42,7 @@ body{margin:0; background:var(--bg); color:var(--fg); font-family:var(--body); o
   background:radial-gradient(ellipse 55% 40% at 50% 50%, rgba(4,8,11,.62), rgba(4,8,11,.15) 70%, rgba(4,8,11,0))}
 body.field .scrim{display:block}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
-@media (prefers-reduced-motion: reduce){ .title .words, .title .words > *, .abstract{animation:none; transition:none} }
+@media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
 #nav{position:fixed; right:16px; bottom:calc(12px + env(safe-area-inset-bottom, 0px)); display:flex; gap:8px; align-items:center;
   font:400 12px/1 var(--mono); color:var(--mut); z-index:2; opacity:0; transition:opacity .2s}
@@ -69,17 +59,10 @@ body.field .scrim{display:block}
 
 <div id="deck"><div id="stage">
 
-<section class="slide title" data-field="fine brisk filling" data-steps="2" data-cycle="10000">
+<section class="slide title" data-field="fine brisk filling" data-cycle="10000">
   <div class="words">
     <h1>Field Life</h1>
     <p>Particle life as a grid of concentrations</p>
-  </div>
-  <div class="abstract">
-    <h2>Abstract</h2>
-    <p>Field Life is a <mark>cellular automaton</mark>: a grid where every cell holds a <mark>concentration</mark> of each colour.
-      Each step, every cell looks at the concentrations around it, and the colours <mark>attract and repel</mark> each other by a fixed set of rules.
-      Mass only moves between neighbouring cells and is never created or destroyed, so <mark>every colour keeps its total</mark>.</p>
-    <p class="more">The result moves smoothly, almost like a liquid, and can hold small <mark>creatures that glide</mark> across the grid on their own.</p>
   </div>
 </section>
 
