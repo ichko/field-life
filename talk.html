@@ -183,7 +183,7 @@ body.dimmed .dim{opacity:1}
   <div class="plcap" id="mc-cap">
     <div data-at="1">A grid of cells</div>
     <div data-at="2">each cell has some value</div>
-    <div data-at="3">and a score A: how much the mass wants to be there</div>
+    <div data-at="3">at each time step we compute a delta: how much we want to change that value, from local information</div>
     <div data-at="4">each cell hands all its mass to its 3×3 neighbourhood, more where A is higher</div>
     <div data-at="5">share = e<sup>βA</sup> / Σ e<sup>βA</sup> · β sets how picky</div>
     <div data-at="6">every cell does this, all at once</div>
@@ -632,7 +632,7 @@ SIMS.mace = (() => {
     if(k >= 3 && k <= 5 && cs > 60){
       g.font = `500 ${Math.round(cs*0.17)}px 'IBM Plex Mono', monospace`; g.textAlign = "left"; g.textBaseline = "top";
       for(let y = Math.floor(y0); y < y0 + H/cs + 1; y++) for(let x = Math.floor(x0); x < x0 + W/cs + 1; x++){
-        const a = A[id(x, y)], txt = "A " + (a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), tw = g.measureText(txt).width;
+        const a = A[id(x, y)], txt = (k === 3 ? "Δ " : "A ") + (a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), tw = g.measureText(txt).width;
         g.fillStyle = "rgba(0,0,0,.72)"; g.fillRect(sx(x) + 3, sy(y) + 3, tw + 7, cs*0.17 + 7);
         g.fillStyle = a >= 0 ? "rgb(120,170,255)" : "rgb(255,120,120)";
         g.fillText(txt, sx(x) + 6, sy(y) + 6);
