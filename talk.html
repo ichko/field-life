@@ -371,13 +371,11 @@ SIMS.pl = (() => {
       const ids = SHOWN[7];
       for(const i of ids) for(const j of ids){ if(i === j) continue;
         const p = P[i], q = P[j], [px, py] = toS(p.x, p.y), [qx, qy] = toS(q.x, q.y), m = Mv[p.c][q.c];
-        const dx = qx - px, dy = qy - py, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L, rr = 5 + 2.5*Math.sqrt(cam.z);
-        // On the line between the two centres, starting at this one's centre: attraction points
-        // at the other particle, repulsion points back at this one and stops at its edge.
-        // The two directions of a pair never meet: each is under half the distance.
-        const len = (0.12 + 0.3*Math.abs(m))*L, ex = px + ux*len, ey = py + uy*len, w = 1.5 + 5*Math.abs(m);
-        if(m >= 0) arrow(px, py, ex, ey, COL[p.c], w);
-        else arrow(ex, ey, px + ux*(rr + 3), py + uy*(rr + 3), COL[p.c], w);
+        const dx = qx - px, dy = qy - py, L = Math.hypot(dx, dy), ux = dx/L, uy = dy/L;
+        // The force on this particle from that one, drawn from its centre along the line
+        // between them: towards the other for attraction, straight away from it for repulsion.
+        const sg = m >= 0 ? 1 : -1, len = 18 + 70*Math.abs(m), w = 1.5 + 5*Math.abs(m);
+        arrow(px, py, px + ux*len*sg, py + uy*len*sg, COL[p.c], w);
       }
     }
     // 8: inside the min radius everyone repels, whatever the matrix says
@@ -447,8 +445,9 @@ SIMS.pl = (() => {
         rmin = B*R*(1 + 0.45*u); rmax = R*(1 + 0.22*v);
         $("pl-rmin").value = rmin/(R*1.3); $("pl-rmax").value = rmax/(R*1.3);
       }
-      if(k === 7){ // hold each matrix 1.6 s, then glide to the next over 1.6 s
-        const t = ((now - matT0)/1600), i = Math.floor(t/2) % 3, ph = t % 2, u = ph < 1 ? 0 : (ph - 1)*(ph - 1)*(3 - 2*(ph - 1));
+      if(k === 7){ // hold each matrix 1.6 s, glide to the next over 1.6 s; once round all three and back, then stay
+        const t = Math.min((now - matT0)/1600, 6), i = Math.min(2, Math.floor(t/2)), ph = t >= 6 ? 2 : t % 2,
+              u = ph < 1 ? 0 : (ph - 1)*(ph - 1)*(3 - 2*(ph - 1));
         const A = MATS[i], Bm = MATS[(i + 1) % 3];
         Mv = A.map((r, a) => r.map((v, b) => v + (Bm[a][b] - v)*u));
         paintMat(Mv, -1);
