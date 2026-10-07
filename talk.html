@@ -846,7 +846,7 @@ SIMS.fl = (() => {
       // the engine's grid: fine enough that its kernel reaches UP*KR cells, i.e. KR of ours
       const N = Math.round(cfg.N*UP*KR/cfg.radMax), k = N/cfg.N;
       cfg.N = N; cfg.radMin *= k; cfg.radMax *= k; for(const kn of cfg.kernels) kn.R *= k;
-      cfg.force = 70; cfg.repel = 1.5;   // gentler than the title's 90 and 6: on this coarser grid those make the mass flip back and forth each step
+      cfg.force = 70; cfg.repel = 0; cfg.beta = 2.5;   // on this coarse grid any repel makes the mass flip back and forth each step; the title's grid (14) keeps its own
       win.Math.random = mulberry32(SEED*7919);
       FL.applyConfig(cfg); FL.S.running = false;
       M = CH.map(c => CH.map(dd => cfg.mat[c*cfg.C + dd]));
@@ -1097,7 +1097,7 @@ SIMS.fl = (() => {
         if(k < 13 || !FL) return;
         if(was < 13 || (n === 13 && big)){ if(big){ FL.applyConfig(cfg); big = false; } hand(); runT0 = performance.now(); }
         if(n === 14 && !big) goBig();
-        FL.S.fps = n === 13 ? 15 : 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
+        FL.S.fps = n === 13 ? 30 : 120; FL.S.running = true; fe.classList.add("on"); syncTune(); }); }
       else { if(FL) FL.S.running = false; fe.classList.remove("on"); tune.classList.remove("on"); }
     },
     frame(now){
