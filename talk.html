@@ -1394,7 +1394,7 @@ SIMS.liz = (() => {
         if(n <= 2 || (n === 3 && was < 3) || (n === 7 && was !== 7)){ win.Math.random = mulberry32(SEED*31337); FL.reseed(); }
         // 7: the page's usual blend, every colour shown, instead of the first three read as red, green and blue
         S.blend = n === 7 ? 0 : cfg.blend; S.expo = n === 7 ? 2.2 : cfg.expo;
-        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 3 ? 20 : 120; S.holdUntil = 0;   // 3: slow enough to watch it grow
+        S.running = n >= 3; S.steps = n === 6 ? 4 : 1; S.fps = n === 7 ? 20 : 120; S.holdUntil = 0;   // the all-colours step (10.4) slow enough to watch it grow
       });
     },
     frame(){ draw(); }
@@ -1505,7 +1505,7 @@ SIMS.hg = (() => {
       const it = (await presets).find(s_ => s_.name === "fine brisk filling"); if(!it) return;
       curCfg = it.cfg; FL.applyConfig(curCfg);
       FL.writeRho(new Float32Array(FL.S.NX*FL.S.NY*FL.S.C));   // an empty glass
-      Object.assign(FL.S, { zoom: 1, panU: 0.5, panV: 0.5, smooth: true, fps: 120, holdUntil: 0, grav: 0.35 });
+      Object.assign(FL.S, { zoom: 1, panU: 0.5, panV: 0.5, smooth: true, fps: 120, holdUntil: 0, grav: 0.8 });
     });
     return loading;
   }
