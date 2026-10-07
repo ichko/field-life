@@ -153,8 +153,8 @@ body.dimmed .dim{opacity:1}
     <div data-at="2">Particles</div>
     <div data-at="3">of several colours</div>
     <div data-at="4">a min and max radius of influence</div>
-    <div data-at="5">an attraction or repulsion towards every colour</div>
-    <div data-at="6">within the min radius, every particle repels</div>
+    <div data-at="5">within the min radius, every particle repels</div>
+    <div data-at="6">an attraction or repulsion towards every colour</div>
     <div data-at="7">one number for every pair of colours: the matrix</div>
     <div data-at="8">the matrix reparametrises the simulation</div>
     <div data-at="9">each has a position and a velocity</div>
@@ -268,10 +268,12 @@ SIMS.pl = (() => {
   const cv = $("pl-cv"), W = 1120, H = 700, AR = W/H, XO = (AR - 1)/2, d = Math.min(2, devicePixelRatio || 1);
   cv.width = W*d; cv.height = H*d; const g = cv.getContext("2d"); g.setTransform(d, 0, 0, d, 0, 0);
   const COL = ["rgb(255,70,70)", "rgb(70,230,110)", "rgb(80,150,255)"], GREY = "rgb(220,226,230)";
-  const M = [[0.4, 0.9, -0.7], [-0.6, 0.5, 0.8], [0.8, -0.5, 0.3]];   // M[a][b]: how a feels about b
+  // M[a][b]: how a feels about b. Picked by a search over random 3x3 matrices for one whose
+  // particles move together in clumps once there are a few hundred of them.
+  const M = [[0.6, -0.7, 0.2], [-0.2, -0.3, 1], [0.8, 0.2, -0.5]];
   // the three the matrix step glides between
   const MATS = [M, [[-0.5, 0.3, 0.9], [0.8, -0.4, -0.6], [0.2, 0.9, -0.8]], [[0.9, -0.8, 0.2], [0.3, 0.7, -0.9], [-0.6, 0.4, 0.6]]];
-  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04;
+  const R = 0.12, B = 0.3, F = 10, DT = 0.02, FH = 0.04, ADD = 600;   // ADD: how many More particles brings in
   // Ten particles laid out by hand around a red one, so the close-ups have
   // a green and a blue inside its reach and everyone else outside it.
   const LAYOUT = [[0.5, 0.5, 0], [0.585, 0.49, 1], [0.505, 0.585, 2],
@@ -286,14 +288,20 @@ SIMS.pl = (() => {
   const wrap = v => v - Math.round(v), wrapX = v => v - AR*Math.round(v/AR);
   const toS = (x, y) => [W/2 + wrapX(x - cam.x)*H*cam.z, H/2 + wrap(y - cam.y)*H*cam.z];
   const f = (r, a, b) => r >= 1 ? 0 : r < b ? r/b - 1 : a*(1 - Math.abs(2*r - 1 - b)/(1 - b));
+  // Neighbours come from a grid of cells one reach wide, so hundreds of particles stay cheap.
+  const GY = Math.floor(1/R), GX = Math.floor(AR/R);
   function phys(){
-    const s = ramp;
+    const s = ramp, cells = new Map();
+    for(const p of P){ const key = (Math.floor(p.x/AR*GX) % GX) + GX*(Math.floor(p.y*GY) % GY);
+      (cells.get(key) || cells.set(key, []).get(key)).push(p); }
     for(const p of P){
-      let ax = 0, ay = 0;
-      for(const q of P){ if(p === q) continue;
-        const dx = wrapX(q.x - p.x), dy = wrap(q.y - p.y), r = Math.hypot(dx, dy);
-        if(r >= R || r === 0) continue;
-        const k_ = f(r/R, M[p.c][q.c], B); ax += k_*dx/r; ay += k_*dy/r; }
+      let ax = 0, ay = 0; const cx = Math.floor(p.x/AR*GX), cy = Math.floor(p.y*GY);
+      for(let oy = -1; oy <= 1; oy++) for(let ox = -1; ox <= 1; ox++){
+        const list = cells.get(((cx + ox + GX) % GX) + GX*((cy + oy + GY) % GY)); if(!list) continue;
+        for(const q of list){ if(p === q) continue;
+          const dx = wrapX(q.x - p.x), dy = wrap(q.y - p.y), r = Math.hypot(dx, dy);
+          if(r >= R || r === 0) continue;
+          const k_ = f(r/R, M[p.c][q.c], B); ax += k_*dx/r; ay += k_*dy/r; } }
       const fr = Math.pow(0.5, DT*s/FH);
       p.vx = p.vx*fr + ax*R*F*DT*s; p.vy = p.vy*fr + ay*R*F*DT*s;
     }
@@ -325,15 +333,19 @@ SIMS.pl = (() => {
       e.classList.toggle("row", r === row);
     }
   }
-  function loopArrow(fx, fy, a){            // red's arrow towards its own colour, a loop on the left
-    const w = 2 + 6*Math.abs(a), rr = 30, cx = fx - 26 - rr, col = COL[0];
+  function loopArrow(fx, fy, a){            // red's arrow towards its own colour, a loop above it
+    const w = 2 + 6*Math.abs(a), rr = 30, col = COL[0];
+    g.save(); g.translate(fx, fy); g.rotate(Math.PI/2);   // drawn on the left, turned to sit on top
+    const cx = -26 - rr;
     g.strokeStyle = g.fillStyle = col; g.lineWidth = w; g.beginPath();
-    g.arc(cx, fy, rr, 0.75, 0.75 + 5.2, false); g.stroke();
-    const ea = 0.75 + 5.2, ex = cx + rr*Math.cos(ea), ey = fy + rr*Math.sin(ea), tx = -Math.sin(ea), ty = Math.cos(ea), h = 13;
+    g.arc(cx, 0, rr, 0.75, 0.75 + 5.2, false); g.stroke();
+    const ea = 0.75 + 5.2, ex = cx + rr*Math.cos(ea), ey = rr*Math.sin(ea), tx = -Math.sin(ea), ty = Math.cos(ea), h = 13;
     g.beginPath(); g.moveTo(ex + tx*h, ey + ty*h); g.lineTo(ex - ty*h*0.55, ey + tx*h*0.55); g.lineTo(ex + ty*h*0.55, ey - tx*h*0.55); g.closePath(); g.fill();
-    g.font = "600 20px 'IBM Plex Mono', monospace"; g.textAlign = "right";
-    g.fillText((a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), cx - rr - 10, fy + 7);
+    g.restore();
+    g.fillStyle = col; g.font = "600 20px 'IBM Plex Mono', monospace"; g.textAlign = "center";
+    g.fillText((a >= 0 ? "+" : "−") + Math.abs(a).toFixed(1), fx, fy - 26 - 2*rr - 12);
   }
+
   function draw(){
     g.fillStyle = "#000"; g.fillRect(0, 0, W, H);
     // grid: a line every 0.1 of the world, following the camera
@@ -387,7 +399,7 @@ SIMS.pl = (() => {
       g.fillText("repel", (fx + qx)/2 - uy*34, (fy + qy)/2 + ux*34 + 7);
     }
     // particles
-    const pr = 5 + 2.5*Math.sqrt(z), keep = SHOWN[k];
+    const pr = (5 + 2.5*Math.sqrt(z))*Math.max(0.42, Math.sqrt(LAYOUT.length/P.length)), keep = SHOWN[k];
     const tc = performance.now() - colT0;     // 3: the dots take their colour one after another, each with a pop
     P.forEach((p, i) => {
       const [x, y] = toS(p.x, p.y); if(x < -20 || y < -20 || x > W + 20 || y > H + 20) return;
@@ -417,8 +429,8 @@ SIMS.pl = (() => {
     leave(){ running = false; },
     step(n){
       for(const c of $("pl-cap").children) c.classList.toggle("cur", +c.dataset.at === n);
-      // The slide shows repulsion right after attraction; inside, the steps keep their own numbers.
-      n = ({ 6: 8, 7: 6, 8: 7 })[n] ?? n;
+      // The slide shows repulsion right after the radii; inside, the steps keep their own numbers.
+      n = ({ 5: 8, 6: 5, 7: 6, 8: 7 })[n] ?? n;
       const was = k; k = n; want = views[Math.min(n, views.length - 1)];
       if(n <= 9){ running = false; if(was >= 10 || was === 0 && n > 0) reset(); P.length = LAYOUT.length; }
       // each particle eases to its home, or to where this step wants it
@@ -457,7 +469,7 @@ SIMS.pl = (() => {
         if(k === 10) ramp = Math.min(1, (now - runT0)/3500);
         if(k === 11){
           ramp = 1;
-          const want_ = Math.min(200, Math.floor((now - addT0)/2000*200));
+          const want_ = Math.min(ADD, Math.floor((now - addT0)/2500*ADD));
           while(added < want_){ P.push({ x: Math.random()*AR, y: Math.random(), c: Math.floor(Math.random()*3), vx: 0, vy: 0 }); added++; }
         }
         if(now - last > 15){ last = now; phys(); }
