@@ -163,6 +163,7 @@ body.dimmed .dim{opacity:1}
 /* a section title, alone in the middle */
 .sect.on{display:grid; place-items:center}
 .sect h2{margin:0; font-family:var(--display); font-weight:600; font-size:84px; letter-spacing:-.02em; color:#fff}
+.hgtune{position:absolute; left:16px; bottom:40px; z-index:5}
 @keyframes fadein{from{opacity:0} to{opacity:1}}
 @media (prefers-reduced-motion: reduce){ .title .words, .title .words > *{animation:none; transition:none} }
 
@@ -349,7 +350,11 @@ body.dimmed .dim{opacity:1}
   </div>
 </section>
 
-<section class="slide" data-sim="hg"></section>
+<section class="slide" data-sim="hg">
+  <div class="fltune on hgtune" id="hg-tune">
+    <label>gravity <input id="hg-grav" type="range" min="0" max="3" step="0.05"><span id="hg-gv"></span></label>
+  </div>
+</section>
 
 <iframe id="fl-eng" title="Field Life engine" tabindex="-1"></iframe>
 <iframe id="hg-eng" title="Field Life in an hourglass" tabindex="-1"></iframe>
@@ -1520,8 +1525,14 @@ SIMS.hg = (() => {
       FL.applyConfig(lerpCfg(from, to, e)); if(u < 1) requestAnimationFrame(tick); else curCfg = to; };
     requestAnimationFrame(tick);
   }
+  // a slider for the pull, so it can be set by hand while it runs
+  const gin = $("hg-grav"), gv = $("hg-gv");
+  for(const ev of ["click", "pointerdown", "touchstart"]) $("hg-tune").addEventListener(ev, e => e.stopPropagation());
+  gin.value = 0.8; gv.textContent = "0.80";
+  gin.addEventListener("input", () => { gv.textContent = (+gin.value).toFixed(2); if(FL) FL.S.grav = +gin.value; });
   return {
     enter(){ load().then(() => { if(!FL || slides[cur].dataset.sim !== "hg") return;
+      FL.S.grav = +gin.value;
       FL.S.running = true; fe.classList.add("on"); cv.classList.add("on");
       clearInterval(cyc); cyc = setInterval(nextRule, 12000); }); },
     leave(){ clearInterval(cyc); morphId++; if(FL) FL.S.running = false; fe.classList.remove("on"); cv.classList.remove("on"); },
