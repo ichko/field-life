@@ -891,6 +891,9 @@ SIMS.fl = (() => {
     }
   }
   buildMat();
+  // the world's kernel, from its own numbers, so it shows even before (or without) the engine; the engine's copy replaces it once loaded
+  { const KDEF = { feather: 0.1, terms: [{ a: 1, r: 0, w: 0.354 }, { a: -6.25, r: 0, w: 0.141 }] }, KH = 70;
+    kern = CH.map(() => bakeExact(KDEF, KR)); const hi = bakeExact(KDEF, KH); prof = Array.from(hi.subarray(KH*(2*KH + 1), (KH + 1)*(2*KH + 1))); }
 
   // U_d = K_d * rho_d on the window (nothing outside it), and A for the first channel
   let sU = 1, sA = 1, sAF = 1;
