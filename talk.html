@@ -948,28 +948,36 @@ SIMS.fl = (() => {
       setM(flatM(CS)); g.globalAlpha = 0.55*kA; g.fillStyle = "#000"; g.fillRect(0, 0, WX, WY); g.setTransform(d, 0, 0, d, 0, 0);
       g.globalAlpha = kA; g.fillStyle = "#000"; g.fillRect(x0 - 4, y0 - 4, n*CS + 8, n*CS + 8);
       for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){
-        const v = K[j*n + i], t = Math.sqrt(Math.abs(v)/Math.max(pp, pn)), s = v >= 0 ? POS : NEG, b = 0.12 + 0.88*Math.min(1, t);   // one scale for both signs, square-rooted so the low wide ring still shows
+        const v = K[j*n + i], t = Math.pow(Math.abs(v)/Math.max(pp, pn), 0.6), s = v >= 0 ? POS : NEG, b = 0.06 + 0.94*Math.min(1, t);   // one scale for both signs, eased so the low wide ring still shows, graded rather than flat
         g.fillStyle = Math.abs(v) < 1e-9 ? "rgb(22,24,28)" : `rgb(${Math.round(18 + (s[0] - 18)*b)},${Math.round(20 + (s[1] - 20)*b)},${Math.round(24 + (s[2] - 24)*b)})`;
         g.fillRect(x0 + i*CS + 1.5, y0 + j*CS + 1.5, CS - 3, CS - 3); }
       g.strokeStyle = css(PAL[0]); g.lineWidth = 3; g.strokeRect(x0 - 4, y0 - 4, n*CS + 8, n*CS + 8);
       // its profile through the middle, column for column: two bells, the narrow one taken away, so it dips below zero
       if(prof){
         const py0 = y0 + n*CS + 16, ph = H - 10 - py0, zy = py0 + ph*0.42, L = prof.length; let pm = 1e-12; for(const v of prof) pm = Math.max(pm, Math.abs(v));
-        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - v/pm*ph*0.4;
+        // eased the same way as the cells above, so the low positive ring reads as well as the deep core
+        const X = i => x0 + (i + 0.5)/L*n*CS, Y = v => zy - Math.sign(v)*Math.pow(Math.abs(v)/pm, 0.6)*ph*0.4;
         g.fillStyle = "rgba(0,0,0,.85)"; g.fillRect(x0 - 4, py0 - 6, n*CS + 8, ph + 8);
-        g.strokeStyle = "rgba(255,255,255,.12)"; g.lineWidth = 1; g.beginPath();
+        g.strokeStyle = "rgba(255,255,255,.08)"; g.lineWidth = 1; g.beginPath();
         for(let i = 1; i < n; i++){ g.moveTo(x0 + i*CS, py0); g.lineTo(x0 + i*CS, py0 + ph - 4); } g.stroke();
-        g.strokeStyle = "rgba(255,255,255,.45)"; g.beginPath(); g.moveTo(x0, zy); g.lineTo(x0 + n*CS, zy); g.stroke();
-        g.lineWidth = 3.5; g.lineCap = "round";
+        // the area between the curve and zero, faded, in the sign's colour
+        for(const [sg, col] of [[1, POS], [-1, NEG]]){
+          const grad = g.createLinearGradient(0, zy - sg*ph*0.4, 0, zy);
+          grad.addColorStop(0, `rgba(${col.join(",")},.42)`); grad.addColorStop(1, `rgba(${col.join(",")},.04)`);
+          g.fillStyle = grad; g.beginPath(); g.moveTo(X(0), zy);
+          for(let i = 0; i < L; i++) g.lineTo(X(i), sg*prof[i] > 0 ? Y(prof[i]) : zy);
+          g.lineTo(X(L - 1), zy); g.closePath(); g.fill(); }
+        g.strokeStyle = "rgba(255,255,255,.3)"; g.beginPath(); g.moveTo(x0, zy); g.lineTo(x0 + n*CS, zy); g.stroke();
+        g.lineWidth = 2.5; g.lineCap = "round";
         for(let i = 0; i < L - 1; i++){ const v = (prof[i] + prof[i + 1])/2;
-          g.strokeStyle = `rgb(${(v >= 0 ? POS : NEG).join(",")})`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
+          g.strokeStyle = `rgba(${(v >= 0 ? POS : NEG).join(",")},.85)`; g.beginPath(); g.moveTo(X(i), Y(prof[i])); g.lineTo(X(i + 1), Y(prof[i + 1])); g.stroke(); }
       }
       // one per channel, at the side
       const s = 9;
       for(let c = 0; c < C; c++){
         const K2 = kern[c], xx = 24, yy = 40 + c*(n*s + 34); let q1 = 1e-12, q2 = 1e-12; for(const v of K2){ q1 = Math.max(q1, v); q2 = Math.max(q2, -v); }
         g.fillStyle = "#000"; g.fillRect(xx - 6, yy - 6, n*s + 12, n*s + 12);
-        for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){ const v = K2[j*n + i], t = Math.sqrt(Math.abs(v)/Math.max(q1, q2)), sg = v >= 0 ? POS : NEG, b = 0.12 + 0.88*Math.min(1, t);
+        for(let j = 0; j < n; j++) for(let i = 0; i < n; i++){ const v = K2[j*n + i], t = Math.pow(Math.abs(v)/Math.max(q1, q2), 0.6), sg = v >= 0 ? POS : NEG, b = 0.06 + 0.94*Math.min(1, t);
           g.fillStyle = Math.abs(v) < 1e-9 ? "rgb(22,24,28)" : `rgb(${Math.round(18 + (sg[0] - 18)*b)},${Math.round(20 + (sg[1] - 20)*b)},${Math.round(24 + (sg[2] - 24)*b)})`;
           g.fillRect(xx + i*s + 0.5, yy + j*s + 0.5, s - 1, s - 1); }
         g.strokeStyle = css(PAL[c]); g.lineWidth = 2.5; g.strokeRect(xx - 6, yy - 6, n*s + 12, n*s + 12);
