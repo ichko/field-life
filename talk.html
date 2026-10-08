@@ -1573,19 +1573,19 @@ function showFrame(){ $("frame").textContent = `${cur + 1}` + (step > 0 ? `.${st
 function setStep(k){ const sl = slides[cur]; for(let j = 1; j < 16; j++) sl.classList.toggle("s" + j, j <= k); step = k; showFrame();
   const h = SIMS[sl.dataset.sim]; if(h && h.step) h.step(k); }
 function next(){ const n = +(slides[cur].dataset.steps || 1); if(step < n - 1) setStep(step + 1); else go(cur + 1); }
-function prev(){ if(step > 0) setStep(step - 1); else go(cur - 1); }
-async function go(i){
+// back from a slide's first step lands on the previous slide's last step, so a talk can be walked both ways
+function prev(){ if(step > 0) setStep(step - 1); else go(cur - 1, true); }
+async function go(i, atEnd = false){
   i = Math.max(0, Math.min(slides.length - 1, i));
   if(i === cur) return;
   if(cur >= 0){ slides[cur].classList.remove("on"); const h = SIMS[slides[cur].dataset.sim]; if(h && h.leave) h.leave(); }
   cur = i; slides[cur].classList.add("on");
   { const h = SIMS[slides[cur].dataset.sim]; if(h && h.enter) h.enter(); }
-  setStep(0);
+  setStep(atEnd ? +(slides[cur].dataset.steps || 1) - 1 : 0);
   $("count").textContent = `${cur + 1} / ${slides.length}`;
-  // The slide number goes in the hash and in local storage: a refresh comes back
-  // here even where the hash does not survive (the artifact viewer reloads without it).
+  // The slide number goes in the hash, so a refresh comes back here; opened
+  // without one, the talk starts at the beginning.
   try{ history.replaceState(null, "", "#" + (cur + 1)); }catch(e){}
-  try{ localStorage.setItem("talk.slide", String(cur + 1)); }catch(e){}
   // A slide names a preset in data-field to put it behind everything, and may
   // ask for data-seed="noise" to fill the whole screen instead of a central disc.
   document.body.classList.toggle("dimmed", "dim" in slides[cur].dataset);
@@ -1626,6 +1626,5 @@ addEventListener("touchstart", e => { tx0 = e.touches[0].clientX; }, {passive:tr
 addEventListener("touchend", e => { if(tx0 === null) return; const dx = e.changedTouches[0].clientX - tx0;
   if(Math.abs(dx) > 80) (dx < 0 ? next : prev)(); tx0 = null; });
 addEventListener("hashchange", () => go((parseInt(location.hash.slice(1), 10) || 1) - 1));
-let saved = null; try{ saved = localStorage.getItem("talk.slide"); }catch(e){}
-go((parseInt(location.hash.slice(1), 10) || parseInt(saved, 10) || 1) - 1);
+go((parseInt(location.hash.slice(1), 10) || 1) - 1);
 </script>
