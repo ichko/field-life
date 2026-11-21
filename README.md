@@ -77,6 +77,7 @@ seed has to arrive already holding what the picture costs.
 | `presets.json` | eighteen setups made by hand rather than found |
 | `*-presets.json` | the same worlds and creatures as importable preset files |
 | `particle_life.py` | the dots version this started from, and the gif it makes |
+| `paper-demo/` | the demo, NumPy implementation and data of the paper *Field Life: Particle Life as Interacting Chemical Fields* (IEEE SSCI 2027), with the worlds numbered as in the paper; live at [izhv.eu/field-life/paper-demo](https://www.izhv.eu/field-life/paper-demo/) |
 | `staging/` | a copy of the page for trying things that are not ready |
 | `staging/volume.html` | the same rule on a cube instead of a sheet: a WebGL2 volumetric test, self-contained |
 | `staging/fluid.html` | a different rule on the same idea: four fluids with a density, a velocity and a pressure per cell, pushing on each other by a matrix, carried by the MaCE move; and a trained rule that grows a gecko from a disc |
